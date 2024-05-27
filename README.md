@@ -1,1 +1,1 @@
-# mmearth-bench
+# MMEarth-Bench
