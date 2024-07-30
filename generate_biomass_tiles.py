@@ -101,30 +101,40 @@ def generate_ecoregion_tiles(biome, ecoregion):
     #            .map(lambda tile: ee.Feature(tile.geometry(), {'biome': biome, 'ecoregion': ecoregion}))
     #            )
     # tiles = tiles.getInfo()['features']
-
-    # selecting random points
-    gedi_points = (ee.FeatureCollection([ee.FeatureCollection(name) for name in collection_names])
+    gedi_points = (ee.FeatureCollection([ee.FeatureCollection(collection_name) for collection_name in collection_names]) # all GEDI feature collections with points in the ecoregion
                      .flatten() # merge all the feature collections into one
-                     .filterBounds(ecoregion_collection) # collection of the features that are within the ecoregion
-                     .filter(quality_filter)
-                     .map(lambda point: point.set('off_after_on', ee.Number(point.get('leaf_off_doy')).subtract(ee.Number(point.get('leaf_on_doy'))))) # adding property for difference between leaf off and on days
-                     .filter(ee.Filter.gt('off_after_on', 0)) # only keep points with leaf off after leaf on
-                     .map(lambda point: ee.Feature(point.geometry())))
+                     .filterBounds(ecoregion_collection) # collection of the GEDI points that are within the ecoregion
+                     .filter(quality_filter) # filters for quality, growing season, and land
+                     .map(lambda point: point.set('off_minus_on', ee.Number(point.get('leaf_off_doy')).subtract(ee.Number(point.get('leaf_on_doy'))))) # adding property for difference between leaf off and on days
+                     .filter(ee.Filter.gt('off_minus_on', 0))) # only keep points with leaf off after leaf on
+    tiles = []
 
-    while num_ecoregion_tiles > 0:
-        candidate_tiles = ee.FeatureCollection.randomPoints(region=ecoregion_collection, points=num_ecoregion_tiles).map(lambda point: point.buffer(TILE_SIZE / 2).bounds())
-        print(candidate_tiles.size().getInfo())
-        print(gedi_points.filterBounds(candidate_tiles.first().geometry()).size().getInfo())
+    while len(tiles) < num_ecoregion_tiles:
+        candidate_tiles = ee.FeatureCollection.randomPoints(region=ecoregion_collection, points=num_ecoregion_tiles-len(tiles)).map(lambda point: point.buffer(TILE_SIZE / 2).bounds()).getInfo()['features'] # generate random tiles in the ecoregion
+        print(len(candidate_tiles))
+
+        tiles += [{**{key: value for key, value in candidate_tile.items() if key != 'id'}, 'properties': {'biome': biome, 'ecoregion': ecoregion}} for candidate_tile in candidate_tiles if gedi_points.filterBounds(candidate_tile['geometry']).size().getInfo() > 0]
+            # candidate_tile['properties']['biome'] = biome
+            # candidate_tile['properties']['ecoregion'] = ecoregion # save the biome and ecoregion for the tile
+
+
+    # print(candidate_tiles[0])
+
+    # print(candidate_tiles.size().getInfo())
+    # first_tile = candidate_tiles.first().getInfo()
+    # print(first_tile)
+    # points = gedi_points.filterBounds(first_tile['geometry'])
+    # print(f'{points.size().getInfo()} points')
         # candidate_tiles = candidate_tiles.map(lambda tile: tile.set('intersect', tile.intersects(gedi_points.geometry())))
         # candidate_tiles = candidate_tiles.map(lambda tile: tile.set('num_points', gedi_points.filterBounds(tile.geometry()).size()))
         # print(candidate_tiles.getInfo())
-        break
         # candidate_tiles = candidate_tiles.map(lambda tile: tile.set('biome': biome))
         # candidate_tiles = candidate_tiles.map(lambda tile: tile.set('ecoregion': ecoregion))
 
 
 
     print(f'{num_ecoregion_tiles} tiles in ecoregion')
+    print(len(tiles))
     print(tiles)
 
     geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
