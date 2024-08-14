@@ -14,82 +14,52 @@ import math
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
+import requests
 
 ee.Initialize(project='mmearth-bench') # initializes EE with our project
 os.makedirs('figures', exist_ok=True)
 data_dir_path = read_yaml('config-user.yml')['data_dir_path']
 
 def save_2020_observations():
-    df = pd.read_csv(f'{data_dir_path}/sinr-data/train/geo_prior_train.csv')
-    df['year'] = df['observed_on'].str.split('-').str[0].astype(int)
-    df['month'] = df['observed_on'].str.split('-').str[1].astype(int)
+    all_observations_df = pd.read_csv(f'{data_dir_path}/sinr-data/train/geo_prior_train.csv') # converts the CSV to a dataframe
+    all_observations_df['year'] = all_observations_df['observed_on'].str.split('-').str[0].astype(int) # creates a year column
+    all_observations_df['month'] = all_observations_df['observed_on'].str.split('-').str[1].astype(int) # creates a month column
 
-    print(f'Columns = {df.columns.tolist()}')
-    print(f'{len(df)} observations')
-    print(f'{df["taxon_id"].nunique()} species')
+    observations_2020 = all_observations_df[all_observations_df['year'] == 2020] # extracts the observations from 2020
+    observations_2020.to_csv(f'{data_dir_path}/sinr-data/observations_2020.csv', index=False) # saves the 2020 observations as a CSV
 
-    # observations_post_2017 = df[df['year'] >= 2017]
-
-    # print(f'{len(observations_post_2017)} observations between 2017-2021')
-    # print(f'{observations_post_2017["taxon_id"].nunique()} species between 2017-2021')
-
-    observations_2020 = df[df['year'] == 2020]
-    observations_2020.to_csv(f'{data_dir_path}/sinr-data/observations_2020.csv', index=False)
-
+    print(f'Columns = {all_observations_df.columns.tolist()}')
+    print(f'{len(all_observations_df)} observations')
+    print(f'{all_observations_df["taxon_id"].nunique()} species')
     print(f'{len(observations_2020)} observations in 2020')
     print(f'{observations_2020["taxon_id"].nunique()} species in 2020')
 
-def plot_observations_per_species():
-    observations_2020 = pd.read_csv(f'{data_dir_path}/sinr-data/observations_2020.csv', usecols=['latitude', 'longitude', 'taxon_id', 'month']) # read in the 2020 data
-    num_observations = len(observations_2020) # get the total number of observations
-    metadata = read_json(f'{data_dir_path}/sinr-data/train/geo_prior_train_meta.json') # read in metadata
-    species_ids = {item['taxon_id']: item['latin_name'] for item in metadata} # map each taxon ID to a species name
-    observations_2020['species'] = observations_2020['taxon_id'].map(species_ids) # create a species column
-    print(f'{num_observations} observations')
+def get_species_type(species_name):
+    return requests.get(f'https://api.inaturalist.org/v1/taxa?q={species_name}').json()['results'][0]['iconic_taxon_name']
 
-    observations_per_species = observations_2020['species'].value_counts().reset_index() # number of observations for each species
-    # observations_per_species['percentage'] = observations_per_species['count'] * 100/num_observations # converts number of observations into % of observations
-    observations_per_species = observations_per_species[observations_per_species['count'] >= 300] # keep species with at least 300 observations
-    print(f'{len(observations_per_species)} species')
-    print(f'{len(observations_per_species)} species with at least 300 observations')
-
-    species_spread = observations_2020.groupby('species')[['latitude', 'longitude']].std().reset_index() # calculate STD of latitude and longitude
-    species_spread['spread'] = (species_spread['latitude'] ** 2 + species_spread['longitude'] ** 2) ** 0.5
-    print(len(species_spread))
-
-    observations_per_species = pd.merge(observations_per_species, species_spread[['species', 'spread']], on='species', how='left')
-    print(len(observations_per_species))
-    observations_per_species = observations_per_species.sort_values(by='spread', ascending=False).head(100)
-    observations_per_species = observations_per_species.sort_values(by='count', ascending=False)
-    print(len(observations_per_species))
-    print(observations_per_species.columns.tolist())
-    print(observations_per_species.head())
-    observations_per_species['species'].to_csv('species.csv', index=False)
-
-    species_information = pd.read_csv('species_information.csv') # read in the species information
-    observations_per_species = pd.merge(observations_per_species, species_information, on='species', how='left')
-    species = observations_per_species['species'].unique()
-    selected_observations = observations_2020[observations_2020['species'].isin(species)][['latitude', 'longitude', 'species']].values.tolist()
-    observations_dict = {species_: [[observation[1], observation[0]] for observation in selected_observations if observation[2] == species_] for species_ in species}
-    print(len(observations_per_species))
-    print(len(species))
-    print(len(observations_dict))
-
-    kingdom_counts = observations_per_species['kingdom'].value_counts().reset_index()
-    type_counts = observations_per_species['type'].value_counts().reset_index()
+def plot_num_observations_per_species():
+    observations_2020 = pd.read_csv(f'{data_dir_path}/sinr-data/observations_2020.csv', usecols=['latitude', 'longitude', 'taxon_id', 'month']) # reads in the 2020 data
+    num_observations = len(observations_2020) # gets the total number of observations
+    metadata = read_json(f'{data_dir_path}/sinr-data/train/geo_prior_train_meta.json') # reads in metadata
+    species_id_name = {item['taxon_id']: item['latin_name'] for item in metadata} # maps each taxon ID to a species name
+    observations_2020['species'] = observations_2020['taxon_id'].map(species_id_name) # creates a species column
+    num_observations_per_species = observations_2020['species'].value_counts().reset_index() # number of observations for each species
+    num_observations_per_species = num_observations_per_species[num_observations_per_species['count'] >= 300] # keeps species with at least 300 observations
+    species_spread = observations_2020.groupby('species')[['latitude', 'longitude']].std().reset_index() # calculates STD of latitude and longitude
+    species_spread['spread'] = (species_spread['latitude'] ** 2 + species_spread['longitude'] ** 2) ** 0.5 # calculates sqrt(lat_std^2 + lon_std^2)
+    num_observations_per_species = pd.merge(num_observations_per_species, species_spread[['species', 'spread']], on='species', how='left') # adds spread column
+    num_observations_per_species = num_observations_per_species.sort_values(by='spread', ascending=False).head(100) # takes the top 100 species in terms of spread
+    num_observations_per_species = num_observations_per_species.sort_values(by='count', ascending=False) # sorts the species in descending order by count
+    species_types = {species: get_species_type(species) for species in num_observations_per_species['species']} 
+    num_observations_per_species['type'] = num_observations_per_species['species'].map(species_types)
+    type_counts = num_observations_per_species['type'].value_counts().reset_index()
 
     fig, ax = plt.subplots(dpi=300)
-    ax.bar(observations_per_species['species'], observations_per_species['count'])
+    ax.bar(num_observations_per_species['species'], num_observations_per_species['count'])
     ax.set_ylabel('Count')
     plt.xticks(rotation=90, fontsize=4)
     plt.savefig('figures/count_per_species.pdf', bbox_inches='tight', pad_inches=0.1, transparent=False)
     plt.savefig('figures/count_per_species.png', bbox_inches='tight', pad_inches=0.1, transparent=False)
-
-    fig, ax = plt.subplots(dpi=300)
-    ax.bar(kingdom_counts['kingdom'], kingdom_counts['count'])
-    ax.set_ylabel('Count')
-    plt.savefig('figures/count_per_kingdom.pdf', bbox_inches='tight', pad_inches=0.1, transparent=False)
-    plt.savefig('figures/count_per_kingdom.png', bbox_inches='tight', pad_inches=0.1, transparent=False)
 
     fig, ax = plt.subplots(dpi=300)
     ax.bar(type_counts['type'], type_counts['count'])
@@ -103,11 +73,22 @@ def plot_observations_per_species():
     ax.add_feature(cfeature.BORDERS, linestyle='-', linewidth=0.5)
     ax.add_feature(cfeature.COASTLINE)
 
-    for lat, lon, _ in selected_observations:
+    selected_species = num_observations_per_species['species'].unique() # gets species selected by above filtering procedure
+    observations_selected_species = observations_2020[observations_2020['species'].isin(selected_species)][['longitude', 'latitude', 'species']].values.tolist() # gets all observations for the selected species
+    observations_dict = {species: [[observation[0], observation[1]] for observation in observations_selected_species if observation[2] == species] for species in selected_species}
+
+    for lon, lat, _ in observations_selected_species:
         plt.plot(lon, lat, marker='o', color='red', markersize=1, transform=ccrs.PlateCarree())
 
     ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
     plt.savefig('map.pdf', bbox_inches='tight')
+    plt.savefig('map.png', bbox_inches='tight')
+
+    print(f'{num_observations} observations')
+    print(f'{len(num_observations_per_species)} species')
+    print(len(species_spread))
+    print(num_observations_per_species.columns.tolist())
+    print(num_observations_per_species.head())
 
 def generate_species_tiles():
     TILE_SIZE = read_yaml('config.yml')['TILE_SIZE']
@@ -118,18 +99,18 @@ def generate_species_tiles():
 # title = 'biomes_ecoregions.json'
 
 # species = observations_2020['taxon_id'].unique()
-# observations_per_species = observations_2020
+# num_observations_per_species = observations_2020
 
-# observations_per_species = {species_: len(observations_2020[observations_2020['taxon_id'] == species_]) for species_ in species}
-# observations_per_species = dict(sorted(observations_per_species.items(), key=lambda item: item[1], reverse=True))
+# num_observations_per_species = {species_: len(observations_2020[observations_2020['taxon_id'] == species_]) for species_ in species}
+# num_observations_per_species = dict(sorted(num_observations_per_species.items(), key=lambda item: item[1], reverse=True))
 
-# print(observations_per_species[:10])
+# print(num_observations_per_species[:10])
 
 # fig, ax = plt.subplots(dpi=300)
-# ax.bar(species, observations_per_species.values())
+# ax.bar(species, num_observations_per_species.values())
 # ax.set_ylabel('# Observations')
-# plt.savefig('figures/observations_per_species.pdf', bbox_inches='tight', pad_inches=0.1, transparent=False)
-# plt.savefig('figures/observations_per_species_results.png', bbox_inches='tight', pad_inches=0.1, transparent=False)
+# plt.savefig('figures/num_observations_per_species.pdf', bbox_inches='tight', pad_inches=0.1, transparent=False)
+# plt.savefig('figures/num_observations_per_species_results.png', bbox_inches='tight', pad_inches=0.1, transparent=False)
 
 # species_observation_collection = ee.FeatureCollection([ee.Feature(ee.Geometry.Point([observation.longitude, observation.latitude]), {'species': observation.taxon_id, 'month': observation.month}) for observation in observations_2020.itertuples()])
 
@@ -222,5 +203,5 @@ if __name__ == '__main__':
     if not os.path.exists(f'{data_dir_path}/sinr-data/observations_2020.csv'):
         save_2020_observations()
 
-    plot_observations_per_species()
+    plot_num_observations_per_species()
     # generate_species_tiles()
