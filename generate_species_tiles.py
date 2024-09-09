@@ -114,11 +114,17 @@ def generate_species_tiles():
     for tile in tiles:
         tile['geometry'] = Polygon(tile['geometry']['coordinates'][0])
         month = tile['properties']['month']
-        previous_month = month - 1 if month > 1 else 12
-        next_month = month + 1 if month < 12 else 1
+
+        if month > 1 and month < 12:
+            allowed_months = [month-1, month, month+1]
+        elif month == 1:
+            allowed_months = [12, month, 2]
+        elif month == 12:
+            allowed_months = [11, month, 1]
+
         observations_in_tile = observations_gdf[observations_gdf.within(tile['geometry'])]
-        filtered_data = observations_in_tile[(observations_in_tile['month'] >= previous_month) & (observations_in_tile['month'] <= next_month)]
-        tile['properties']['species'] = list(filtered_data['species'].unique())
+        observations_in_tile_filtered = observations_in_tile[observations_in_tile['month'].isin(allowed_months)]
+        tile['properties']['species'] = list(observations_in_tile_filtered['species'].unique())
 
     print(f'{len(tiles)} tiles before removing overlaps')
 
