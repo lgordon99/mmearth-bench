@@ -6,12 +6,13 @@ Need 100GB? RAM to run this file
 # imports
 from geopy.distance import geodesic
 from pyproj import Geod
-from shapely.geometry import MultiPoint, Point, Polygon
+from shapely.geometry import mapping, MultiPoint, Point, Polygon
 from sys import argv
 from utils import read_yaml, read_json
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import ee
+import geemap
 import geopandas as gpd
 import json
 import math
@@ -44,24 +45,15 @@ def get_species_type(species):
     response = requests.get(f'https://api.inaturalist.org/v1/taxa?q={species}')
 
     if response.status_code == 200:
-        data = response.json()['results'][0]['iconic_taxon_name']
-        return data
+        if 'iconic_taxon_name' in list(response.json()['results'][0].keys()):
+            return response.json()['results'][0]['iconic_taxon_name']
+        else:
+            return None
     else:
         get_species_type(species)
 
 def calculate_spread(observations):
     observations = observations.values.tolist()
-    # distances = []
-
-    # for i in range(len(observations)):
-    #     for j in range(len(observations)):
-    #         if i != j:
-    #             distances.append(geodesic(observations[i], observations[j]).kilometers)
-
-    # return np.mean(distances)
-
-
-    # Use Geod to calculate the area of the convex hull on Earth's surface
     geod = Geod(ellps='WGS84')
     area, _ = geod.geometry_area_perimeter(MultiPoint(observations).convex_hull)
 
@@ -76,17 +68,18 @@ def plot_species_count():
     species_count = observations_2020['species'].value_counts().reset_index() # number of observations for each species
     species_count = species_count[species_count['count'] >= 300] # keeps species with at least 300 observations
     species_count_300 = species_count['species'].tolist()
-    observations_species_count_300 = observations_2020[observations_2020['species'].isin(species_count_300)]
+    print(f'{len(species_count_300)} species with at least 300 observations')
+
+    observations_species_count_300 = observations_2020[observations_2020['species'].isin(species_count_300)] # observations for species with at least 300 observations
     species_spread = observations_species_count_300.groupby('species')[['longitude', 'latitude']].apply(calculate_spread).reset_index(name='spread')
-    print(species_spread.head())
-    # species_spread = observations_2020.groupby('species')[['latitude', 'longitude']].std().reset_index() # calculates STD of latitude and longitude
-    # species_spread['spread'] = (species_spread['latitude'] ** 2 + species_spread['longitude'] ** 2) ** 0.5 # calculates sqrt(lat_std^2 + lon_std^2)
     species_count = pd.merge(species_count, species_spread[['species', 'spread']], on='species', how='left') # adds spread column
-    species_count = species_count.sort_values(by='spread', ascending=False).head(100) # takes the top 100 species in terms of spread
+    species_count = species_count.sort_values(by='spread', ascending=False).head(300) # takes the top species in terms of spread
     species_count = species_count.sort_values(by='count', ascending=False) # sorts the species in descending order by count
-    species_types = {species: requests.get(f'https://api.inaturalist.org/v1/taxa?q={species}').json()['results'][0]['iconic_taxon_name'] for species in species_count['species']} 
+    species_types = {species: result for species, result in ((species, get_species_type(species)) for species in species_count['species']) if result is not None}
+    species_count = species_count[species_count['species'].isin(list(species_types.keys()))] # selects only the species that had type data
     species_count['type'] = species_count['species'].map(species_types) # creates a type column
     type_counts = species_count['type'].value_counts().reset_index() # counts the occurrences of each type
+    print(f'{len(list(species_types.keys()))} species with top geographic spread')
 
     # plot count per species
     fig, ax = plt.subplots(dpi=300)
@@ -119,23 +112,42 @@ def plot_species_count():
     tiles = [{**{key: value for key, value in tile.items() if key != 'id'}} for tile in tiles]
 
     for tile in tiles:
+        tile['geometry'] = Polygon(tile['geometry']['coordinates'][0])
         month = tile['properties']['month']
         previous_month = month - 1 if month > 1 else 12
         next_month = month + 1 if month < 12 else 1
-        observations_in_tile = observations_gdf[observations_gdf.within(Polygon(tile['geometry']['coordinates'][0]))]
+        observations_in_tile = observations_gdf[observations_gdf.within(tile['geometry'])]
         filtered_data = observations_in_tile[(observations_in_tile['month'] >= previous_month) & (observations_in_tile['month'] <= next_month)]
         tile['properties']['species'] = list(filtered_data['species'].unique())
 
-    print(f'{len(tiles)} tiles')
-    os.makedirs('tiles/species', exist_ok=True)
+    print(f'{len(tiles)} tiles before removing overlaps')
 
-    geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
+    geojson_collection = {'type': 'FeatureCollection', 'features': [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': mapping(tile['geometry'])} for tile in tiles]}
+
+    with open('tiles/species/species_tiles_all.geojson', 'w') as f:
+        json.dump(geojson_collection, f, indent=4) # save the tiles as a GeoJSON
+
+    tiles_gdf = gpd.GeoDataFrame(tiles, geometry='geometry').reset_index(drop=False)
+    intersections = gpd.sjoin(tiles_gdf, tiles_gdf)
+    intersecting_indices = intersections[intersections['index_left'] != intersections['index_right']][['index_left', 'index_right']].to_numpy().tolist()
+    indices_to_remove = []
+
+    while len(intersecting_indices) > 0:
+        index_to_remove = intersecting_indices[0][0]
+        indices_to_remove.append(index_to_remove)
+        intersecting_indices = [pair for pair in intersecting_indices if index_to_remove not in pair]
+
+    indices_to_keep = [i for i in range(len(tiles)) if i not in indices_to_remove]
+    tiles = [tiles[i] for i in indices_to_keep]
+
+    print(f'{len(tiles)} tiles')
+
+    os.makedirs('tiles/species', exist_ok=True)
+    random.shuffle(tiles) # shuffling the tiles list
+    geojson_collection = {'type': 'FeatureCollection', 'features': [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': mapping(tile['geometry'])} for tile in tiles]}
 
     with open('tiles/species/species_tiles.geojson', 'w') as f:
         json.dump(geojson_collection, f, indent=4) # save the tiles as a GeoJSON
-
-    tiles_list = read_geojson('tiles/species/species_tiles.geojson')['features']
-    print(len(tiles_list))
 
     fig = plt.figure(dpi=300)
     ax = plt.axes(projection=ccrs.PlateCarree())
