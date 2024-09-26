@@ -7,7 +7,6 @@ Need 100GB? RAM to run this file
 from pyproj import Geod
 from shapely.geometry import mapping, MultiPoint, Point, Polygon
 from sys import argv
-from utils import read_yaml, read_json
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import ee
@@ -22,10 +21,11 @@ import pandas as pd
 import random
 import requests
 import time
+import utils
 
 ee.Initialize(project='mmearth-bench') # initializes EE with our project
 os.makedirs('figures', exist_ok=True)
-data_dir_path = read_yaml('config-user.yml')['data_dir_path']
+data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
 
 def save_2020_observations():
     all_observations_df = pd.read_csv(f'{data_dir_path}/sinr-data/train/geo_prior_train.csv') # converts the CSV to a dataframe
@@ -106,9 +106,10 @@ def get_rectangle_center(coords):
     return [center_x, center_y]
 
 def generate_species_tiles():
+    # collect species with some minimum number of observations
     observations_2020 = pd.read_csv(f'{data_dir_path}/sinr-data/observations_2020.csv', usecols=['latitude', 'longitude', 'taxon_id', 'month']) # reads in the 2020 data
     num_observations = len(observations_2020) # gets the total number of observations
-    metadata = read_json(f'{data_dir_path}/sinr-data/train/geo_prior_train_meta.json') # reads in metadata
+    metadata = utils.read_json(f'{data_dir_path}/sinr-data/train/geo_prior_train_meta.json') # reads in metadata
     species_id_name = {item['taxon_id']: item['latin_name'] for item in metadata} # maps each taxon ID to a species name
     observations_2020['species'] = observations_2020['taxon_id'].map(species_id_name) # creates a species column
     species_count = observations_2020['species'].value_counts().reset_index() # number of observations for each species
@@ -124,6 +125,7 @@ def generate_species_tiles():
     with open('scratch-output/species_300_observations.json', 'w') as file:
         json.dump(species_300_observations, file)
 
+    # select species with the highest geographic spread in their observations
     observations_species_300_observations = observations_2020[observations_2020['species'].isin(species_300_observations)] # observations for species with at least 300 observations
     species_spread = observations_species_300_observations.groupby('species')[['longitude', 'latitude']].apply(calculate_spread).reset_index(name='spread') # calculates geographic spread of each species' observations
     species_count = pd.merge(species_count, species_spread[['species', 'spread']], on='species', how='left') # adds spread column
@@ -148,10 +150,11 @@ def generate_species_tiles():
     plt.savefig('figures/count_per_species.pdf', bbox_inches='tight', pad_inches=0.1, transparent=False)
     plt.savefig('figures/count_per_species.png', bbox_inches='tight', pad_inches=0.1, transparent=False)
 
+    # randomly select a fixed number of observations for each species
     observations_selected_species_df = observations_2020[observations_2020['species'].isin(selected_species)][['species', 'month', 'longitude', 'latitude']] # gets all observations for the selected species
     observations_selected_species_dict = {species: [[observation.month, observation.longitude, observation.latitude] for observation in observations_selected_species_df.itertuples() if observation.species == species] for species in selected_species} # groups observations by species
     selected_observations_dict = {species: random.sample(observations_selected_species_dict[species], 300) for species in selected_species} # samples 300 observations per species
-    TILE_SIZE = read_yaml('config.yml')['TILE_SIZE']
+    TILE_SIZE = utils.read_yaml('config.yml')['TILE_SIZE']
     tiles = np.concatenate([ee.FeatureCollection([ee.Feature(ee.Geometry.Point([observation[1], observation[2]]).buffer(TILE_SIZE / 2).bounds()).set({'species': species, 'month': observation[0]}) for observation in selected_observations_dict[species]]).getInfo()['features'] for species in selected_species])
     tiles = [{**{key: value for key, value in tile.items() if key != 'id'}} for tile in tiles]
     print(np.array(list(selected_observations_dict.values())).shape)
@@ -160,24 +163,24 @@ def generate_species_tiles():
     # save all the tiles as a GeoJSON
     geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
 
-    with open('tiles/species/species_tiles_all.geojson', 'w') as f:
-        json.dump(geojson_collection, f, indent=4)
+    with open('tiles/species/species_tiles_all.geojson', 'w') as file:
+        json.dump(geojson_collection, file, indent=4)
 
     # remove overlapping tiles
-    tiles = [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': Polygon(tile['geometry']['coordinates'][0])} for tile in tiles]
-    tiles_gdf = gpd.GeoDataFrame(tiles, geometry='geometry').reset_index(drop=False)
-    intersections = gpd.sjoin(tiles_gdf, tiles_gdf)
-    intersecting_indices = intersections[intersections['index_left'] != intersections['index_right']][['index_left', 'index_right']].to_numpy().tolist()
-    indices_to_remove = []
+    # tiles = [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': Polygon(tile['geometry']['coordinates'][0])} for tile in tiles]
+    # tiles_gdf = gpd.GeoDataFrame(tiles, geometry='geometry').reset_index(drop=False)
+    # intersections = gpd.sjoin(tiles_gdf, tiles_gdf)
+    # intersecting_indices = intersections[intersections['index_left'] != intersections['index_right']][['index_left', 'index_right']].to_numpy().tolist()
+    # indices_to_remove = []
 
-    while len(intersecting_indices) > 0:
-        index_to_remove = intersecting_indices[0][0]
-        indices_to_remove.append(index_to_remove)
-        intersecting_indices = [pair for pair in intersecting_indices if index_to_remove not in pair]
+    # while len(intersecting_indices) > 0:
+    #     index_to_remove = intersecting_indices[0][0]
+    #     indices_to_remove.append(index_to_remove)
+    #     intersecting_indices = [pair for pair in intersecting_indices if index_to_remove not in pair]
 
-    indices_to_keep = [i for i in range(len(tiles)) if i not in indices_to_remove]
-    tiles = [tiles[i] for i in indices_to_keep]
-
+    # indices_to_keep = [i for i in range(len(tiles)) if i not in indices_to_remove]
+    # tiles = [tiles[i] for i in indices_to_keep]
+    tiles = utils.remove_overlapping_tiles(tiles)
     print(f'{len(tiles)} tiles after removing overlaps')
 
     # record all species occurring in the tiles
@@ -236,8 +239,8 @@ def generate_species_tiles():
     os.makedirs('tiles/species', exist_ok=True)
     geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
 
-    with open('tiles/species/species_tiles.geojson', 'w') as f:
-        json.dump(geojson_collection, f, indent=4) # save the tiles as a GeoJSON
+    with open('tiles/species/species_tiles.geojson', 'w') as file:
+        json.dump(geojson_collection, file, indent=4) # save the tiles as a GeoJSON
 
     tiles_dict = {species: [get_rectangle_center(tile['geometry']['coordinates'][0]) for tile in tiles if species in tile['properties']['species']] for species in species_to_keep}
 
