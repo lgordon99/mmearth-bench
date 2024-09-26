@@ -59,21 +59,24 @@ def calculate_spread(observations):
 
     return abs(area)
 
-def get_species_observation_counts(tiles, species):
-    count = 0
+# def get_species_observation_counts(tiles, species):
+#     count = 0
 
-    for tile in tiles:
-        if species in tile['properties']['species']:
-            count += 1
+#     for tile in tiles:
+#         if species in tile['properties']['species']:
+#             count += 1
 
-    return count
+#     return count
 
 def get_all_species_observation_counts(tiles, selected_species):
     species_observations_counts = {species: 0 for species in selected_species}
 
     for tile in tiles:
-        for species in tile['properties']['species']:
-            species_observations_counts[species] += 1
+        if isinstance(tile['properties']['species'], str):
+            species_observations_counts[tile['properties']['species']] += 1
+        else:
+            for species in tile['properties']['species']:
+                species_observations_counts[species] += 1
 
     return species_observations_counts
 
@@ -96,6 +99,18 @@ def get_species_with_right_count(tiles, selected_species):
 
     return species_with_right_count
 
+def get_species_with_minimum_count(tiles, selected_species):
+    species_with_minimum_count = []
+    species_observations_counts = get_all_species_observation_counts(tiles, selected_species)
+
+    for species in selected_species:
+        if species_observations_counts[species] >= 200:
+            species_with_minimum_count.append(species)
+
+    print(len(species_with_minimum_count), 'with enough observations')
+
+    return species_with_minimum_count
+
 def get_rectangle_center(coords):
     x_coords = [coord[0] for coord in coords]
     y_coords = [coord[1] for coord in coords]
@@ -106,6 +121,7 @@ def get_rectangle_center(coords):
     return [center_x, center_y]
 
 def generate_species_tiles():
+    minimum_observation_count = 400
     # collect species with some minimum number of observations
     observations_2020 = pd.read_csv(f'{data_dir_path}/sinr-data/observations_2020.csv', usecols=['latitude', 'longitude', 'taxon_id', 'month']) # reads in the 2020 data
     num_observations = len(observations_2020) # gets the total number of observations
@@ -113,7 +129,7 @@ def generate_species_tiles():
     species_id_name = {item['taxon_id']: item['latin_name'] for item in metadata} # maps each taxon ID to a species name
     observations_2020['species'] = observations_2020['taxon_id'].map(species_id_name) # creates a species column
     species_count = observations_2020['species'].value_counts().reset_index() # number of observations for each species
-    species_count = species_count[species_count['count'] >= 300] # keeps species with at least 300 observations
+    species_count = species_count[species_count['count'] >= minimum_observation_count] # keeps species with at least 300 observations
     species_300_observations = species_count['species'].tolist()
     print(f'{len(species_300_observations)} species with at least 300 observations')
 
@@ -129,7 +145,7 @@ def generate_species_tiles():
     observations_species_300_observations = observations_2020[observations_2020['species'].isin(species_300_observations)] # observations for species with at least 300 observations
     species_spread = observations_species_300_observations.groupby('species')[['longitude', 'latitude']].apply(calculate_spread).reset_index(name='spread') # calculates geographic spread of each species' observations
     species_count = pd.merge(species_count, species_spread[['species', 'spread']], on='species', how='left') # adds spread column
-    species_count = species_count.sort_values(by='spread', ascending=False).head(200) # takes the top species in terms of spread
+    species_count = species_count.sort_values(by='spread', ascending=False).head(300) # takes the top species in terms of spread
     species_count = species_count.sort_values(by='count', ascending=False) # sorts the species in descending order by count
     selected_species = species_count['species'].tolist() # gets species selected by above filtering procedure
     print(f'{len(selected_species)} species with top geographic spread')
@@ -153,7 +169,7 @@ def generate_species_tiles():
     # randomly select a fixed number of observations for each species
     observations_selected_species_df = observations_2020[observations_2020['species'].isin(selected_species)][['species', 'month', 'longitude', 'latitude']] # gets all observations for the selected species
     observations_selected_species_dict = {species: [[observation.month, observation.longitude, observation.latitude] for observation in observations_selected_species_df.itertuples() if observation.species == species] for species in selected_species} # groups observations by species
-    selected_observations_dict = {species: random.sample(observations_selected_species_dict[species], 300) for species in selected_species} # samples 300 observations per species
+    selected_observations_dict = {species: random.sample(observations_selected_species_dict[species], minimum_observation_count) for species in selected_species} # samples 300 observations per species
     TILE_SIZE = utils.read_yaml('config.yml')['TILE_SIZE']
     tiles = np.concatenate([ee.FeatureCollection([ee.Feature(ee.Geometry.Point([observation[1], observation[2]]).buffer(TILE_SIZE / 2).bounds()).set({'species': species, 'month': observation[0]}) for observation in selected_observations_dict[species]]).getInfo()['features'] for species in selected_species])
     tiles = [{**{key: value for key, value in tile.items() if key != 'id'}} for tile in tiles]
@@ -167,23 +183,21 @@ def generate_species_tiles():
         json.dump(geojson_collection, file, indent=4)
 
     # remove overlapping tiles
-    # tiles = [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': Polygon(tile['geometry']['coordinates'][0])} for tile in tiles]
-    # tiles_gdf = gpd.GeoDataFrame(tiles, geometry='geometry').reset_index(drop=False)
-    # intersections = gpd.sjoin(tiles_gdf, tiles_gdf)
-    # intersecting_indices = intersections[intersections['index_left'] != intersections['index_right']][['index_left', 'index_right']].to_numpy().tolist()
-    # indices_to_remove = []
-
-    # while len(intersecting_indices) > 0:
-    #     index_to_remove = intersecting_indices[0][0]
-    #     indices_to_remove.append(index_to_remove)
-    #     intersecting_indices = [pair for pair in intersecting_indices if index_to_remove not in pair]
-
-    # indices_to_keep = [i for i in range(len(tiles)) if i not in indices_to_remove]
-    # tiles = [tiles[i] for i in indices_to_keep]
     tiles = utils.remove_overlapping_tiles(tiles)
     print(f'{len(tiles)} tiles after removing overlaps')
 
+    # only keep species with some minimum number of observations
+    species_to_keep = get_species_with_minimum_count(tiles, selected_species)
+    tiles = [tile for tile in tiles if tile['properties']['species'] in species_to_keep]
+    print(f'{len(tiles)} tiles after removing species with too few observations')
+
+    # randomly select 100 species to keep
+    species_to_keep = random.sample(species_to_keep, 100)
+    tiles = [tile for tile in tiles if tile['properties']['species'] in species_to_keep]
+    print(f'{len(tiles)} tiles after selecting {len(species_to_keep)} random species')
+
     # record all species occurring in the tiles
+    observations_selected_species_df = observations_selected_species_df[observations_selected_species_df['species'].isin(species_to_keep)]
     observations_selected_species_df['geometry'] = observations_selected_species_df.apply(lambda row: Point(row['longitude'], row['latitude']), axis=1) # adds a geometry column
     observations_selected_species_gdf = gpd.GeoDataFrame(observations_selected_species_df, geometry='geometry') # creates a GeoDataFrame for all the observations for the selected species
 
@@ -202,37 +216,45 @@ def generate_species_tiles():
         observations_in_tile_filtered = observations_in_tile[observations_in_tile['month'].isin(allowed_months)]
         tile['properties']['species'] = list(observations_in_tile_filtered['species'].unique())
 
-    get_species_with_right_count(tiles, selected_species)
+    get_species_with_minimum_count(tiles, selected_species)
 
-    # remove single-species tiles for overrepresented species
-    for species in selected_species:
-        while get_species_observation_counts(tiles, species) > 200:
-            indices = [index for index, tile in enumerate(tiles) if tile['properties']['species'] == [species]]
+    # plot species observation counts
+    fig, ax = plt.subplots(dpi=300)
+    ax.bar(species_to_keep, get_all_species_observation_counts(tiles, species_to_keep).values())
+    ax.set_ylabel('Count')
+    plt.xticks(rotation=90, fontsize=4)
+    # plt.savefig('figures/species_observation_counts.pdf', bbox_inches='tight', pad_inches=0.1, transparent=False)
+    plt.savefig('figures/species_observation_counts.png', bbox_inches='tight', pad_inches=0.1, transparent=False)
 
-            if len(indices) == 0:
-                break
+    # # remove single-species tiles for overrepresented species
+    # for species in selected_species:
+    #     while get_species_observation_counts(tiles, species) > 200:
+    #         indices = [index for index, tile in enumerate(tiles) if tile['properties']['species'] == [species]]
 
-            del tiles[indices[0]]
+    #         if len(indices) == 0:
+    #             break
 
-    print('After removing single-species tiles for overrepresented species')
+    #         del tiles[indices[0]]
 
-    # only keep species with the right count
-    species_to_keep = get_species_with_right_count(tiles, selected_species)
+    # print('After removing single-species tiles for overrepresented species')
 
-    for tile in tiles:
-        tile_species = []
+    # # only keep species with the right count
+    # species_to_keep = get_species_with_right_count(tiles, selected_species)
 
-        for species in tile['properties']['species']:
-            if species in species_to_keep:
-                tile_species.append(species)
+    # for tile in tiles:
+    #     tile_species = []
 
-        tile['properties']['species'] = tile_species
+    #     for species in tile['properties']['species']:
+    #         if species in species_to_keep:
+    #             tile_species.append(species)
+
+    #     tile['properties']['species'] = tile_species
 
     random.shuffle(tiles) # shuffling the tiles list
     tiles = [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': mapping(tile['geometry']), 'id': i} for i, tile in enumerate(tiles)]
 
-    print('After removing species with the wrong count')
-    get_species_with_right_count(tiles, species_to_keep)
+    # print('After removing species with the wrong count')
+    # get_species_with_right_count(tiles, species_to_keep)
 
     print(f'{len(tiles)} tiles, {len(species_to_keep)} species')
 
@@ -256,7 +278,7 @@ def generate_species_tiles():
             plt.plot(lon, lat, marker='o', color='red', markersize=0.3, transform=ccrs.PlateCarree())
 
     ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
-    plt.savefig(f'figures/map-{species}.pdf', bbox_inches='tight')
+    # plt.savefig(f'figures/map-{species}.pdf', bbox_inches='tight')
     plt.savefig('figures/map-species.png', bbox_inches='tight')
 
 if __name__ == '__main__':
