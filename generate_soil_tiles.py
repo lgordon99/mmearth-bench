@@ -13,7 +13,6 @@ import random
 import utils
 
 ee.Initialize(project='mmearth-bench') # initializes EE with our project
-os.makedirs('tiles/soil', exist_ok=True)
 
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
 observations = pd.read_csv(f'{data_dir_path}/WoSIS_2023_December/wosis_202312_observations.tsv', sep='\t')
@@ -25,6 +24,10 @@ organic_carbon = pd.read_csv(f'{data_dir_path}/WoSIS_2023_December/wosis_202312_
 pH = pd.read_csv(f'{data_dir_path}/WoSIS_2023_December/wosis_202312_phaq.tsv', sep='\t')
 water_retention = pd.read_csv(f'{data_dir_path}/WoSIS_2023_December/wosis_202312_wg1500.tsv', sep='\t')
 
+# silt = pd.read_csv(f'{data_dir_path}/WoSIS_2023_December/wosis_202312_silt.tsv', sep='\t')
+# vals = silt['value_avg'].values
+# print(min(vals), max(vals))
+
 def get_site_id(profile_id):
     return layers[layers['profile_id'] == profile_id]['site_id'].unique()[0]
 
@@ -35,53 +38,55 @@ def get_site_id(profile_id):
 # print(f'Columns = {layers.columns.tolist()}')
 print(f'Columns = {nitrogen.columns.tolist()}')
 
-nitrogen = nitrogen[(nitrogen['upper_depth'] >= 0) & (nitrogen['lower_depth'] <= 5)]
-organic_carbon = organic_carbon[(organic_carbon['upper_depth'] >= 0) & (organic_carbon['lower_depth'] <= 5)]
-pH = pH[(pH['upper_depth'] >= 0) & (pH['lower_depth'] <= 5)]
-water_retention = water_retention[(water_retention['upper_depth'] >= 0) & (water_retention['lower_depth'] <= 5)]
-properties = {'nitrogen': nitrogen, 'organic_carbon': organic_carbon, 'pH': pH, 'water_retention': water_retention}
+upper_depth = 0
+lower_depth = 5
+
+nitrogen = nitrogen[(nitrogen['upper_depth'] >= upper_depth) & (nitrogen['lower_depth'] <= lower_depth)]
+organic_carbon = organic_carbon[(organic_carbon['upper_depth'] >= upper_depth) & (organic_carbon['lower_depth'] <= lower_depth)]
+pH = pH[(pH['upper_depth'] >= upper_depth) & (pH['lower_depth'] <= lower_depth)]
+# water_retention = water_retention[(water_retention['upper_depth'] >= upper_depth) & (water_retention['lower_depth'] <= lower_depth)]
+# nitrogen = nitrogen[nitrogen['date'].str.split('-').str[1].str.isnumeric()] # keeps only observations with dates
+# organic_carbon = organic_carbon[organic_carbon['date'].str.split('-').str[1].str.isnumeric()] # keeps only observations with dates
+# pH = pH[pH['date'].str.split('-').str[1].str.isnumeric()] # keeps only observations with dates
+properties = {'nitrogen': {'dataframe': nitrogen, 'title': 'Nitrogen'}, 'organic_carbon': {'dataframe': organic_carbon, 'title': 'Organic carbon'}, 'pH': {'dataframe': pH, 'title': 'pH'}}
 TILE_SIZE = utils.read_yaml('config.yml')['TILE_SIZE']
 
-def generate_property_tiles(dataframe, property_):
-    tiles = np.concatenate([ee.FeatureCollection([ee.Feature(ee.Geometry.Point([measurement.longitude, measurement.latitude]).buffer(TILE_SIZE / 2).bounds()) for measurement in dataframe[i: i+5000].itertuples()]).getInfo()['features'] for i in range(0, len(dataframe), 5000)])
+def generate_property_tiles(property_):
+    os.makedirs(f'tiles/{property_}', exist_ok=True)
+    dataframe = properties[property_]['dataframe']
+    dataframe.to_csv(f'{data_dir_path}/{property_}.csv', index=False)
+    tiles = np.concatenate([ee.FeatureCollection([ee.Feature(ee.Geometry.Point([measurement.longitude, measurement.latitude]).buffer(TILE_SIZE / 2).bounds()).set({'value': measurement.value_avg, 'pos_uncertainty': measurement.positional_uncertainty}) for measurement in dataframe[i: i+5000].itertuples() if measurement.positional_uncertainty == 'Circa 100 m']).getInfo()['features'] for i in range(0, len(dataframe), 5000)])
     tiles = [{**{key: value for key, value in tile.items() if key != 'id'}} for tile in tiles]
 
-    for tile in tiles:
-        tile['geometry'] = Polygon(tile['geometry']['coordinates'][0])
+    print(len(tiles))
+    print('Circa 100 m', len([tile for tile in tiles if tile['properties']['pos_uncertainty'] == 'Circa 100 m']))
+    print('100 m - 1 km', len([tile for tile in tiles if tile['properties']['pos_uncertainty'] == '100 m - 1 km']))
+    print('1 km - 10 km', len([tile for tile in tiles if tile['properties']['pos_uncertainty'] == '1 km - 10 km']))
+    print('Over 10 km', len([tile for tile in tiles if tile['properties']['pos_uncertainty'] == 'Over 10 km']))
 
-    geojson_collection = {'type': 'FeatureCollection', 'features': [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': mapping(tile['geometry'])} for tile in tiles]}
+    geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
 
-    with open('tiles/soil/soil_tiles_all.geojson', 'w') as f:
-        json.dump(geojson_collection, f, indent=4) # save the tiles as a GeoJSON
+    with open(f'tiles/{property_}/{property_}_tiles_all.geojson', 'w') as file:
+        json.dump(geojson_collection, file, indent=4) # save the tiles as a GeoJSON
 
     print(property_)
     print(f'{len(tiles)} tiles before removing overlaps')
 
-    tiles_gdf = gpd.GeoDataFrame(tiles, geometry='geometry').reset_index(drop=False)
-    intersections = gpd.sjoin(tiles_gdf, tiles_gdf)
-    intersecting_indices = intersections[intersections['index_left'] != intersections['index_right']][['index_left', 'index_right']].to_numpy().tolist()
-    indices_to_remove = []
+    tiles = utils.remove_overlapping_tiles(tiles)
+    print(f'{len(tiles)} tiles after removing overlaps')
 
-    while len(intersecting_indices) > 0:
-        index_to_remove = intersecting_indices[0][0]
-        indices_to_remove.append(index_to_remove)
-        intersecting_indices = [pair for pair in intersecting_indices if index_to_remove not in pair]
-
-    indices_to_keep = [i for i in range(len(tiles)) if i not in indices_to_remove]
-    tiles = [tiles[i] for i in indices_to_keep]
-
-    print(f'{len(tiles)} tiles')
     random.shuffle(tiles) # shuffling the tiles list
-    geojson_collection = {'type': 'FeatureCollection', 'features': [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': mapping(tile['geometry']), 'id': i} for i, tile in enumerate(tiles)]}
+    tiles = [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': mapping(tile['geometry']), 'id': i} for i, tile in enumerate(tiles)]
+    geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
 
-    with open('tiles/soil/soil_tiles.geojson', 'w') as f:
-        json.dump(geojson_collection, f, indent=4) # save the tiles as a GeoJSON
+    with open(f'tiles/{property_}/{property_}_tiles.geojson', 'w') as file:
+        json.dump(geojson_collection, file, indent=4) # save the tiles as a GeoJSON
 
-    tile_centers = [utils.get_rectangle_center(mapping(tile['geometry'])['coordinates'][0]) for tile in tiles]
+    tile_centers = [utils.get_rectangle_center(tile['geometry']['coordinates'][0]) for tile in tiles]
 
     fig = plt.figure(dpi=300)
     ax = plt.axes(projection=ccrs.PlateCarree())
-    ax.set_title(property_)
+    ax.set_title(properties[property_]['title'], fontsize=8)
     ax.add_feature(cfeature.BORDERS, linestyle='-', linewidth=0.5)
     ax.add_feature(cfeature.COASTLINE)
 
@@ -94,7 +99,7 @@ def generate_property_tiles(dataframe, property_):
     plt.savefig(f'figures/map-{property_}.png', bbox_inches='tight')
 
 for property_ in properties.keys():
-    generate_property_tiles(properties[property_], property_)
+    generate_property_tiles(property_)
 
 # print('Nitrogen')
 # # nitrogen = nitrogen[nitrogen['date'].str.split('-').str[0].str.isnumeric()] # keeps only observations with dates
