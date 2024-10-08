@@ -20,11 +20,12 @@ import time
 import zipfile
 
 class EEData:
-    def __init__(self, tile, task, start_end_dates, biomass_points):
+    def __init__(self, tile, task, start_end_dates, biomass_points=None):
+        start = time.time()
+
         self.tile = tile
         self.bands = []
         self.crs = ''
-        self.start_end_dates = start_end_dates
         self.date_filter = ee.Filter.Or(*[ee.Filter.date(date_range[0], date_range[1]) for date_range in start_end_dates])
         self.s2_date = ''
         self.month_encoding = ''
@@ -36,16 +37,27 @@ class EEData:
                                      'lat_cos': np.cos(np.deg2rad(self.lat)),
                                      'lon_sin': np.sin(np.deg2rad(self.lon)),
                                      'lon_cos': np.cos(np.deg2rad(self.lon))}
-        self.biome = tile['properties']['biome']
-        self.ecoregion = tile['properties']['ecoregion']
+        # self.biome = tile['properties']['biome'] if 'biome' in list(tile['properties'].keys()) else ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.polygon).getInfo()['features'][0]['properties']['BIOME_NAME']
+        # self.ecoregion = tile['properties']['ecoregion'] if 'ecoregion' in list(tile['properties'].keys()) else ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.polygon).getInfo()['features'][0]['properties']['ECO_NAME']
         self.task = task
         self.image_set = {}
         self.no_data = False
         self.era5_data = {}
         self.proj = ''
         self.biomass_points = biomass_points
-        start = time.time()
-        datasets = ['sentinel2', 'sentinel1', 'aster', 'canopy_height_eth', 'dynamic_world', 'esa_worldcover', 'era5', 'gedi_agb']
+
+        if 'biome' in list(tile['properties'].keys()):
+            self.biome = tile['properties']['biome']
+            self.ecoregion = tile['properties']['ecoregion']
+        else:
+            if len(ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.polygon).getInfo()['features']) > 0:
+                self.biome = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.polygon).getInfo()['features'][0]['properties']['BIOME_NAME']
+                self.ecoregion = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.polygon).getInfo()['features'][0]['properties']['ECO_NAME']
+            else:
+                self.biome = None
+                self.ecoregion = None
+
+        datasets = ['sentinel2', 'sentinel1', 'aster', 'canopy_height_eth', 'dynamic_world', 'esa_worldcover', 'era5']
 
         for function_name in datasets: # series of function calls to get the data
             if getattr(self, function_name)() is False: # if the method returns False
@@ -53,6 +65,9 @@ class EEData:
                 print(f'Skipping tile with ID {self.id}')
                 self.no_data = True
                 break
+
+        if task == 'biomass':
+            self.biomass()
 
         if not self.no_data:
             merged_image = self.image_set[datasets[0]] # start with Sentinel-2
@@ -253,11 +268,11 @@ class EEData:
 
         self.era5_data = {band: era5_image[band] for band in era5_image_bands}
 
-    def gedi_agb(self):
+    def biomass(self):
         '''Gets GEDI aboveground biomass data'''
 
         image = ee.Image.constant(-9999).paint(self.biomass_points, 'agbd').reproject(self.proj) # image array with -9999 wherever there are no points, aligned with Sentinel-2
-        self.image_set['gedi_agb'] = image
+        self.image_set['biomass'] = image
 
     def export_local_single(self, image):
         url = image.getDownloadUrl({'name': f'tile_{self.id}',
