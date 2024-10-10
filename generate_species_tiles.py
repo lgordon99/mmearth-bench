@@ -60,15 +60,6 @@ def calculate_spread(observations):
 
     return abs(area)
 
-# def get_species_observation_counts(tiles, species):
-#     count = 0
-
-#     for tile in tiles:
-#         if species in tile['properties']['species']:
-#             count += 1
-
-#     return count
-
 def get_all_species_observation_counts(tiles, selected_species):
     species_observations_counts = {species: 0 for species in selected_species}
 
@@ -80,25 +71,6 @@ def get_all_species_observation_counts(tiles, selected_species):
                 species_observations_counts[species] += 1
 
     return species_observations_counts
-
-# def get_species_with_right_count(tiles, selected_species):
-#     species_with_right_count = []
-#     count_too_many_observations = 0
-#     count_too_few_observations = 0
-#     species_observations_counts = get_all_species_observation_counts(tiles, selected_species)
-
-#     for species in selected_species:
-#         if species_observations_counts[species] > num_observations_per_species:
-#             count_too_many_observations += 1
-#         elif species_observations_counts[species] < num_observations_per_species:
-#             count_too_few_observations += 1
-#         else:
-#             species_with_right_count.append(species)
-
-#     print(count_too_many_observations, 'with too many observations')
-#     print(count_too_few_observations, 'with too few observations')
-
-#     return species_with_right_count
 
 def get_species_with_minimum_count(tiles, selected_species):
     species_with_minimum_count = []
@@ -122,6 +94,11 @@ def get_rectangle_center(coords):
     return [center_x, center_y]
 
 def generate_species_tiles():
+    start_time = time.time()
+
+    os.makedirs('species/tiles', exist_ok=True)
+    os.makedirs('species/figures', exist_ok=True)
+
     # collect species with some minimum number of observations
     observations_2020 = pd.read_csv(f'{data_dir_path}/sinr-data/observations_2020.csv', usecols=['latitude', 'longitude', 'taxon_id', 'month']) # reads in the 2020 data
     num_observations = len(observations_2020) # gets the total number of observations
@@ -134,14 +111,6 @@ def generate_species_tiles():
     species_enough_observations = species_count['species'].tolist()
     print(f'{len(species_enough_observations)} species with at least {minimum_observation_count} observations')
 
-    # if os.path.exists('scratch-output/species_enough_observations.json'):
-    #     with open('scratch-output/species_enough_observations.json', 'r') as file:
-    #         old_species_enough_observations = json.load(file)
-    #         print(f'Same set of species with at least {minimum_observation_count} observations: {species_enough_observations == old_species_enough_observations}')
-
-    # with open('scratch-output/species_enough_observations.json', 'w') as file:
-    #     json.dump(species_enough_observations, file)
-
     # select species with the highest geographic spread in their observations
     observations_species_enough_observations = observations_2020[observations_2020['species'].isin(species_enough_observations)] # observations for species with at least 300 observations
     species_spread = observations_species_enough_observations.groupby('species')[['longitude', 'latitude']].apply(calculate_spread).reset_index(name='spread') # calculates geographic spread of each species' observations
@@ -150,14 +119,6 @@ def generate_species_tiles():
     species_count = species_count.sort_values(by='count', ascending=False) # sorts the species in descending order by count
     selected_species = species_count['species'].tolist() # gets species selected by above filtering procedure
     print(f'{len(selected_species)} species with top geographic spread')
-
-    # if os.path.exists('scratch-output/species_top_spread.json'):
-    #     with open('scratch-output/species_top_spread.json', 'r') as file:
-    #         old_species_top_spread = json.load(file)
-    #         print(f'Same set of species with top spread: {selected_species == old_species_top_spread}')
-
-    # with open('scratch-output/species_top_spread.json', 'w') as file:
-    #     json.dump(list(species_count['species']), file)
 
     # plot count per species
     fig, ax = plt.subplots(dpi=300)
@@ -177,27 +138,24 @@ def generate_species_tiles():
     print(np.array(list(selected_observations_dict.values())).shape)
     print(f'{len(tiles)} tiles before removing overlaps')
 
-    # save all the tiles as a GeoJSON
-    geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
+    utils.save_geojson(features=tiles, path='species/tiles/species_tiles_overlapping.geojson') # saves all the tiles as a GeoJSON
 
-    with open('tiles/species/species_tiles_overlapping.geojson', 'w') as file:
-        json.dump(geojson_collection, file, indent=4)
+    # geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
 
-    # remove overlapping tiles
-    tiles = utils.remove_overlapping_tiles(tiles)
+    # with open('tiles/species/species_tiles_overlapping.geojson', 'w') as file:
+    #     json.dump(geojson_collection, file, indent=4)
+
+    tiles = utils.remove_overlapping_tiles(tiles) # removes overlapping tiles
     print(f'{len(tiles)} tiles after removing overlaps')
 
-    # only keep species with some minimum number of observations
     species_to_keep = get_species_with_minimum_count(tiles, selected_species)
     tiles = [tile for tile in tiles if tile['properties']['species'] in species_to_keep]
     print(f'{len(tiles)} tiles after removing species with too few observations')
 
-    # randomly select 100 species to keep
     species_to_keep = random.sample(species_to_keep, 100)
     tiles = [tile for tile in tiles if tile['properties']['species'] in species_to_keep]
     print(f'{len(tiles)} tiles after selecting {len(species_to_keep)} random species')
 
-    # ensure each species has the desired number of observations
     tiles = list(itertools.chain(*[random.sample([tile for tile in tiles if tile['properties']['species'] == species], num_observations_per_species) for species in species_to_keep]))
     print(f'{len(tiles)} tiles after ensuring each species has {num_observations_per_species} observations')
 
@@ -208,7 +166,7 @@ def generate_species_tiles():
 
     for tile in tiles:
         month = tile['properties']['month']
-        tile['properties']['main_species'] = tile['properties']['species']
+        tile['properties']['main_species'] = tile['properties']['species'] # the tile is centered on the main species' observation
 
         if month > 1 and month < 12:
             allowed_months = [month-1, month, month+1]
@@ -217,32 +175,29 @@ def generate_species_tiles():
         elif month == 12:
             allowed_months = [11, month, 1]
 
-        observations_in_tile = observations_selected_species_gdf[observations_selected_species_gdf.within(tile['geometry'])]
-        observations_in_tile_filtered = observations_in_tile[observations_in_tile['month'].isin(allowed_months)]
-        tile['properties']['species'] = list(observations_in_tile_filtered['species'].unique())
-
-    # get_species_with_minimum_count(tiles, selected_species)
+        observations_in_tile = observations_selected_species_gdf[observations_selected_species_gdf.within(tile['geometry'])] # gets observations in the tile
+        observations_in_tile_filtered = observations_in_tile[observations_in_tile['month'].isin(allowed_months)] # keeps observations within one month of the main species'
+        tile['properties']['species'] = list(observations_in_tile_filtered['species'].unique()) # saves all relevant species to the tile
 
     # plot species observation counts
     fig, ax = plt.subplots(dpi=300)
     ax.bar(species_to_keep, get_all_species_observation_counts(tiles, species_to_keep).values())
     ax.set_ylabel('Count')
     plt.xticks(rotation=90, fontsize=4)
-    # plt.savefig('figures/species_observation_counts.pdf', bbox_inches='tight', pad_inches=0.1, transparent=False)
-    plt.savefig('figures/species_observation_counts.png', bbox_inches='tight', pad_inches=0.1, transparent=False)
+    plt.savefig('species/figures/species_observation_counts.pdf', bbox_inches='tight', pad_inches=0.1, transparent=False)
+    plt.savefig('species/figures/species_observation_counts.png', bbox_inches='tight', pad_inches=0.1, transparent=False)
 
     random.shuffle(tiles) # shuffles the tiles list
-    tiles = [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': mapping(tile['geometry']), 'id': i} for i, tile in enumerate(tiles)]
-
+    tiles = [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': mapping(tile['geometry']), 'id': i} for i, tile in enumerate(tiles)] # gives each tile an ID
     print(f'{len(tiles)} tiles, {len(species_to_keep)} species')
 
+    utils.save_geojson(features=tiles, path='species/tiles/species_tiles.geojson') # saves all the tiles as a GeoJSON
+
     # save the tiles as a GeoJSON
-    os.makedirs('species/tiles', exist_ok=True)
+    # geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
 
-    geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
-
-    with open('tiles/species/species_tiles.geojson', 'w') as file:
-        json.dump(geojson_collection, file, indent=4)
+    # with open('tiles/species/species_tiles.geojson', 'w') as file:
+    #     json.dump(geojson_collection, file, indent=4)
 
     # save list of species as a CSV
     with open('species/species.csv', 'w', newline='') as file:
@@ -251,22 +206,30 @@ def generate_species_tiles():
         for species in species_to_keep:
             writer.writerow([species])
 
-    tiles_dict = {species: [get_rectangle_center(tile['geometry']['coordinates'][0]) for tile in tiles if species in tile['properties']['species']] for species in species_to_keep}
-    os.makedirs('species/figures', exist_ok=True)
+    # tiles_dict = {species: [get_rectangle_center(tile['geometry']['coordinates'][0]) for tile in tiles if species in tile['properties']['species']] for species in species_to_keep}
+
     fig = plt.figure(dpi=300)
     ax = plt.axes(projection=ccrs.PlateCarree())
     ax.set_title('Species')
     ax.add_feature(cfeature.BORDERS, linestyle='-', linewidth=0.5)
     ax.add_feature(cfeature.COASTLINE)
 
-    for species in species_to_keep:
-        for observation in tiles_dict[species]:
-            lon, lat = observation
-            plt.plot(lon, lat, marker='o', color='red', markersize=0.3, transform=ccrs.PlateCarree())
+    # for species in species_to_keep:
+    #     for observation in tiles_dict[species]:
+    #         lon, lat = observation
+    #         plt.plot(lon, lat, marker='o', color='red', markersize=0.3, transform=ccrs.PlateCarree())
+
+    tile_centers = [utils.get_rectangle_center(tile['geometry']['coordinates'][0]) for tile in tiles]
+
+    for point in tile_centers:
+        lon, lat = point
+        plt.plot(lon, lat, marker='o', color='r', markeredgewidth=0, markersize=0.7, transform=ccrs.PlateCarree())
 
     ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
-    plt.savefig('species/figures/map-species.pdf', bbox_inches='tight')
-    plt.savefig('species/figures/map-species.png', bbox_inches='tight')
+    plt.savefig('species/figures/species-map.pdf', bbox_inches='tight')
+    plt.savefig('species/figures/species-map.png', bbox_inches='tight')
+
+    print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
 if __name__ == '__main__':
     if not os.path.exists(f'{data_dir_path}/sinr-data/observations_2020.csv'):
