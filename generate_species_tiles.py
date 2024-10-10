@@ -1,6 +1,5 @@
 '''
 generate_species_tiles.py by Lucia Gordon
-Need 100GB? RAM to run this file
 '''
 
 # imports
@@ -9,6 +8,7 @@ from shapely.geometry import mapping, MultiPoint, Point, Polygon
 from sys import argv
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import csv
 import ee
 import geemap
 import geopandas as gpd
@@ -25,7 +25,6 @@ import time
 import utils
 
 ee.Initialize(project='mmearth-bench') # initializes EE with our project
-os.makedirs('figures', exist_ok=True)
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
 num_observations_per_species = 200
 
@@ -82,24 +81,24 @@ def get_all_species_observation_counts(tiles, selected_species):
 
     return species_observations_counts
 
-def get_species_with_right_count(tiles, selected_species):
-    species_with_right_count = []
-    count_too_many_observations = 0
-    count_too_few_observations = 0
-    species_observations_counts = get_all_species_observation_counts(tiles, selected_species)
+# def get_species_with_right_count(tiles, selected_species):
+#     species_with_right_count = []
+#     count_too_many_observations = 0
+#     count_too_few_observations = 0
+#     species_observations_counts = get_all_species_observation_counts(tiles, selected_species)
 
-    for species in selected_species:
-        if species_observations_counts[species] > num_observations_per_species:
-            count_too_many_observations += 1
-        elif species_observations_counts[species] < num_observations_per_species:
-            count_too_few_observations += 1
-        else:
-            species_with_right_count.append(species)
+#     for species in selected_species:
+#         if species_observations_counts[species] > num_observations_per_species:
+#             count_too_many_observations += 1
+#         elif species_observations_counts[species] < num_observations_per_species:
+#             count_too_few_observations += 1
+#         else:
+#             species_with_right_count.append(species)
 
-    print(count_too_many_observations, 'with too many observations')
-    print(count_too_few_observations, 'with too few observations')
+#     print(count_too_many_observations, 'with too many observations')
+#     print(count_too_few_observations, 'with too few observations')
 
-    return species_with_right_count
+#     return species_with_right_count
 
 def get_species_with_minimum_count(tiles, selected_species):
     species_with_minimum_count = []
@@ -135,13 +134,13 @@ def generate_species_tiles():
     species_enough_observations = species_count['species'].tolist()
     print(f'{len(species_enough_observations)} species with at least {minimum_observation_count} observations')
 
-    if os.path.exists('scratch-output/species_enough_observations.json'):
-        with open('scratch-output/species_enough_observations.json', 'r') as file:
-            old_species_enough_observations = json.load(file)
-            print(f'Same set of species with at least {minimum_observation_count} observations: {species_enough_observations == old_species_enough_observations}')
+    # if os.path.exists('scratch-output/species_enough_observations.json'):
+    #     with open('scratch-output/species_enough_observations.json', 'r') as file:
+    #         old_species_enough_observations = json.load(file)
+    #         print(f'Same set of species with at least {minimum_observation_count} observations: {species_enough_observations == old_species_enough_observations}')
 
-    with open('scratch-output/species_enough_observations.json', 'w') as file:
-        json.dump(species_enough_observations, file)
+    # with open('scratch-output/species_enough_observations.json', 'w') as file:
+    #     json.dump(species_enough_observations, file)
 
     # select species with the highest geographic spread in their observations
     observations_species_enough_observations = observations_2020[observations_2020['species'].isin(species_enough_observations)] # observations for species with at least 300 observations
@@ -152,13 +151,13 @@ def generate_species_tiles():
     selected_species = species_count['species'].tolist() # gets species selected by above filtering procedure
     print(f'{len(selected_species)} species with top geographic spread')
 
-    if os.path.exists('scratch-output/species_top_spread.json'):
-        with open('scratch-output/species_top_spread.json', 'r') as file:
-            old_species_top_spread = json.load(file)
-            print(f'Same set of species with top spread: {selected_species == old_species_top_spread}')
+    # if os.path.exists('scratch-output/species_top_spread.json'):
+    #     with open('scratch-output/species_top_spread.json', 'r') as file:
+    #         old_species_top_spread = json.load(file)
+    #         print(f'Same set of species with top spread: {selected_species == old_species_top_spread}')
 
-    with open('scratch-output/species_top_spread.json', 'w') as file:
-        json.dump(list(species_count['species']), file)
+    # with open('scratch-output/species_top_spread.json', 'w') as file:
+    #     json.dump(list(species_count['species']), file)
 
     # plot count per species
     fig, ax = plt.subplots(dpi=300)
@@ -174,14 +173,14 @@ def generate_species_tiles():
     selected_observations_dict = {species: random.sample(observations_selected_species_dict[species], minimum_observation_count) for species in selected_species} # samples a minimum number of observations per species
     TILE_SIZE = utils.read_yaml('config.yml')['TILE_SIZE']
     tiles = np.concatenate([ee.FeatureCollection([ee.Feature(ee.Geometry.Point([observation[1], observation[2]]).buffer(TILE_SIZE / 2).bounds()).set({'species': species, 'month': observation[0]}) for observation in selected_observations_dict[species]]).getInfo()['features'] for species in selected_species])
-    tiles = [{**{key: value for key, value in tile.items() if key != 'id'}} for tile in tiles]
+    tiles = [{**{key: value for key, value in tile.items() if key != 'id'}} for tile in tiles] # removes ID
     print(np.array(list(selected_observations_dict.values())).shape)
     print(f'{len(tiles)} tiles before removing overlaps')
 
     # save all the tiles as a GeoJSON
     geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
 
-    with open('tiles/species/species_tiles_all.geojson', 'w') as file:
+    with open('tiles/species/species_tiles_overlapping.geojson', 'w') as file:
         json.dump(geojson_collection, file, indent=4)
 
     # remove overlapping tiles
@@ -204,16 +203,6 @@ def generate_species_tiles():
 
     # record all species occurring in the tiles
     observations_selected_species_df = observations_selected_species_df[observations_selected_species_df['species'].isin(species_to_keep)]
-    # observations_df = pd.DataFrame()
-
-    # for species in species_to_keep:
-    #     species_observations_df = observations_selected_species_df[observations_selected_species_df['species'] == species]
-
-    #     if len(species_observations_df) >= num_observations_per_species:
-    #         observations_df = pd.concat([observations_df, species_observations_df.sample(n=num_observations_per_species)], ignore_index=True)
-    #     else:
-    #         observations_df = pd.concat([observations_df, species_observations_df], ignore_index=True)
-
     observations_selected_species_df['geometry'] = observations_selected_species_df.apply(lambda row: Point(row['longitude'], row['latitude']), axis=1) # adds a geometry column
     observations_selected_species_gdf = gpd.GeoDataFrame(observations_selected_species_df, geometry='geometry') # creates a GeoDataFrame for all the observations for the selected species
 
@@ -232,7 +221,7 @@ def generate_species_tiles():
         observations_in_tile_filtered = observations_in_tile[observations_in_tile['month'].isin(allowed_months)]
         tile['properties']['species'] = list(observations_in_tile_filtered['species'].unique())
 
-    get_species_with_minimum_count(tiles, selected_species)
+    # get_species_with_minimum_count(tiles, selected_species)
 
     # plot species observation counts
     fig, ax = plt.subplots(dpi=300)
@@ -242,19 +231,28 @@ def generate_species_tiles():
     # plt.savefig('figures/species_observation_counts.pdf', bbox_inches='tight', pad_inches=0.1, transparent=False)
     plt.savefig('figures/species_observation_counts.png', bbox_inches='tight', pad_inches=0.1, transparent=False)
 
-    random.shuffle(tiles) # shuffling the tiles list
+    random.shuffle(tiles) # shuffles the tiles list
     tiles = [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': mapping(tile['geometry']), 'id': i} for i, tile in enumerate(tiles)]
 
     print(f'{len(tiles)} tiles, {len(species_to_keep)} species')
 
-    os.makedirs('tiles/species', exist_ok=True)
+    # save the tiles as a GeoJSON
+    os.makedirs('species/tiles', exist_ok=True)
+
     geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
 
     with open('tiles/species/species_tiles.geojson', 'w') as file:
-        json.dump(geojson_collection, file, indent=4) # save the tiles as a GeoJSON
+        json.dump(geojson_collection, file, indent=4)
+
+    # save list of species as a CSV
+    with open('species/species.csv', 'w', newline='') as file:
+        writer = csv.writer(file)
+
+        for species in species_to_keep:
+            writer.writerow([species])
 
     tiles_dict = {species: [get_rectangle_center(tile['geometry']['coordinates'][0]) for tile in tiles if species in tile['properties']['species']] for species in species_to_keep}
-
+    os.makedirs('species/figures', exist_ok=True)
     fig = plt.figure(dpi=300)
     ax = plt.axes(projection=ccrs.PlateCarree())
     ax.set_title('Species')
@@ -267,8 +265,8 @@ def generate_species_tiles():
             plt.plot(lon, lat, marker='o', color='red', markersize=0.3, transform=ccrs.PlateCarree())
 
     ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
-    # plt.savefig(f'figures/map-{species}.pdf', bbox_inches='tight')
-    plt.savefig('figures/map-species.png', bbox_inches='tight')
+    plt.savefig('species/figures/map-species.pdf', bbox_inches='tight')
+    plt.savefig('species/figures/map-species.png', bbox_inches='tight')
 
 if __name__ == '__main__':
     if not os.path.exists(f'{data_dir_path}/sinr-data/observations_2020.csv'):
