@@ -3,24 +3,26 @@ generate_species_tiles.py by Lucia Gordon
 '''
 
 # imports
+from bs4 import BeautifulSoup
+from PIL import Image
 from pyproj import Geod
-from shapely.geometry import mapping, MultiPoint, Point, Polygon
+from shapely.geometry import mapping, MultiPoint, Point
 from sys import argv
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
+# import cartopy.crs as ccrs
+# import cartopy.feature as cfeature
 import csv
 import ee
-import geemap
+# import geemap
 import geopandas as gpd
 import itertools
 import json
-import math
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
 import random
 import requests
+import subprocess
 import time
 import utils
 
@@ -84,14 +86,14 @@ def get_species_with_minimum_count(tiles, selected_species):
 
     return species_with_minimum_count
 
-def get_rectangle_center(coords):
-    x_coords = [coord[0] for coord in coords]
-    y_coords = [coord[1] for coord in coords]
+# def get_rectangle_center(coords):
+#     x_coords = [coord[0] for coord in coords]
+#     y_coords = [coord[1] for coord in coords]
 
-    center_x = sum(x_coords) / len(x_coords)
-    center_y = sum(y_coords) / len(y_coords)
+#     center_x = sum(x_coords) / len(x_coords)
+#     center_y = sum(y_coords) / len(y_coords)
 
-    return [center_x, center_y]
+#     return [center_x, center_y]
 
 def generate_species_tiles():
     start_time = time.time()
@@ -140,11 +142,6 @@ def generate_species_tiles():
 
     utils.save_geojson(features=tiles, path='species/tiles/species_tiles_overlapping.geojson') # saves all the tiles as a GeoJSON
 
-    # geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
-
-    # with open('tiles/species/species_tiles_overlapping.geojson', 'w') as file:
-    #     json.dump(geojson_collection, file, indent=4)
-
     tiles = utils.remove_overlapping_tiles(tiles) # removes overlapping tiles
     print(f'{len(tiles)} tiles after removing overlaps')
 
@@ -182,7 +179,7 @@ def generate_species_tiles():
     # plot species observation counts
     fig, ax = plt.subplots(dpi=300)
     ax.bar(species_to_keep, get_all_species_observation_counts(tiles, species_to_keep).values())
-    ax.set_ylabel('Count')
+    ax.set_ylabel('Observation count')
     plt.xticks(rotation=90, fontsize=4)
     plt.savefig('species/figures/species_observation_counts.pdf', bbox_inches='tight', pad_inches=0.1, transparent=False)
     plt.savefig('species/figures/species_observation_counts.png', bbox_inches='tight', pad_inches=0.1, transparent=False)
@@ -193,12 +190,6 @@ def generate_species_tiles():
 
     utils.save_geojson(features=tiles, path='species/tiles/species_tiles.geojson') # saves all the tiles as a GeoJSON
 
-    # save the tiles as a GeoJSON
-    # geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
-
-    # with open('tiles/species/species_tiles.geojson', 'w') as file:
-    #     json.dump(geojson_collection, file, indent=4)
-
     # save list of species as a CSV
     with open('species/species.csv', 'w', newline='') as file:
         writer = csv.writer(file)
@@ -206,33 +197,87 @@ def generate_species_tiles():
         for species in species_to_keep:
             writer.writerow([species])
 
-    # tiles_dict = {species: [get_rectangle_center(tile['geometry']['coordinates'][0]) for tile in tiles if species in tile['properties']['species']] for species in species_to_keep}
+    utils.make_global_map(tiles=tiles, color='r', path='species/figures/species_map', title='Species')
 
-    fig = plt.figure(dpi=300)
-    ax = plt.axes(projection=ccrs.PlateCarree())
-    ax.set_title('Species')
-    ax.add_feature(cfeature.BORDERS, linestyle='-', linewidth=0.5)
-    ax.add_feature(cfeature.COASTLINE)
+    # fig = plt.figure(dpi=300)
+    # ax = plt.axes(projection=ccrs.PlateCarree())
+    # ax.set_title('Species')
+    # ax.add_feature(cfeature.BORDERS, linestyle='-', linewidth=0.5)
+    # ax.add_feature(cfeature.COASTLINE)
 
-    # for species in species_to_keep:
-    #     for observation in tiles_dict[species]:
-    #         lon, lat = observation
-    #         plt.plot(lon, lat, marker='o', color='red', markersize=0.3, transform=ccrs.PlateCarree())
+    # tile_centers = [utils.get_rectangle_center(tile['geometry']['coordinates'][0]) for tile in tiles]
 
-    tile_centers = [utils.get_rectangle_center(tile['geometry']['coordinates'][0]) for tile in tiles]
+    # for point in tile_centers:
+    #     lon, lat = point
+    #     plt.plot(lon, lat, marker='o', color='r', markeredgewidth=0, markersize=0.7, transform=ccrs.PlateCarree())
 
-    for point in tile_centers:
-        lon, lat = point
-        plt.plot(lon, lat, marker='o', color='r', markeredgewidth=0, markersize=0.7, transform=ccrs.PlateCarree())
-
-    ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
-    plt.savefig('species/figures/species-map.pdf', bbox_inches='tight')
-    plt.savefig('species/figures/species-map.png', bbox_inches='tight')
+    # ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
+    # plt.savefig('species/figures/species-map.pdf', bbox_inches='tight')
+    # plt.savefig('species/figures/species-map.png', bbox_inches='tight')
 
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
+
+def get_wikipedia_url(species):
+    print('Wikipedia image')
+    wikipedia_page_url = f'https://en.wikipedia.org/wiki/{species.replace(' ', '_')}' # URL for the Wikipedia page with the given title
+    response = requests.get(wikipedia_page_url, headers={'User-Agent': 'LuciaGordon (https://lgordon99.github.io; luciagordon@g.harvard.edu)'})
+    soup = BeautifulSoup(response.content, 'html.parser')
+    url = f'https:{soup.find("table", {"class": "infobox"}).find("img")["src"]}'
+
+    return url
+
+def get_url(species):
+    print(species)
+    species_metadata = utils.read_json(f'{data_dir_path}/sinr-data/train/geo_prior_train_meta.json')
+    metadata = next(item for item in species_metadata if item['latin_name'] == species)
+
+    if 'amazon' in metadata['default_photo']:
+        url = metadata['default_photo']
+        print(url)
+        try:
+            subprocess.run(['wget', url, '-O', f'species/figures/species_images/{species}.jpg'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # subprocess.run(['wget', url, '-O', f'species/figures/species_images/{species}.jpg'])
+            image = Image.open(f'species/figures/species_images/{species}.jpg')
+        except:
+            url = get_wikipedia_url(species)
+    else:
+        url = get_wikipedia_url(species)
+
+    print(url)
+
+    return url
+
+def make_species_grid():
+    os.makedirs('species/figures/species_images', exist_ok=True)
+
+    species_list = pd.read_csv('species/species.csv', header=None).values.tolist()
+
+    for species in species_list:
+        species = species[0]
+        url = get_url(species)
+        subprocess.run(['wget', url, '-O', f'species/figures/species_images/{species}.jpg'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    fig, axes = plt.subplots(10, 10, figsize=(15, 15))
+    fig.subplots_adjust(hspace=0.5)
+
+    for i, ax in enumerate(axes.flat):
+        if i < len(species_list):
+            image = Image.open(f'species/figures/species_images/{species_list[i][0]}.jpg')
+            ax.imshow(image)
+
+        ax.axis('off')
+        ax.set_title(species_list[i][0], fontsize=8)
+
+    plt.tight_layout()
+    plt.savefig('species/figures/species_grid.pdf', bbox_inches='tight')
+    plt.savefig('species/figures/species_grid.png', bbox_inches='tight')
 
 if __name__ == '__main__':
     if not os.path.exists(f'{data_dir_path}/sinr-data/observations_2020.csv'):
         save_2020_observations()
 
-    generate_species_tiles()
+    if len(argv) > 1:
+        if argv[1] == 'generate_species_tiles':
+            generate_species_tiles() # takes around 21 minutes
+        elif argv[1] == 'make_species_grid':
+            make_species_grid()
