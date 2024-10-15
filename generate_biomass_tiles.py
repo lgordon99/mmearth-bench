@@ -77,7 +77,7 @@ def get_biomass_tile_counts():
 
 def check_asset_existence(asset):
     try:
-        var = asset.getInfo()
+        asset_data = asset.getInfo()
 
         return asset
     except ee.ee_exception.EEException as e:
@@ -85,14 +85,8 @@ def check_asset_existence(asset):
             print(e)
 
             return None
-        else:
+        else: # for any other kind of error
             return asset
-
-# def save_tiles(tiles, path):
-#     with open(path, 'w') as file:
-#         json.dump({'type': 'FeatureCollection', 'features': tiles}, file, indent=4) # save the tiles as a GeoJSON
-
-#     print(f'{len(tiles)} tile(s) made')
 
 def generate_ecoregion_tiles(biome, ecoregion, num_ecoregion_tiles, tiles_from_points=True):
     start_time = time.time()
@@ -147,7 +141,7 @@ def generate_biomass_tiles(tiles_from_points=True):
     start_time = time.time()
     biomes_ecoregions = utils.read_json('biomes_ecoregions_data/biomes_ecoregions_biomass.json')
     biomes = biomes_ecoregions.keys()
-    hours = 2 if tiles_from_points else 10
+    hours = 2 if tiles_from_points else 12
     os.makedirs('biomass/tiles/ecoregion_tiles', exist_ok=True)
 
     print(f'{len(biomes)} biomes')
@@ -177,6 +171,8 @@ def generate_biomass_tiles(tiles_from_points=True):
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
 def merge_ecoregion_tiles():
+    os.makedirs('biomass/figures', exist_ok=True)
+
     ecoregion_tile_filenames = os.listdir('biomass/tiles/ecoregion_tiles')
     tiles = []
 
@@ -189,29 +185,30 @@ def merge_ecoregion_tiles():
     tiles = utils.remove_overlapping_tiles(tiles) # removes overlapping tiles
 
     random.shuffle(tiles) # shuffles the tiles list
-    tiles = [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': mapping(tile['geometry']), 'id': i} for i, tile in enumerate(tiles)]
+    tiles = [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': mapping(tile['geometry']), 'id': i} for i, tile in enumerate(tiles)] # assigns each tile an ID
 
-    utils.save_geojson(features=tiles, path='biomass/tiles/biomass_tiles.geojson')
+    utils.save_geojson(features=tiles, path='biomass/tiles/biomass_tiles.geojson') # saves the tiles
+    utils.make_global_map(tiles=tiles, color='g', path='biomass/figures/biomass_map', title='Biomass') # plots the points on a global map
 
-    tile_centers = []
+    # tile_centers = []
 
-    for tile in tiles:
-        tile_centers.append(utils.get_rectangle_center(tile['geometry']['coordinates'][0]))
+    # for tile in tiles:
+    #     tile_centers.append(utils.get_rectangle_center(tile['geometry']['coordinates'][0]))
 
-    print(len(tile_centers))
+    # print(len(tile_centers))
 
-    fig = plt.figure(dpi=300)
-    ax = plt.axes(projection=ccrs.PlateCarree())
-    ax.add_feature(cfeature.BORDERS, linestyle='-', linewidth=0.5)
-    ax.add_feature(cfeature.COASTLINE)
+    # fig = plt.figure(dpi=300)
+    # ax = plt.axes(projection=ccrs.PlateCarree())
+    # ax.add_feature(cfeature.BORDERS, linestyle='-', linewidth=0.5)
+    # ax.add_feature(cfeature.COASTLINE)
 
-    for observation in tile_centers:
-        lon, lat = observation
-        plt.plot(lon, lat, marker='o', color='green', markeredgewidth=0, markersize=0.7, transform=ccrs.PlateCarree())
+    # for observation in tile_centers:
+    #     lon, lat = observation
+    #     plt.plot(lon, lat, marker='o', color='green', markeredgewidth=0, markersize=0.7, transform=ccrs.PlateCarree())
 
-    ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
-    plt.savefig('biomass/figures/biomass_map.pdf', bbox_inches='tight')
-    plt.savefig('biomass/figures/biomass_map.png', bbox_inches='tight')
+    # ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
+    # plt.savefig('biomass/figures/biomass_map.pdf', bbox_inches='tight')
+    # plt.savefig('biomass/figures/biomass_map.png', bbox_inches='tight')
 
 def check_biomass_tiles():
     biomes_ecoregions = utils.read_json('biomes_ecoregions_data/biomes_ecoregions_biomass.json')
@@ -234,6 +231,10 @@ def check_biomass_tiles():
                 print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion} tiles do not exist')
 
                 num_missing_ecoregions += 1
+
+                with open(f'bash-errors/{biome}/{biome}-{ecoregion}.err', 'r') as file:
+                    print(file.read().split('\n')[-2])
+
             elif len(utils.read_geojson(path)['features']) < num_ecoregion_tiles:
                 print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion} is missing tiles')
 
