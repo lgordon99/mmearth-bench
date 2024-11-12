@@ -17,6 +17,8 @@ import subprocess
 import time
 import utils
 
+import csv
+
 ee.Initialize(project='mmearth-bench') # initializes EE with our project
 env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
 partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
@@ -88,11 +90,7 @@ def check_asset_existence(asset):
         else: # for any other kind of error
             return asset
 
-def generate_ecoregion_tiles(biome, ecoregion, num_ecoregion_tiles, tiles_from_points=True):
-    start_time = time.time()
-
-    print(f'{num_ecoregion_tiles} tile(s) in ecoregion')
-
+def get_gedi_points(ecoregion):
     year = '2020'
     gedi_feature_collection = (ee.FeatureCollection('LARSE/GEDI/GEDI04_A_002_INDEX') # table index
                                  .filter(f'time_start >= "{year}-01-01" && time_end <= "{year}-12-31"')) # get feature collections with features in the selected year
@@ -110,6 +108,32 @@ def generate_ecoregion_tiles(biome, ecoregion, num_ecoregion_tiles, tiles_from_p
                     .filter(quality_filter) # filters for quality, growing season, and land
                     .map(lambda point: point.set('off_minus_on', ee.Number(point.get('leaf_off_doy')).subtract(ee.Number(point.get('leaf_on_doy'))))) # adds property for difference between leaf off and on days
                     .filter(ee.Filter.gt('off_minus_on', 0))) # only keeps points with leaf off after leaf on
+
+    return ecoregion_collection, gedi_points
+
+def generate_ecoregion_tiles(biome, ecoregion, num_ecoregion_tiles, tiles_from_points=True):
+    start_time = time.time()
+
+    print(f'{num_ecoregion_tiles} tile(s) in ecoregion')
+
+    # year = '2020'
+    # gedi_feature_collection = (ee.FeatureCollection('LARSE/GEDI/GEDI04_A_002_INDEX') # table index
+    #                              .filter(f'time_start >= "{year}-01-01" && time_end <= "{year}-12-31"')) # get feature collections with features in the selected year
+    # ecoregions_in_gedi_collection = get_ecoregions_in_gedi_collection()
+    # ecoregion_collection = ecoregions_in_gedi_collection.filter(ee.Filter.eq('ECO_NAME', ecoregion))
+    # gedi_collection_names = (gedi_feature_collection
+    #                          .filterBounds(ecoregion_collection) # get GEDI feature collections that have points within the ecoregion
+    #                          .aggregate_array('table_id') # extract the IDs of the feature collections
+    #                          .getInfo()) # list of names of the feature collections
+    # quality_filter = 'degrade_flag == 0 && l2_quality_flag == 1 && l4_quality_flag == 1 && leaf_off_flag == 0 && region_class > 0'
+    # gedi_points = (ee.FeatureCollection([result for collection_name, result in ((collection_name, check_asset_existence(ee.FeatureCollection(collection_name))) for collection_name in gedi_collection_names) if result is not None]) # all GEDI feature collections with points in the ecoregion
+    # # gedi_points = (ee.FeatureCollection([ee.FeatureCollection(collection_name) for collection_name in gedi_collection_names]) # all GEDI feature collections with points in the ecoregion
+    #                 .flatten() # merges all the feature collections into one
+    #                 .filterBounds(ecoregion_collection) # collection of the GEDI points that are within the ecoregion
+    #                 .filter(quality_filter) # filters for quality, growing season, and land
+    #                 .map(lambda point: point.set('off_minus_on', ee.Number(point.get('leaf_off_doy')).subtract(ee.Number(point.get('leaf_on_doy'))))) # adds property for difference between leaf off and on days
+    #                 .filter(ee.Filter.gt('off_minus_on', 0))) # only keeps points with leaf off after leaf on
+    ecoregion_collection, gedi_points = get_gedi_points(ecoregion)
     path = f'biomass/tiles/ecoregion_tiles/biome_{biome.replace("/", "_")}_ecoregion_{ecoregion.replace("/", "_")}_biomass_tiles.geojson'
     tiles = utils.read_geojson(path)['features'] if os.path.exists(path) else []
     TILE_SIZE = utils.read_yaml('config.yml')['TILE_SIZE']
@@ -133,40 +157,106 @@ def generate_ecoregion_tiles(biome, ecoregion, num_ecoregion_tiles, tiles_from_p
             candidate_tiles = ee.FeatureCollection.randomPoints(region=ecoregion_collection, points=num_ecoregion_tiles - len(tiles), seed=seed).map(lambda point: point.buffer(TILE_SIZE / 2).bounds()).getInfo()['features'] # generates random tiles in the ecoregion
             tiles += [{**{key: value for key, value in candidate_tile.items() if key != 'id'}, 'properties': {'biome': biome, 'ecoregion': ecoregion}} for candidate_tile in candidate_tiles if gedi_points.filterBounds(candidate_tile['geometry']).size().getInfo() > 0] # save the tiles with at least one GEDI point
             seed += 1
-            utils.save_geojson(tiles, path)
+
+        utils.save_geojson(tiles, path)
 
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
-def generate_biomass_tiles(tiles_from_points=True):
+def generate_biomass_tiles():
     start_time = time.time()
     biomes_ecoregions = utils.read_json('biomes_ecoregions_data/biomes_ecoregions_biomass.json')
     biomes = biomes_ecoregions.keys()
-    hours = 2 if tiles_from_points else 12
+    run = True
+    no_error_files = True
+    error_found = False
+    tiles_from_points = True
     os.makedirs('biomass/tiles/ecoregion_tiles', exist_ok=True)
 
     print(f'{len(biomes)} biomes')
+    # counts = []
 
-    for i, biome in enumerate(biomes):
-        print(f'Biome {i+1}/{len(biomes)}: {biome}')
+    while run:
+        while utils.count_running_jobs() > 1: # if jobs other than this are running
+            time.sleep(1) # checks again after 1 second
 
-        ecoregions = biomes_ecoregions[biome]['ecoregions'].keys()
-        # no_ecoregions_missing = True
+        for biome in biomes:
+            ecoregions = biomes_ecoregions[biome]['ecoregions'].keys()
 
-        for j, ecoregion in enumerate(ecoregions):
-            path = f'biomass/tiles/ecoregion_tiles/biome_{biome.replace("/", "_")}_ecoregion_{ecoregion.replace("/", "_")}_biomass_tiles.geojson'
-            num_ecoregion_tiles = biomes_ecoregions[biome]['ecoregions'][ecoregion]['num_tiles']
+            for ecoregion in ecoregions:
+                error_path = f'bash-errors/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.err'
 
-            if not os.path.exists(path) or len(utils.read_geojson(path)['features']) < num_ecoregion_tiles:
-                while utils.count_running_jobs() > 200: # if more than 200 jobs are running
-                    time.sleep(1) # checks again after 1 second
+                if os.path.exists(error_path): # if there is an error file
+                    no_error_files = False
 
-                print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion}')
-                # generate_ecoregion_tiles(biome, ecoregion, num_ecoregion_tiles, tiles_from_points)
-                subprocess.run(['sbatch', '-t', f'0-0{hours}:00:00', '-p', partitions, '-o', f'bash-outputs/{biome.replace("/", "_")}/{biome.replace("/", "_")}-{ecoregion.replace("/", "_")}.out', '-e', f'bash-errors/{biome.replace("/", "_")}/{biome.replace("/", "_")}-{ecoregion.replace("/", "_")}.err', 'job.sh', env_path, 'generate_biomass_tiles.py', 'generate_ecoregion_tiles', biome.replace(' ', '_'), ecoregion.replace(' ', '_'), str(num_ecoregion_tiles), str(tiles_from_points)])
-                # no_ecoregions_missing = False
+                    with open(error_path, 'r') as file: # opens error file
+                        if len(file.read()) > 0: # if there is an error
+                            error_found = True
+                            break
 
-        # if not no_ecoregions_missing:
-        #     time.sleep(hours*60*60) # seconds
+            if error_found:
+                break
+
+        if no_error_files or error_found:
+            for i, biome in enumerate(biomes):
+                print(f'Biome {i+1}/{len(biomes)}: {biome}')
+
+                ecoregions = biomes_ecoregions[biome]['ecoregions'].keys()
+
+                for j, ecoregion in enumerate(ecoregions):
+                    tiles_path = f'biomass/tiles/ecoregion_tiles/biome_{biome.replace("/", "_")}_ecoregion_{ecoregion.replace("/", "_")}_biomass_tiles.geojson'
+                    error_path = f'bash-errors/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.err'
+                    num_ecoregion_tiles = biomes_ecoregions[biome]['ecoregions'][ecoregion]['num_tiles']
+                    # count = utils.count_running_jobs()
+
+                    # if count > 40:
+                    #     counts.append(f'{count} - more than 40 jobs!')
+                    # else:
+                    #     counts.append(count)
+
+                    # with open('job_counts.csv', 'w', newline='') as file:
+                    #     writer = csv.writer(file)
+
+                    #     for item in counts:
+                    #         writer.writerow([item])
+
+                    if not os.path.exists(tiles_path): # if there is no tiles file saved
+                        if not os.path.exists(error_path): # if there is no error file
+                            tiles_from_points = True
+                        else: # if there is an error file
+                            with open(error_path, 'r') as file: # opens error file
+                                content = file.read()
+
+                                if len(content) > 0: # if there is an error
+                                    if 'Computation timed out' not in content:
+                                        tiles_from_points = True
+                                    else: # if the error is "computation timed out"
+                                        tiles_from_points = False
+
+                        while utils.count_running_jobs() > 40: # if more than 40 jobs are running
+                            time.sleep(1) # checks again after 1 second
+
+                    # if not os.path.exists(tiles_path) or len(utils.read_geojson(tiles_path)['features']) < num_ecoregion_tiles:
+                    #     while utils.count_running_jobs() > 40: # if more than 40 jobs are running
+                    #         time.sleep(1) # checks again after 1 second
+
+                        print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion}')
+                        hours = 3 if tiles_from_points else 24
+                        subprocess.run(['sbatch', '-t', f'0-0{hours}:00:00', '-p', partitions, '-o', f'bash-outputs/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.out', '-e', f'bash-errors/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.err', 'job.sh', env_path, 'generate_biomass_tiles.py', 'generate_ecoregion_tiles', biome.replace(' ', '_'), ecoregion.replace(' ', '_'), str(num_ecoregion_tiles), str(tiles_from_points)])
+                        time.sleep(50) # checks again after 50 seconds since there is a delay between the job being submitted and the job running
+        else:
+            run = False
+
+    # TODO: HAVE A WHILE LOOP WAITING UNTIL NO JOBS ARE RUNNING AND THEN CALL THE FUNCTION AGAIN? UNLESS NO FILES HAVE ERRORS
+    # while utils.count_running_jobs() > 0: # if jobs are still running
+    #     time.sleep(1) # checks again after 1 second
+
+    # for biome in biomes:
+    #     ecoregions = biomes_ecoregions[biome]['ecoregions'].keys()
+
+    #     for ecoregion in ecoregions:
+    #         with open(f'bash-errors/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.err', 'r') as file:
+    #             if len(file.read()) > 0:
+    #                 generate_biomass_tiles()
 
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
@@ -190,26 +280,6 @@ def merge_ecoregion_tiles():
     utils.save_geojson(features=tiles, path='biomass/tiles/biomass_tiles.geojson') # saves the tiles
     utils.make_global_map(tiles=tiles, color='g', path='biomass/figures/biomass_map', title='Biomass') # plots the points on a global map
 
-    # tile_centers = []
-
-    # for tile in tiles:
-    #     tile_centers.append(utils.get_rectangle_center(tile['geometry']['coordinates'][0]))
-
-    # print(len(tile_centers))
-
-    # fig = plt.figure(dpi=300)
-    # ax = plt.axes(projection=ccrs.PlateCarree())
-    # ax.add_feature(cfeature.BORDERS, linestyle='-', linewidth=0.5)
-    # ax.add_feature(cfeature.COASTLINE)
-
-    # for observation in tile_centers:
-    #     lon, lat = observation
-    #     plt.plot(lon, lat, marker='o', color='green', markeredgewidth=0, markersize=0.7, transform=ccrs.PlateCarree())
-
-    # ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
-    # plt.savefig('biomass/figures/biomass_map.pdf', bbox_inches='tight')
-    # plt.savefig('biomass/figures/biomass_map.png', bbox_inches='tight')
-
 def check_biomass_tiles():
     biomes_ecoregions = utils.read_json('biomes_ecoregions_data/biomes_ecoregions_biomass.json')
     biomes = biomes_ecoregions.keys()
@@ -228,24 +298,34 @@ def check_biomass_tiles():
             num_ecoregions += 1
 
             if not os.path.exists(path):
-                print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion} tiles do not exist')
-
                 num_missing_ecoregions += 1
 
-                with open(f'bash-errors/{biome}/{biome}-{ecoregion}.err', 'r') as file:
-                    print(file.read().split('\n')[-2])
+                # print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion} tiles do not exist ({num_ecoregion_tiles} tiles)')
+
+                with open(f'bash-errors/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.err', 'r') as file:
+                    content = file.read()
+
+                    if len(content) > 0:
+                        print(content.split('\n')[-2])
 
             elif len(utils.read_geojson(path)['features']) < num_ecoregion_tiles:
-                print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion} is missing tiles')
-
                 num_ecoregions_missing_tiles += 1
+                # _, gedi_points = get_gedi_points(ecoregion)
+
+                # with open(f'bash-errors/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.err', 'r') as file:
+                #     content = file.read()
+
+                #     if len(content) > 0:
+                #         print(content.split('\n')[-2])
+
+                # print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion} is missing tiles ({len(utils.read_geojson(path)['features'])}/{num_ecoregion_tiles} tile(s) made, {gedi_points.size().getInfo()} GEDI points)')
 
     print(f'{num_missing_ecoregions}/{num_ecoregions} ecoregions are missing')
     print(f'{num_ecoregions_missing_tiles}/{num_ecoregions} ecoregions are missing tiles')
 
 if __name__ == '__main__':
     if len(argv) == 1:
-        subprocess.run(['sbatch', '-t', '3-00:00:00', '-p', partitions, '-o', 'bash-outputs/generate_biomass_tiles_from_points.out', '-e', 'bash-errors/generate_biomass_tiles_from_points.err', 'job.sh', env_path, 'generate_biomass_tiles.py', 'generate_biomass_tiles'])
+        subprocess.run(['sbatch', '-t', '3-00:00:00', '-p', partitions, '-o', 'bash-outputs/generate_biomass_tiles.out', '-e', 'bash-errors/generate_biomass_tiles.err', 'job.sh', env_path, 'generate_biomass_tiles.py', 'generate_biomass_tiles'])
     else:
         if argv[1] == 'False': # tiles from points = False --> generate tiles randomly and check for points within tiles
             subprocess.run(['sbatch', '-t', '3-00:00:00', '-p', partitions, '-o', 'bash-outputs/generate_biomass_tiles_randomly.out', '-e', 'bash-errors/generate_biomass_tiles_randomly.err', 'job.sh', env_path, 'generate_biomass_tiles.py', 'generate_biomass_tiles', 'False'])
