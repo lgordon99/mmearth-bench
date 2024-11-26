@@ -21,7 +21,7 @@ import time
 import zipfile
 
 class EEData:
-    def __init__(self, tile, task, start_end_dates, biomass_points=None):
+    def __init__(self, tile, task, start_end_dates, task_values):
         start = time.time()
 
         self.tile = tile
@@ -43,7 +43,8 @@ class EEData:
         self.no_data = False
         self.era5_data = {}
         self.proj = ''
-        self.biomass_points = biomass_points
+        self.task_values = task_values
+        self.modality_returned_false = ''
 
         if 'biome' in list(tile['properties'].keys()):
             self.biome = tile['properties']['biome']
@@ -61,6 +62,7 @@ class EEData:
         for function_name in datasets: # series of function calls to get the data
             if getattr(self, function_name)() is False: # if the method returns False
                 self.no_data = True
+                self.modality_returned_false = function_name
                 print(f'{function_name} returned False')
 
                 break
@@ -172,8 +174,6 @@ class EEData:
         We choose the label band since that contains which of these labels were chosen.
         '''
 
-        # cfg = self.cfg['dynamic_world']
-        # data_name = cfg['name']
         year = self.s2_date.split('-')[0]
         start_date = f'{year}-01-01'
         end_date = f'{year}-12-31'
@@ -227,13 +227,16 @@ class EEData:
         self.modality_data['esa_worldcover'] = ee.ImageCollection('ESA/WorldCover/v100').first().clip(self.polygon).select('Map').reproject(self.proj).rename('ESA_Worldcover')
 
     def era5(self):
+        from dateutil.relativedelta import relativedelta
+
         collection = 'ECMWF/ERA5_LAND/MONTHLY_AGGR'
         bands = ['temperature_2m', 'temperature_2m_min', 'temperature_2m_max', 'total_precipitation_sum']
         year, month, _ = list(map(int, self.s2_date.split('-')))
         month_first_day = datetime(year, month, 1)
-        month_last_day = ((month_first_day + timedelta(days=32)).replace(day=1) - timedelta(days=1)).strftime('%Y-%m-%d')
-        last_month_first_day = datetime(year, month-1, 1)
-        last_month_last_day = ((last_month_first_day + timedelta(days=32)).replace(day=1) - timedelta(days=1)).strftime('%Y-%m-%d')
+        month_last_day = (month_first_day + relativedelta(months=1, days=-1)).strftime('%Y-%m-%d')
+        last_month = month - 1 if month > 1 else 12
+        last_month_first_day = datetime(year, last_month, 1)
+        last_month_last_day = (last_month_first_day + relativedelta(months=1, days=-1)).strftime('%Y-%m-%d')
         era5_month = (ee.ImageCollection(collection)
                           .filterDate(month_first_day, month_last_day)
                           .map(lambda image: image.clip(self.polygon))
@@ -265,7 +268,7 @@ class EEData:
     def biomass(self):
         '''Gets GEDI aboveground biomass data'''
 
-        image = ee.Image.constant(-9999).paint(self.biomass_points, 'agbd').reproject(self.proj) # image array with -9999 wherever there are no points, aligned with Sentinel-2
+        image = ee.Image.constant(-9999).paint(self.task_values, 'agbd').reproject(self.proj) # image array with -9999 wherever there are no points, aligned with Sentinel-2
         self.modality_data['biomass'] = image
 
     def save_tiff(self, image):
@@ -277,37 +280,45 @@ class EEData:
                                     'format': 'GeoTIFF',
                                     'bands': band_names})
         response = requests.get(url, stream=True, verify=certifi.where())
-        tiff_path = f'{self.task}/pixel_level_data/tile_{self.id}_pixel_level_data.tif'
+        tiff_path = f'{self.task}/data/tile_{self.id}_data.tif'
 
         with open(tiff_path, 'wb') as tiff: # writes in binary mode
             tiff.write(response.content)
 
+        while not os.path.exists(tiff_path):
+            time.sleep(1)
+
         with rasterio.open(tiff_path) as tiff:
             tags = tiff.tags()
-            tags.update({'climate_temperature_month_mean': self.era5_data['temperature_month_mean'],
-                         'climate_temperature_last_month_mean': self.era5_data['temperature_last_month_mean'],
-                         'climate_temperature_year_mean': self.era5_data['temperature_year_mean'],
-                         'climate_temperature_month_max': self.era5_data['temperature_month_max'],
-                         'climate_temperature_last_month_max': self.era5_data['temperature_last_month_max'],
-                         'climate_temperature_year_max': self.era5_data['temperature_year_max'],
-                         'climate_temperature_month_min': self.era5_data['temperature_month_min'],
-                         'climate_temperature_last_month_min': self.era5_data['temperature_last_month_min'],
-                         'climate_temperature_year_min': self.era5_data['temperature_year_min'],
-                         'climate_precipitation_month': self.era5_data['precipitation_month'],
-                         'climate_precipitation_last_month': self.era5_data['precipitation_last_month'],
-                         'climate_precipitation_year': self.era5_data['precipitation_year'],
-                         'latitude_sin': self.geolocation_encoding['lat_sin'],
-                         'latitude_cos': self.geolocation_encoding['lat_cos'],
-                         'longitude_sin': self.geolocation_encoding['lon_sin'],
-                         'longitude_cos': self.geolocation_encoding['lon_cos'],
-                         'month_sin': self.month_encoding['month_sin'],
-                         'month_cos': self.month_encoding['month_cos'],
-                         'biome': self.biome,
-                         'ecoregion': self.ecoregion,
-                         'crs': self.crs,
-                         'lat': self.lat,
-                         'lon': self.lon,
-                         's2_date': self.s2_date})
+            image_level_modalities = {'climate_temperature_month_mean': self.era5_data['temperature_month_mean'],
+                                      'climate_temperature_last_month_mean': self.era5_data['temperature_last_month_mean'],
+                                      'climate_temperature_year_mean': self.era5_data['temperature_year_mean'],
+                                      'climate_temperature_month_max': self.era5_data['temperature_month_max'],
+                                      'climate_temperature_last_month_max': self.era5_data['temperature_last_month_max'],
+                                      'climate_temperature_year_max': self.era5_data['temperature_year_max'],
+                                      'climate_temperature_month_min': self.era5_data['temperature_month_min'],
+                                      'climate_temperature_last_month_min': self.era5_data['temperature_last_month_min'],
+                                      'climate_temperature_year_min': self.era5_data['temperature_year_min'],
+                                      'climate_precipitation_month': self.era5_data['precipitation_month'],
+                                      'climate_precipitation_last_month': self.era5_data['precipitation_last_month'],
+                                      'climate_precipitation_year': self.era5_data['precipitation_year'],
+                                      'latitude_sin': self.geolocation_encoding['lat_sin'],
+                                      'latitude_cos': self.geolocation_encoding['lat_cos'],
+                                      'longitude_sin': self.geolocation_encoding['lon_sin'],
+                                      'longitude_cos': self.geolocation_encoding['lon_cos'],
+                                      'month_sin': self.month_encoding['month_sin'],
+                                      'month_cos': self.month_encoding['month_cos'],
+                                      'biome': self.biome,
+                                      'ecoregion': self.ecoregion,
+                                      'crs': self.crs,
+                                      'lat': self.lat,
+                                      'lon': self.lon,
+                                      's2_date': self.s2_date}
+
+            if isinstance(self.task_values, dict):
+                tags.update(image_level_modalities | self.task_values)
+            else:
+                tags.update(image_level_modalities)
 
             with rasterio.open(tiff_path, 'w', **tiff.meta) as updated_tiff:
                 updated_tiff.write(tiff.read())
