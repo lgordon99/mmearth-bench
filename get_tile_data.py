@@ -7,6 +7,7 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from ee_data import EEData
 from sys import argv
+import csv
 import ee
 import geojson
 import json
@@ -92,9 +93,21 @@ def get_modalities(task):
     start_time = time.time()
     os.makedirs(f'{task}/data', exist_ok=True)
     gj = utils.read_geojson(f'{task}/tiles/{task}_tiles.geojson') # reading the GeoJSON file
+    error_file_path = f'bash-errors/{task}_mmearth_modalities.err'
     start_tile = 0
+
+    if os.path.exists(error_file_path): # if error file exists
+        with open(error_file_path, 'r') as error_file:
+            error_content = error_file.read().replace('*** Earth Engine *** Share your feedback by taking our Annual Developer Satisfaction Survey: https://google.qualtrics.com/jfe/form/SV_0JLhFqfSY1uiEaW?source=Init\n', '')
+
+            if len(error_content) > 0: # if there is an error
+                with open(f'bash-outputs/{task}_mmearth_modalities.out', 'r') as out_file:
+                    out_file = out_file.read()
+                    start_tile = int(content.split('\n')[-2].split('/')[0].split(' ')[-1])
+
     end_tile = len(gj['features'])
     tiles_made = 0
+    tile_missing_modalities = []
 
     for tile_index in range(start_tile, end_tile):
         print(f'Processing tile {tile_index}/{end_tile-1}')
@@ -105,104 +118,24 @@ def get_modalities(task):
         if len(dates) > 0:
             ee_data = EEData(tile, task, dates, task_values)
 
+            if ee_data.no_data:
+                tile_missing_modalities.append([tile_index, ee_data.modality_returned_false])
+
+                with open(f'{task}/{task}_missing_modalities.csv', 'w', newline='') as file:
+                    writer = csv.writer(file)
+
+                    for row in tile_missing_modalities:
+                        writer.writerow(row)
+            else:
+                tiles_made += 1
+
     print(f'{tiles_made} tiles made')
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
-# def get_modalities_for_biomass():
-#     task = 'biomass'
-#     os.makedirs(f'{task}/pixel_level_data', exist_ok=True)
-#     gj = utils.read_geojson(f'{task}/tiles/{task}_tiles.geojson') # reading the GeoJSON file
-#     start_tile = 0
-#     end_tile = len(gj['features'])
-#     tiles_made = 0
-
-#     for tile_index in range(start_tile, end_tile):
-#         print(f'Processing tile {tile_index+1}/{end_tile}')
-#         tile = gj['features'][tile_index]
-#         leaf_on_off_dates, points = get_biomass_dates_points(tile)
-
-#         if len(leaf_on_off_dates) > 0:
-#             ee_data = EEData(tile, task, leaf_on_off_dates, points)
-
-#     print(f'{tiles_made} tiles made')
-
-# def get_modalities_for_species():
-#     task = 'species'
-#     os.makedirs(f'{task}/pixel_level_data', exist_ok=True)
-#     gj = utils.read_geojson(f'{task}/tiles/{task}_tiles.geojson') # reading the GeoJSON file
-#     start_tile = 8715
-#     end_tile = len(gj['features'])
-#     tiles_made = 0
-
-#     for tile_index in range(start_tile, end_tile):
-#         print(f'Processing tile {tile_index}/{end_tile-1}')
-#         tile = gj['features'][tile_index]
-#         month = tile['properties']['month']
-#         species = tile['properties']['species']
-#         main_species = tile['properties']['main_species']
-
-#         if month > 1 and month < 12:
-#             start_month = month - 1
-#             end_month = month + 1
-#             dates = [[f'{year}-{str(start_month).zfill(2)}-01', f'{year}-{str(end_month).zfill(2)}-{get_last_day_of_month(end_month)}']]
-#         elif month == 1:
-#             start_month = 12
-#             end_month = 2
-#             dates = [[f'{year}-{str(start_month).zfill(2)}-01', f'{year}-{str(start_month).zfill(2)}-31'], [f'{year}-{str(month).zfill(2)}-01', f'{year}-{str(end_month).zfill(2)}-{get_last_day_of_month(end_month)}']]
-#         elif month == 12:
-#             start_month = 11
-#             end_month = 1
-#             dates = [[f'{year}-{str(start_month).zfill(2)}-01', f'{year}-{str(month).zfill(2)}-31'], [f'{year}-{str(end_month).zfill(2)}-01', f'{year}-{str(end_month).zfill(2)}-{get_last_day_of_month(end_month)}']]
-
-#         ee_data = EEData(tile, task, dates, {'species': species, 'main_species': main_species})
-
-#     print(f'{tiles_made} tiles made')
-
-# def get_modalities_for_soil(task):
-#     start_time = time.time()
-
-#     os.makedirs(f'{task}/pixel_level_data', exist_ok=True)
-#     gj = utils.read_geojson(f'{task}/{task}_tiles.geojson') # reading the GeoJSON file
-#     tile_image_level_data = {}
-#     start_tile = 0
-#     end_tile = len(gj['features'])
-#     tiles_made = 0
-
-#     for tile_index in range(start_tile, end_tile):
-#         print(f'Processing tile {tile_index+1}/{end_tile}')
-#         tile = gj['features'][tile_index]
-#         tile_center_latitude = utils.get_rectangle_center(tile['geometry']['coordinates'][0])[1]
-
-#         if tile_center_latitude > 0:
-#             dates = [[f'{year}-{str(5).zfill(2)}-01', f'{year}-{str(9).zfill(2)}-{get_last_day_of_month(9)}']]
-#         elif tile_center_latitude < 0:
-#             dates = [[f'{year}-{str(11).zfill(2)}-01', f'{year}-{str(12).zfill(2)}-{get_last_day_of_month(12)}'], [f'{year}-{str(1).zfill(2)}-01', f'{year}-{str(3).zfill(2)}-{get_last_day_of_month(3)}']]
-
-#         ee_data = EEData(tile, task, dates, {task: tile['properties']['value']})
-
-#     print(f'{tiles_made} tiles made')
-#     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
-
 if __name__ == '__main__':
     if 'for' not in argv[1]:
-        subprocess.run(['sbatch', '-t', '1-00:00:00', '-p', partitions, '--job-name', f'{argv[1]}_mmearth_modalities', '-o', f'bash-outputs/{argv[1]}_mmearth_modalities.out', '-e', f'bash-errors/{argv[1]}_mmearth_modalities.err', 'job.sh', env_path, 'get_tile_data.py', f'get_modalities_for_{argv[1]}'])
+        subprocess.run(['sbatch', '-t', '2-00:00:00', '-p', partitions, '--job-name', f'{argv[1]}_mmearth_modalities', '-o', f'bash-outputs/{argv[1]}_mmearth_modalities.out', '-e', f'bash-errors/{argv[1]}_mmearth_modalities.err', 'job.sh', env_path, 'get_tile_data.py', f'get_modalities_for_{argv[1]}'])
     else:
         task = argv[1].split('for_')[1]
         print(f'Task = {task}')
         get_modalities(task)
-    # elif argv[1] == 'species':
-    #     subprocess.run(['sbatch', '-t', '1-00:00:00', '-p', partitions, '--job-name', 'species_mmearth_modalities', '-o', 'bash-outputs/species_mmearth_modalities.out', '-e', 'bash-errors/species_mmearth_modalities.err', 'job.sh', env_path, 'get_tile_data.py', 'get_modalities_for_species'])
-    # elif argv[1] == 'get_modalities_for_species':
-    #     get_modalities_for_species()
-    # elif argv[1] == 'soil_nitrogen':
-    #     subprocess.run(['sbatch', '-t', '1-00:00:00', '-p', partitions, '--job-name', 'soil_nitrogen_mmearth_modalities', '-o', 'bash-outputs/soil_nitrogen_mmearth_modalities.out', '-e', 'bash-errors/soil_nitrogen_mmearth_modalities.err', 'job.sh', env_path, 'get_tile_data.py', 'get_modalities_for_soil_nitrogen'])
-    # elif argv[1] == 'get_modalities_for_soil_nitrogen':
-    #     get_modalities_for_soil(task='soil_nitrogen')
-    # elif argv[1] == 'soil_organic_carbon':
-    #     subprocess.run(['sbatch', '-t', '1-00:00:00', '-p', partitions, '--job-name', 'soil_organic_carbon_mmearth_modalities', '-o', 'bash-outputs/soil_organic_carbon_mmearth_modalities.out', '-e', 'bash-errors/soil_organic_carbon_mmearth_modalities.err', 'job.sh', env_path, 'get_tile_data.py', 'get_modalities_for_soil_organic_carbon'])
-    # elif argv[1] == 'get_modalities_for_soil_organic_carbon':
-    #     get_modalities_for_soil(task='soil_organic_carbon')
-    # elif argv[1] == 'soil_pH':
-    #     subprocess.run(['sbatch', '-t', '1-00:00:00', '-p', partitions, '--job-name', 'soil_pH_mmearth_modalities', '-o', 'bash-outputs/soil_pH_mmearth_modalities.out', '-e', 'bash-errors/soil_pH_mmearth_modalities.err', 'job.sh', env_path, 'get_tile_data.py', 'get_modalities_for_soil_pH'])
-    # elif argv[1] == 'get_modalities_for_soil_pH':
-    #     get_modalities_for_soil(task='soil_pH')
