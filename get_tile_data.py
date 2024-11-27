@@ -94,20 +94,27 @@ def get_modalities(task):
     os.makedirs(f'{task}/data', exist_ok=True)
     gj = utils.read_geojson(f'{task}/tiles/{task}_tiles.geojson') # reading the GeoJSON file
     error_file_path = f'bash-errors/{task}_mmearth_modalities.err'
-    start_tile = 0
 
-    if os.path.exists(error_file_path): # if error file exists
-        with open(error_file_path, 'r') as error_file:
-            error_content = error_file.read().replace('*** Earth Engine *** Share your feedback by taking our Annual Developer Satisfaction Survey: https://google.qualtrics.com/jfe/form/SV_0JLhFqfSY1uiEaW?source=Init\n', '')
+    # if os.path.exists(error_file_path): # if error file exists
+    #     with open(error_file_path, 'r') as error_file:
+    #         error_content = error_file.read().replace('*** Earth Engine *** Share your feedback by taking our Annual Developer Satisfaction Survey: https://google.qualtrics.com/jfe/form/SV_0JLhFqfSY1uiEaW?source=Init\n', '')
 
-            if len(error_content) > 0: # if there is an error
-                with open(f'bash-outputs/{task}_mmearth_modalities.out', 'r') as out_file:
-                    out_file = out_file.read()
-                    start_tile = int(content.split('\n')[-2].split('/')[0].split(' ')[-1])
+    #         if len(error_content) > 0: # if there is an error
+    #             with open(f'bash-outputs/{task}_mmearth_modalities.out', 'r') as out_file:
+    #                 out_file = out_file.read()
+    #                 start_tile = int(content.split('\n')[-2].split('/')[0].split(' ')[-1])
 
     end_tile = len(gj['features'])
     tiles_made = 0
+    tile_missing_modalities_csv_path = f'{task}/{task}_missing_modalities.csv'
     tile_missing_modalities = []
+    start_tile = 0
+
+    if os.path.exists(tile_missing_modalities_csv_path):
+        with open(tile_missing_modalities_csv_path, 'r') as csv_file:
+            reader = csv.reader(csv_file)
+            tile_missing_modalities = [[int(row[0]), row[1]] for row in reader]
+            start_tile = tile_missing_modalities[-1][0] + 1
 
     for tile_index in range(start_tile, end_tile):
         print(f'Processing tile {tile_index}/{end_tile-1}')
@@ -117,16 +124,15 @@ def get_modalities(task):
 
         if len(dates) > 0:
             ee_data = EEData(tile, task, dates, task_values)
+            tile_missing_modalities.append([tile_index, ee_data.modality_returned_false])
 
-            if ee_data.no_data:
-                tile_missing_modalities.append([tile_index, ee_data.modality_returned_false])
+            with open(f'{task}/{task}_missing_modalities.csv', 'w', newline='') as file:
+                writer = csv.writer(file)
 
-                with open(f'{task}/{task}_missing_modalities.csv', 'w', newline='') as file:
-                    writer = csv.writer(file)
+                for row in tile_missing_modalities:
+                    writer.writerow(row)
 
-                    for row in tile_missing_modalities:
-                        writer.writerow(row)
-            else:
+            if not ee_data.no_data:
                 tiles_made += 1
 
     print(f'{tiles_made} tiles made')
