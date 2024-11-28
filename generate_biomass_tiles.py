@@ -80,7 +80,7 @@ def get_biomass_tile_counts():
 
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
-def check_asset_existence(asset):
+def get_asset_if_valid(asset):
     try:
         asset_data = asset.getInfo()
 
@@ -104,7 +104,7 @@ def get_gedi_points(ecoregion):
                              .aggregate_array('table_id') # extract the IDs of the feature collections
                              .getInfo()) # list of names of the feature collections
     quality_filter = 'degrade_flag == 0 && l2_quality_flag == 1 && l4_quality_flag == 1 && leaf_off_flag == 0 && region_class > 0'
-    gedi_points = (ee.FeatureCollection([result for collection_name, result in ((collection_name, check_asset_existence(ee.FeatureCollection(collection_name))) for collection_name in gedi_collection_names) if result is not None]) # all GEDI feature collections with points in the ecoregion
+    gedi_points = (ee.FeatureCollection([result for collection_name, result in ((collection_name, get_asset_if_valid(ee.FeatureCollection(collection_name))) for collection_name in gedi_collection_names) if result is not None]) # all GEDI feature collections with points in the ecoregion
     # gedi_points = (ee.FeatureCollection([ee.FeatureCollection(collection_name) for collection_name in gedi_collection_names]) # all GEDI feature collections with points in the ecoregion
                     .flatten() # merges all the feature collections into one
                     .filterBounds(ecoregion_collection) # collection of the GEDI points that are within the ecoregion
@@ -132,19 +132,39 @@ def generate_ecoregion_tiles(biome, ecoregion, num_ecoregion_tiles, tiles_from_p
                                       .map(lambda point: point.buffer(TILE_SIZE / 2).bounds()) # converts points to tiles
                                       .getInfo()) 
         tiles += [{**{key: value for key, value in tile.items() if key != 'id'}, 'properties': {'biome': biome, 'ecoregion': ecoregion}} for tile in tile_collection['features']]
-        utils.save_geojson(tiles, path)
+        # utils.save_geojson(tiles, path)
     else: # creates tiles randomly and checks if they contain GEDI points
         if os.path.exists(path):
             return
 
         seed = 0
+        simplified_region = False
+        region = ecoregion_collection
+
+        try:
+            candidate_tiles = ee.FeatureCollection.randomPoints(region=region, points=num_ecoregion_tiles - len(tiles), seed=seed).map(lambda point: point.buffer(TILE_SIZE / 2).bounds()).getInfo()['features'] # generates random tiles in the ecoregion
+        except:
+            # region = ecoregion_collection.geometry().simplify(maxError=1000000)
+            region = ecoregion_collection.bounds()
+            simplified_region = True
+
+            print("Using a simplified region due to the ecoregion geometry's complexity")
 
         while len(tiles) < num_ecoregion_tiles:
-            candidate_tiles = ee.FeatureCollection.randomPoints(region=ecoregion_collection, points=num_ecoregion_tiles - len(tiles), seed=seed).map(lambda point: point.buffer(TILE_SIZE / 2).bounds()).getInfo()['features'] # generates random tiles in the ecoregion
+            candidate_tiles = ee.FeatureCollection.randomPoints(region=region, points=num_ecoregion_tiles - len(tiles), seed=seed).map(lambda point: point.buffer(TILE_SIZE / 2).bounds()) # generates random tiles in the ecoregion
+            print(candidate_tiles.size().getInfo(), 'tiles generated originally')
+            if simplified_region:
+                # candidate_tiles = candidate_tiles.map(lambda tile: tile.set('contained', ecoregion_collection.geometry().contains(tile.geometry(), maxError=1)))
+                # candidate_tiles = candidate_tiles.filter(ee.Filter.eq('contained', True))
+                candidate_tiles = candidate_tiles.filter(ee.Filter.contains(leftValue=ecoregion_collection.geometry(), rightField='.geo'))
+
+            candidate_tiles = candidate_tiles.getInfo()['features']
+            print(len(candidate_tiles), 'after filtering for fitting in ecoregion')
             tiles += [{**{key: value for key, value in candidate_tile.items() if key != 'id'}, 'properties': {'biome': biome, 'ecoregion': ecoregion}} for candidate_tile in candidate_tiles if gedi_points.filterBounds(candidate_tile['geometry']).size().getInfo() > 0] # save the tiles with at least one GEDI point
             seed += 1
+            print(len(tiles), 'tiles made so far')
 
-        utils.save_geojson(tiles, path)
+    utils.save_geojson(tiles, path)
 
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
@@ -152,17 +172,14 @@ def generate_biomass_tiles():
     start_time = time.time()
     biomes_ecoregions = utils.read_json('biomes_ecoregions_data/biomes_ecoregions_biomass.json')
     biomes = biomes_ecoregions.keys()
-    run = True
+    # run = True
     no_error_files = True
-    error_found = False
+    # error_found = False
     tiles_from_points = True
     os.makedirs('biomass/tiles/ecoregion_tiles', exist_ok=True)
 
-    print(f'{len(biomes)} biomes')
-
-    while run:
-        # while utils.count_running_jobs() > 1: # if jobs other than this are running
-        #     time.sleep(1) # checks again after 1 second
+    while True:
+        error_found = False
 
         for biome in biomes:
             ecoregions = biomes_ecoregions[biome]['ecoregions'].keys()
@@ -174,8 +191,13 @@ def generate_biomass_tiles():
                     no_error_files = False
 
                     with open(error_path, 'r') as file: # opens error file
-                        if len(file.read().replace('*** Earth Engine *** Share your feedback by taking our Annual Developer Satisfaction Survey: https://google.qualtrics.com/jfe/form/SV_0JLhFqfSY1uiEaW?source=Init\n', '')) > 0: # if there is an error
+                        content = file.read().replace('*** Earth Engine *** Share your feedback by taking our Annual Developer Satisfaction Survey: https://google.qualtrics.com/jfe/form/SV_0JLhFqfSY1uiEaW?source=Init\n', '')
+
+                        if len(content) > 0: # if there is an error
                             error_found = True
+                            print(f'Biome = {biome}, ecoregion = {ecoregion}')
+                            print(f'Error = {content.split('\n')[-2]}')
+
                             break
 
             if error_found:
@@ -203,7 +225,7 @@ def generate_biomass_tiles():
 
                                 if len(content) > 0: # if there is an error
                                     run_ecoregion = True
-                                    print(f'Error = {content}')
+                                    print(f'\nError = {content.split('\n')[-2]}')
 
                                     if 'Computation timed out' not in content: # if the error is not "computation timed out"
                                         tiles_from_points = True
@@ -218,12 +240,13 @@ def generate_biomass_tiles():
 
                             print(f'Biome {i+1}/{len(biomes)}: {biome}')
                             print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion}')
-                            print(f'tiles_from_points={tiles_from_points}\n')
+                            print(f'tiles_from_points = {tiles_from_points}')
+
                             hours = 3 if tiles_from_points else 70
                             subprocess.run(['sbatch', '-t', f'0-0{hours}:00:00', '-p', partitions, '--job-name', f'biome_{biome.replace("/", "_")}_ecoregion_{ecoregion.replace("/", "_")}', '-o', f'bash-outputs/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.out', '-e', f'bash-errors/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.err', 'job.sh', env_path, 'generate_biomass_tiles.py', 'generate_ecoregion_tiles', biome.replace(' ', '_'), ecoregion.replace(' ', '_'), str(num_ecoregion_tiles), str(tiles_from_points)])
                             time.sleep(50) # checks again after 50 seconds since there is a delay between the job being submitted and the job running
-        # else:
-        #     run = False
+
+        time.sleep(60)
 
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
@@ -309,19 +332,19 @@ def check_biomass_tiles():
     for ecoregion in missing_ecoregions:
         ecoregion_collection = ecoregions_in_gedi_collection.filter(ee.Filter.eq('ECO_NAME', ecoregion))
         ecoregion_gdf = gpd.GeoDataFrame.from_features(geemap.ee_to_geojson(ecoregion_collection))
-        ecoregion_gdf.plot(ax=ax, edgecolor='blue', facecolor='blue', transform=ccrs.PlateCarree())  # Outline in black, transparent fill
+        ecoregion_gdf.plot(ax=ax, edgecolor='blue', facecolor='blue', transform=ccrs.PlateCarree())
 
     for ecoregion in ecoregions_missing_tiles:
         ecoregion_collection = ecoregions_in_gedi_collection.filter(ee.Filter.eq('ECO_NAME', ecoregion))
         ecoregion_gdf = gpd.GeoDataFrame.from_features(geemap.ee_to_geojson(ecoregion_collection))
-        ecoregion_gdf.plot(ax=ax, edgecolor='red', facecolor='red', transform=ccrs.PlateCarree())  # Outline in black, transparent fill
+        ecoregion_gdf.plot(ax=ax, edgecolor='red', facecolor='red', transform=ccrs.PlateCarree())
 
     ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
     legend_elements = [Line2D([0], [0], color='blue', lw=2, label='Missing ecoregions'),
                        Line2D([0], [0], color='red', lw=2, label='Ecoregions missing tiles')]
 
     ax.legend(handles=legend_elements, fontsize=6)
-    plt.savefig('figures/ecoregions_missing_tiles.png', bbox_inches='tight')
+    plt.savefig('biomass/figures/ecoregions_missing_tiles.png', bbox_inches='tight')
 
 if __name__ == '__main__':
     if len(argv) == 1:
