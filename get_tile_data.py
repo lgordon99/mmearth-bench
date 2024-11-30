@@ -89,22 +89,40 @@ def get_task_values(task, tile):
     elif 'soil' in task:
         return {task: tile['properties']['value']}
 
+def plot_missing_modalities(task):
+    print(task)
+
+    tiles = utils.read_geojson(f'{task}/tiles/{task}_tiles.geojson')['features']
+    print(f'Number of tiles = {len(tiles)}')
+
+    with open(f'{task}/{task}_missing_modalities.csv', 'r') as csv_file:
+        reader = csv.reader(csv_file)
+        tile_missing_modalities = [[int(row[0]), row[1]] for row in reader]
+
+    modalities = ['sentinel2', 'sentinel1', 'aster', 'canopy_height_eth', 'dynamic_world', 'esa_worldcover', 'era5']
+    missing_modality_counts = {modality: 0 for modality in modalities}
+
+    for row in tile_missing_modalities:
+        if row[1] != '':
+            missing_modality_counts[row[1]] += 1
+
+    num_failed_tiles = sum([missing_modality_counts[modality] for modality in modalities])
+    print(f'Number of tiles after getting modalities = {len(tiles) - num_failed_tiles}')
+
+    plt.figure(dpi=300)
+    plt.bar(missing_modality_counts.keys(), missing_modality_counts.values())
+    plt.title(f'{task}: Missing Modality Counts', fontsize=14)
+    plt.xlabel('Modalities', fontsize=12)
+    plt.ylabel('Tile count', fontsize=12)
+    plt.xticks(rotation=45, ha='right', fontsize=10)
+    plt.tight_layout()
+    plt.savefig(f'{task}/figures/{task}_missing_modality_counts.png')  # Save the plot as an image
+
 def get_modalities(task):
     start_time = time.time()
     os.makedirs(f'{task}/data', exist_ok=True)
-    gj = utils.read_geojson(f'{task}/tiles/{task}_tiles.geojson') # reading the GeoJSON file
-    error_file_path = f'bash-errors/{task}_mmearth_modalities.err'
-
-    # if os.path.exists(error_file_path): # if error file exists
-    #     with open(error_file_path, 'r') as error_file:
-    #         error_content = error_file.read().replace('*** Earth Engine *** Share your feedback by taking our Annual Developer Satisfaction Survey: https://google.qualtrics.com/jfe/form/SV_0JLhFqfSY1uiEaW?source=Init\n', '')
-
-    #         if len(error_content) > 0: # if there is an error
-    #             with open(f'bash-outputs/{task}_mmearth_modalities.out', 'r') as out_file:
-    #                 out_file = out_file.read()
-    #                 start_tile = int(content.split('\n')[-2].split('/')[0].split(' ')[-1])
-
-    end_tile = len(gj['features'])
+    tiles = utils.read_geojson(f'{task}/tiles/{task}_tiles.geojson') # reading the GeoJSON file
+    end_tile = len(tiles['features'])
     tiles_made = 0
     tile_missing_modalities_csv_path = f'{task}/{task}_missing_modalities.csv'
     tile_missing_modalities = []
@@ -118,7 +136,7 @@ def get_modalities(task):
 
     for tile_index in range(start_tile, end_tile):
         print(f'Processing tile {tile_index}/{end_tile-1}')
-        tile = gj['features'][tile_index]
+        tile = tiles['features'][tile_index]
         dates = get_dates(task, tile)
         task_values = get_task_values(task, tile)
 
