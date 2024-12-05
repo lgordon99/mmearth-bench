@@ -4,7 +4,8 @@ A general class to collect the data from GEE. Each function in the class will be
 '''
 
 # imports
-from datetime import datetime, timedelta
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
 from utils import read_json
 import certifi
 import ee
@@ -39,12 +40,12 @@ class EEData:
                                      'lon_sin': np.sin(np.deg2rad(self.lon)),
                                      'lon_cos': np.cos(np.deg2rad(self.lon))}
         self.task = task
-        self.modality_data = {}
+        self.pixel_level_data = {}
         self.no_data = False
         self.era5_data = {}
         self.proj = ''
         self.task_values = task_values
-        self.modality_returned_false = ''
+        self.missing_modalities = []
 
         if 'biome' in list(tile['properties'].keys()):
             self.biome = tile['properties']['biome']
@@ -56,24 +57,26 @@ class EEData:
             else:
                 self.biome = None
                 self.ecoregion = None
+                self.missing_modalities.append('biome/ecoregion')
 
         datasets = ['sentinel2', 'sentinel1', 'aster', 'canopy_height_eth', 'dynamic_world', 'esa_worldcover', 'era5']
 
         for function_name in datasets: # series of function calls to get the data
             if getattr(self, function_name)() is False: # if the method returns False
-                self.no_data = True
-                self.modality_returned_false = function_name
-                print(f'{function_name} returned False')
+                self.missing_modalities.append(function_name)
+                print(f'{function_name} is missing')
 
-                break
-
-        if task == 'biomass':
-            self.biomass()
+                if function_name == 'sentinel2':
+                    self.no_data = True
+                    break
 
         if not self.no_data:
-            merged_image = self.modality_data[datasets[0]] # start with Sentinel-2
+            if task == 'biomass':
+                self.biomass()
 
-            for dataset, value in self.modality_data.items():
+            merged_image = self.pixel_level_data[datasets[0]] # start with Sentinel-2
+
+            for dataset, value in self.pixel_level_data.items():
                 if dataset == datasets[0]:
                     continue # already included Sentinel-2
                 else:
@@ -109,7 +112,7 @@ class EEData:
         self.proj = s2_image.select('B4').projection() # projection of B4 band
         self.crs = self.proj.getInfo()['crs'] # CRS of B4 band
         s2_image = s2_image.select([band for band in bands if band not in ['SCL', 'QA60']]).resample('bilinear').reproject(self.proj).addBands(s2_image.select(['SCL', 'QA60']).reproject(self.proj))
-        self.modality_data['sentinel2'] = s2_image.rename([f'Sentinel2_{band}' for band in bands])
+        self.pixel_level_data['sentinel2'] = s2_image.rename([f'Sentinel2_{band}' for band in bands])
 
     def sentinel1(self):
         bands = ['VV', 'VH', 'HH', 'HV']
@@ -124,37 +127,38 @@ class EEData:
 
         asc_image = sentinel1_images.filterMetadata('orbitProperties_pass', 'equals', 'ASCENDING').first() # ascending image
         desc_image = sentinel1_images.filterMetadata('orbitProperties_pass', 'equals', 'DESCENDING').first() # descending image
-
-        if asc_image.getInfo() is None or desc_image.getInfo() is None: # if there is no ascending image or no descending image
-            return False # skip tile
-
         s1_image = None
         nan_band = ee.Image.constant(-9999).clip(self.polygon).float().reproject(self.proj)
 
         # adding ascending bands
         for band in bands:
-            if band in asc_image.bandNames().getInfo():
-                band_data = asc_image.select(band).float().resample('bilinear').reproject(self.proj).rename(f'Sentinel1_ascending_{band}')
-            else:
-                band_data = nan_band.rename(f'Sentinel1_ascending_{band}')
+            band_data = nan_band.rename(f'Sentinel1_ascending_{band}')
+
+            if asc_image.getInfo() is not None:
+                if band in asc_image.bandNames().getInfo():
+                    band_data = asc_image.select(band).float().resample('bilinear').reproject(self.proj).rename(f'Sentinel1_ascending_{band}')
 
             s1_image = band_data if s1_image is None else ee.Image.cat([s1_image, band_data])
 
         # adding descending bands
         for band in bands:
-            if band in desc_image.bandNames().getInfo():
-                band_data = desc_image.select(band).float().resample('bilinear').reproject(self.proj).rename(f'Sentinel1_descending_{band}')
-            else:
-                band_data = nan_band.rename(f'Sentinel1_descending_{band}')
+            band_data = nan_band.rename(f'Sentinel1_descending_{band}')
 
-            s1_image = band_data if s1_image is None else ee.Image.cat([s1_image, band_data])
+            if desc_image.getInfo() is not None:
+                if band in desc_image.bandNames().getInfo():
+                    band_data = desc_image.select(band).float().resample('bilinear').reproject(self.proj).rename(f'Sentinel1_descending_{band}')
 
-        self.modality_data['sentinel1'] = s1_image
+            s1_image = ee.Image.cat([s1_image, band_data])
+
+        self.pixel_level_data['sentinel1'] = s1_image
+
+        if asc_image.getInfo() is None and desc_image.getInfo() is None: # if there is no ascending image and no descending image
+            return False
 
     def aster(self):
         elevation = ee.Image('projects/sat-io/open-datasets/ASTER/GDEM').clip(self.polygon).select('b1').float() # get elevation band
         slope = ee.Terrain.slope(elevation) # calculate slope from elevation data
-        self.modality_data['aster'] = ee.Image.cat([elevation, slope]).resample('bilinear').reproject(self.proj).rename(['AsterDEM_elevation', 'AsterDEM_slope']) # combine the elevation and slope into a single image
+        self.pixel_level_data['aster'] = ee.Image.cat([elevation, slope]).resample('bilinear').reproject(self.proj).rename(['AsterDEM_elevation', 'AsterDEM_slope']) # combine the elevation and slope into a single image
 
     def dynamic_world(self):
         '''
@@ -207,10 +211,10 @@ class EEData:
         bands = dw_image.bandNames().getInfo()
 
         if len(bands) == 0:
-            self.modality_data['dynamic_world'] = None
+            self.pixel_level_data['dynamic_world'] = None
         else:
             dw_image = dw_image.reproject(self.proj)
-            self.modality_data['dynamic_world'] = dw_image.rename('DynamicWorld')
+            self.pixel_level_data['dynamic_world'] = dw_image.rename('DynamicWorld')
 
     def canopy_height_eth(self):
         '''
@@ -219,16 +223,14 @@ class EEData:
 
         height = ee.Image('users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1').clip(self.polygon).float()
         std = ee.Image('users/nlang/ETH_GlobalCanopyHeightSD_2020_10m_v1').clip(self.polygon).float()
-        self.modality_data['canopy_height_eth'] = ee.Image.cat([height, std]).resample('bilinear').reproject(self.proj).rename(['ETHGCH_canopy_height', 'ETHGCH_canopy_height_uncertainty'])
+        self.pixel_level_data['canopy_height_eth'] = ee.Image.cat([height, std]).resample('bilinear').reproject(self.proj).rename(['ETHGCH_canopy_height', 'ETHGCH_canopy_height_uncertainty'])
 
     def esa_worldcover(self):
         ''' Gets the ESA worldcover data '''
 
-        self.modality_data['esa_worldcover'] = ee.ImageCollection('ESA/WorldCover/v100').first().clip(self.polygon).select('Map').reproject(self.proj).rename('ESA_Worldcover')
+        self.pixel_level_data['esa_worldcover'] = ee.ImageCollection('ESA/WorldCover/v100').first().clip(self.polygon).select('Map').reproject(self.proj).rename('ESA_Worldcover')
 
     def era5(self):
-        from dateutil.relativedelta import relativedelta
-
         collection = 'ECMWF/ERA5_LAND/MONTHLY_AGGR'
         bands = ['temperature_2m', 'temperature_2m_min', 'temperature_2m_max', 'total_precipitation_sum']
         year, month, _ = list(map(int, self.s2_date.split('-')))
@@ -259,17 +261,16 @@ class EEData:
                         'total_precipitation_sum': ee.Reducer.sum()}
         era5_year = ee.ImageCollection([era5_year.select(band).reduce(band_reducer[band]) for band in bands]).toBands().rename(['temperature_year_mean', 'temperature_year_min', 'temperature_year_max', 'precipitation_year']).float()
         era5 = ee.Image.cat([era5_month, era5_last_month, era5_year]).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.polygon, scale=10).getInfo()
+        self.era5_data = era5
 
         if all(item is None for item in list(era5.values())):
             return False
-
-        self.era5_data = era5
 
     def biomass(self):
         '''Gets GEDI aboveground biomass data'''
 
         image = ee.Image.constant(-9999).paint(self.task_values, 'agbd').reproject(self.proj) # image array with -9999 wherever there are no points, aligned with Sentinel-2
-        self.modality_data['biomass'] = image
+        self.pixel_level_data['biomass'] = image
 
     def save_tiff(self, image):
         band_names = image.bandNames().getInfo()
@@ -279,50 +280,65 @@ class EEData:
                                     'region': self.polygon.getInfo()['coordinates'],
                                     'format': 'GeoTIFF',
                                     'bands': band_names})
-        response = requests.get(url, stream=True, verify=certifi.where())
+        success = False
         tiff_path = f'{self.task}/data/tile_{self.id}_data.tif'
 
-        with open(tiff_path, 'wb') as tiff: # writes in binary mode
-            tiff.write(response.content)
+        while not success:
+            response = requests.get(url, stream=True, verify=certifi.where())
 
-        while not os.path.exists(tiff_path):
-            time.sleep(1)
+            if response.status_code != 200:
+                print(response.status_code)
 
-        with rasterio.open(tiff_path) as tiff:
-            tags = tiff.tags()
-            image_level_modalities = {'climate_temperature_month_mean': self.era5_data['temperature_month_mean'],
-                                      'climate_temperature_last_month_mean': self.era5_data['temperature_last_month_mean'],
-                                      'climate_temperature_year_mean': self.era5_data['temperature_year_mean'],
-                                      'climate_temperature_month_max': self.era5_data['temperature_month_max'],
-                                      'climate_temperature_last_month_max': self.era5_data['temperature_last_month_max'],
-                                      'climate_temperature_year_max': self.era5_data['temperature_year_max'],
-                                      'climate_temperature_month_min': self.era5_data['temperature_month_min'],
-                                      'climate_temperature_last_month_min': self.era5_data['temperature_last_month_min'],
-                                      'climate_temperature_year_min': self.era5_data['temperature_year_min'],
-                                      'climate_precipitation_month': self.era5_data['precipitation_month'],
-                                      'climate_precipitation_last_month': self.era5_data['precipitation_last_month'],
-                                      'climate_precipitation_year': self.era5_data['precipitation_year'],
-                                      'latitude_sin': self.geolocation_encoding['lat_sin'],
-                                      'latitude_cos': self.geolocation_encoding['lat_cos'],
-                                      'longitude_sin': self.geolocation_encoding['lon_sin'],
-                                      'longitude_cos': self.geolocation_encoding['lon_cos'],
-                                      'month_sin': self.month_encoding['month_sin'],
-                                      'month_cos': self.month_encoding['month_cos'],
-                                      'biome': self.biome,
-                                      'ecoregion': self.ecoregion,
-                                      'crs': self.crs,
-                                      'lat': self.lat,
-                                      'lon': self.lon,
-                                      's2_date': self.s2_date}
+            with open(tiff_path, 'wb') as tiff: # writes in binary mode
+                tiff.write(response.content)
 
-            if isinstance(self.task_values, dict):
-                tags.update(image_level_modalities | self.task_values)
-            else:
-                tags.update(image_level_modalities)
+            try:
+                with rasterio.open(tiff_path) as new_tiff:
+                    count = new_tiff.count
 
-            with rasterio.open(tiff_path, 'w', **tiff.meta) as updated_tiff:
-                updated_tiff.write(tiff.read())
-                updated_tiff.update_tags(**tags)
+                success = True
+            except:
+                print('except')
+                continue
+    
+        # while not os.path.exists(tiff_path):
+        #     time.sleep(1)
 
-                for i in range(tiff.count):
-                    updated_tiff.update_tags(i+1, BAND_NAME=band_names[i])
+        # with rasterio.open(tiff_path) as tiff:
+        #     tags = tiff.tags()
+        #     image_level_modalities = {'climate_temperature_month_mean': self.era5_data['temperature_month_mean'],
+        #                               'climate_temperature_last_month_mean': self.era5_data['temperature_last_month_mean'],
+        #                               'climate_temperature_year_mean': self.era5_data['temperature_year_mean'],
+        #                               'climate_temperature_month_max': self.era5_data['temperature_month_max'],
+        #                               'climate_temperature_last_month_max': self.era5_data['temperature_last_month_max'],
+        #                               'climate_temperature_year_max': self.era5_data['temperature_year_max'],
+        #                               'climate_temperature_month_min': self.era5_data['temperature_month_min'],
+        #                               'climate_temperature_last_month_min': self.era5_data['temperature_last_month_min'],
+        #                               'climate_temperature_year_min': self.era5_data['temperature_year_min'],
+        #                               'climate_precipitation_month': self.era5_data['precipitation_month'],
+        #                               'climate_precipitation_last_month': self.era5_data['precipitation_last_month'],
+        #                               'climate_precipitation_year': self.era5_data['precipitation_year'],
+        #                               'latitude_sin': self.geolocation_encoding['lat_sin'],
+        #                               'latitude_cos': self.geolocation_encoding['lat_cos'],
+        #                               'longitude_sin': self.geolocation_encoding['lon_sin'],
+        #                               'longitude_cos': self.geolocation_encoding['lon_cos'],
+        #                               'month_sin': self.month_encoding['month_sin'],
+        #                               'month_cos': self.month_encoding['month_cos'],
+        #                               'biome': self.biome,
+        #                               'ecoregion': self.ecoregion,
+        #                               'crs': self.crs,
+        #                               'lat': self.lat,
+        #                               'lon': self.lon,
+        #                               's2_date': self.s2_date}
+
+        #     if isinstance(self.task_values, dict):
+        #         tags.update(image_level_modalities | self.task_values)
+        #     else:
+        #         tags.update(image_level_modalities)
+
+        #     with rasterio.open(tiff_path, 'w', **tiff.meta) as updated_tiff:
+        #         updated_tiff.write(tiff.read())
+        #         updated_tiff.update_tags(**tags)
+
+        #         for i in range(tiff.count):
+        #             updated_tiff.update_tags(i+1, BAND_NAME=band_names[i])
