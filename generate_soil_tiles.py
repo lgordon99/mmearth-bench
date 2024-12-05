@@ -47,11 +47,6 @@ def generate_property_tiles(property_):
     os.makedirs(f'{property_}/tiles', exist_ok=True)
     utils.save_geojson(features=tiles, path=f'{property_}/tiles/{property_}_tiles_overlapping.geojson') # saves all the tiles as a GeoJSON
 
-    # geojson_collection = {'type': 'FeatureCollection', 'features': tiles}
-
-    # with open(f'{property_}/{property_}_tiles_overlapping.geojson', 'w') as file:
-    #     json.dump(geojson_collection, file, indent=4) # save the tiles as a GeoJSON
-
     tiles = utils.remove_overlapping_tiles(tiles) # removes overlapping tiles
     print(f'{len(tiles)} tiles after removing overlaps')
 
