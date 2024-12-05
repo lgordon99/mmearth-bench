@@ -11,12 +11,14 @@ import csv
 import ee
 import geojson
 import json
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
 import subprocess
 import time
 import utils
+import yaml
 
 ee.Initialize(project='mmearth-bench') # initializes EE with our project
 year = '2020'
@@ -29,10 +31,10 @@ def get_last_day_of_month(month):
 
 def get_biomass_points(tile):
     collection_names = (ee.FeatureCollection('LARSE/GEDI/GEDI04_A_002_INDEX') # table index
-                            .filter(f'time_start >= "{year}-01-01" && time_end <= "{year}-12-31"') # get feature collections with features in the selected year
-                            .filterBounds(tile['geometry']) # get feature collections that have features within the tile
-                            .aggregate_array('table_id') # extract the IDs of the feature collections
-                            .getInfo()) # list of names of the feature collections
+                          .filter(f'time_start >= "{year}-01-01" && time_end <= "{year}-12-31"') # get feature collections with features in the selected year
+                          .filterBounds(tile['geometry']) # get feature collections that have features within the tile
+                          .aggregate_array('table_id') # extract the IDs of the feature collections
+                          .getInfo()) # list of names of the feature collections
     quality_filter = 'degrade_flag == 0 && l2_quality_flag == 1 && l4_quality_flag == 1 && leaf_off_flag == 0 && region_class > 0'
     points = (ee.FeatureCollection([ee.FeatureCollection(name) for name in collection_names])
                 .flatten() # merge all the feature collections into one
@@ -95,16 +97,16 @@ def plot_missing_modalities(task):
     tiles = utils.read_geojson(f'{task}/tiles/{task}_tiles.geojson')['features']
     print(f'Number of tiles = {len(tiles)}')
 
-    with open(f'{task}/{task}_missing_modalities.csv', 'r') as csv_file:
-        reader = csv.reader(csv_file)
-        tile_missing_modalities = [[int(row[0]), row[1]] for row in reader]
-
-    modalities = ['sentinel2', 'sentinel1', 'aster', 'canopy_height_eth', 'dynamic_world', 'esa_worldcover', 'era5']
+    tile_missing_modalities = utils.read_yaml(f'{task}/{task}_missing_modalities.yml')
+    modalities = ['sentinel2', 'sentinel1', 'aster', 'canopy_height_eth', 'dynamic_world', 'esa_worldcover', 'era5', 'biome/ecoregion']
     missing_modality_counts = {modality: 0 for modality in modalities}
 
-    for row in tile_missing_modalities:
-        if row[1] != '':
-            missing_modality_counts[row[1]] += 1
+    for tile_id in range(len(tiles)):
+        missing_modalities = tile_missing_modalities[tile_id]
+
+        if missing_modalities:
+            for modality in missing_modalities:
+                missing_modality_counts[modality] += 1
 
     num_failed_tiles = sum([missing_modality_counts[modality] for modality in modalities])
     print(f'Number of tiles after getting modalities = {len(tiles) - num_failed_tiles}')
@@ -116,7 +118,7 @@ def plot_missing_modalities(task):
     plt.ylabel('Tile count', fontsize=12)
     plt.xticks(rotation=45, ha='right', fontsize=10)
     plt.tight_layout()
-    plt.savefig(f'{task}/figures/{task}_missing_modality_counts.png')  # Save the plot as an image
+    plt.savefig(f'{task}/figures/{task}_missing_modality_counts.png')
 
 def get_modalities(task):
     start_time = time.time()
@@ -124,15 +126,17 @@ def get_modalities(task):
     tiles = utils.read_geojson(f'{task}/tiles/{task}_tiles.geojson') # reading the GeoJSON file
     end_tile = len(tiles['features'])
     tiles_made = 0
-    tile_missing_modalities_csv_path = f'{task}/{task}_missing_modalities.csv'
-    tile_missing_modalities = []
+    tile_missing_modalities_yml_path = f'{task}/{task}_missing_modalities.yml'
+    tile_missing_modalities = {}
     start_tile = 0
 
-    if os.path.exists(tile_missing_modalities_csv_path):
-        with open(tile_missing_modalities_csv_path, 'r') as csv_file:
-            reader = csv.reader(csv_file)
-            tile_missing_modalities = [[int(row[0]), row[1]] for row in reader]
-            start_tile = tile_missing_modalities[-1][0] + 1
+    if os.path.exists(tile_missing_modalities_yml_path):
+        tile_missing_modalities = utils.read_yaml(tile_missing_modalities_yml_path)
+        start_tile = next(reversed(tile_missing_modalities)) + 1
+        # with open(tile_missing_modalities_yml_path, 'r') as csv_file:
+        #     reader = csv.reader(csv_file)
+        #     tile_missing_modalities = [[int(row[0]), row[1]] for row in reader]
+        #     start_tile = tile_missing_modalities[-1][0] + 1
 
     for tile_index in range(start_tile, end_tile):
         print(f'Processing tile {tile_index}/{end_tile-1}')
@@ -142,13 +146,16 @@ def get_modalities(task):
 
         if len(dates) > 0:
             ee_data = EEData(tile, task, dates, task_values)
-            tile_missing_modalities.append([tile_index, ee_data.modality_returned_false])
+            tile_missing_modalities[tile_index] = ee_data.missing_modalities
 
-            with open(f'{task}/{task}_missing_modalities.csv', 'w', newline='') as file:
-                writer = csv.writer(file)
+            with open(tile_missing_modalities_yml_path, 'w') as file:
+                yaml.dump(tile_missing_modalities, file, default_flow_style=False)
 
-                for row in tile_missing_modalities:
-                    writer.writerow(row)
+            # with open(f'{task}/{task}_missing_modalities.csv', 'w', newline='') as file:
+            #     writer = csv.writer(file)
+
+            #     for row in tile_missing_modalities:
+            #         writer.writerow(row)
 
             if not ee_data.no_data:
                 tiles_made += 1
@@ -157,9 +164,11 @@ def get_modalities(task):
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
 if __name__ == '__main__':
-    if 'for' not in argv[1]:
+    if 'plot_missing_modalities' in argv[1]:
+        plot_missing_modalities(argv[2])
+    elif 'for' not in argv[1]:
         subprocess.run(['sbatch', '-t', '2-00:00:00', '-p', partitions, '--job-name', f'{argv[1]}_mmearth_modalities', '-o', f'bash-outputs/{argv[1]}_mmearth_modalities.out', '-e', f'bash-errors/{argv[1]}_mmearth_modalities.err', 'job.sh', env_path, 'get_tile_data.py', f'get_modalities_for_{argv[1]}'])
-    else:
+    elif 'for' in argv[1]:
         task = argv[1].split('for_')[1]
         print(f'Task = {task}')
         get_modalities(task)
