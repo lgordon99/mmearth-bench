@@ -6,20 +6,21 @@ A general class to collect the data from GEE. Each function in the class will be
 # imports
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from utils import read_json
+# from utils import read_json
 import certifi
 import ee
-import hashlib
-import logging
-import math
+# import hashlib
+# import logging
+# import math
 import numpy as np
-import os
-import pandas as pd
+# import os
+# import pandas as pd
 import rasterio
 import requests
-import shutil
+# import shutil
 import time
-import zipfile
+import utils
+# import zipfile
 
 class EEData:
     def __init__(self, tile, task, start_end_dates, task_values):
@@ -48,16 +49,26 @@ class EEData:
         self.missing_modalities = []
 
         if 'biome' in list(tile['properties'].keys()):
-            self.biome = tile['properties']['biome']
-            self.ecoregion = tile['properties']['ecoregion']
+            self.biome_name = tile['properties']['biome']
+            self.ecoregion_name = tile['properties']['ecoregion']
         else:
             if len(ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.polygon).getInfo()['features']) > 0:
-                self.biome = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.polygon).getInfo()['features'][0]['properties']['BIOME_NAME']
-                self.ecoregion = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.polygon).getInfo()['features'][0]['properties']['ECO_NAME']
+                self.biome_name = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.polygon).getInfo()['features'][0]['properties']['BIOME_NAME']
+                self.ecoregion_name = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.polygon).getInfo()['features'][0]['properties']['ECO_NAME']
             else:
-                self.biome = None
-                self.ecoregion = None
+                self.biome_name = None
+                self.ecoregion_name = None
                 self.missing_modalities.append('biome/ecoregion')
+
+        if self.biome_name is not None:
+            biome_labels = utils.read_json('biomes_ecoregions_data/biome_labels.json')
+            ecoregion_labels = utils.read_json('biomes_ecoregions_data/ecoregion_labels.json')
+
+            self.biome = biome_labels[self.biome_name]
+            self.ecoregion = ecoregion_labels[self.ecoregion_name]
+        else:
+            self.biome = None
+            self.ecoregion = None
 
         datasets = ['sentinel2', 'sentinel1', 'aster', 'canopy_height_eth', 'dynamic_world', 'esa_worldcover', 'era5']
 
@@ -112,7 +123,7 @@ class EEData:
         self.proj = s2_image.select('B4').projection() # projection of B4 band
         self.crs = self.proj.getInfo()['crs'] # CRS of B4 band
         s2_image = s2_image.select([band for band in bands if band not in ['SCL', 'QA60']]).resample('bilinear').reproject(self.proj).addBands(s2_image.select(['SCL', 'QA60']).reproject(self.proj))
-        self.pixel_level_data['sentinel2'] = s2_image.rename([f'Sentinel2_{band}' for band in bands])
+        self.pixel_level_data['sentinel2'] = s2_image.rename([f'Sentinel2_{band}' if band not in ['SCL', 'MSK_CLDPRB', 'QA60'] else band for band in bands])
 
     def sentinel1(self):
         bands = ['VV', 'VH', 'HH', 'HV']
@@ -287,58 +298,50 @@ class EEData:
             response = requests.get(url, stream=True, verify=certifi.where())
 
             if response.status_code != 200:
-                print(response.status_code)
+                continue
 
             with open(tiff_path, 'wb') as tiff: # writes in binary mode
                 tiff.write(response.content)
 
-            try:
-                with rasterio.open(tiff_path) as new_tiff:
-                    count = new_tiff.count
+            with rasterio.open(tiff_path) as tiff:
+                tags = tiff.tags()
+                image_level_modalities = {'climate_temperature_month_mean': self.era5_data['temperature_month_mean'],
+                                          'climate_temperature_last_month_mean': self.era5_data['temperature_last_month_mean'],
+                                          'climate_temperature_year_mean': self.era5_data['temperature_year_mean'],
+                                          'climate_temperature_month_max': self.era5_data['temperature_month_max'],
+                                          'climate_temperature_last_month_max': self.era5_data['temperature_last_month_max'],
+                                          'climate_temperature_year_max': self.era5_data['temperature_year_max'],
+                                          'climate_temperature_month_min': self.era5_data['temperature_month_min'],
+                                          'climate_temperature_last_month_min': self.era5_data['temperature_last_month_min'],
+                                          'climate_temperature_year_min': self.era5_data['temperature_year_min'],
+                                          'climate_precipitation_month': self.era5_data['precipitation_month'],
+                                          'climate_precipitation_last_month': self.era5_data['precipitation_last_month'],
+                                          'climate_precipitation_year': self.era5_data['precipitation_year'],
+                                          'latitude_sin': self.geolocation_encoding['lat_sin'],
+                                          'latitude_cos': self.geolocation_encoding['lat_cos'],
+                                          'longitude_sin': self.geolocation_encoding['lon_sin'],
+                                          'longitude_cos': self.geolocation_encoding['lon_cos'],
+                                          'month_sin': self.month_encoding['month_sin'],
+                                          'month_cos': self.month_encoding['month_cos'],
+                                          'biome': self.biome,
+                                          'ecoregion': self.ecoregion,
+                                          'crs': self.crs,
+                                          'lat': self.lat,
+                                          'lon': self.lon,
+                                          's2_date': self.s2_date,
+                                          'biome_name': self.biome_name,
+                                          'ecoregion_name': self.ecoregion_name}
 
-                success = True
-            except:
-                print('except')
-                continue
-    
-        # while not os.path.exists(tiff_path):
-        #     time.sleep(1)
+                if isinstance(self.task_values, dict):
+                    tags.update(image_level_modalities | self.task_values)
+                else:
+                    tags.update(image_level_modalities)
 
-        # with rasterio.open(tiff_path) as tiff:
-        #     tags = tiff.tags()
-        #     image_level_modalities = {'climate_temperature_month_mean': self.era5_data['temperature_month_mean'],
-        #                               'climate_temperature_last_month_mean': self.era5_data['temperature_last_month_mean'],
-        #                               'climate_temperature_year_mean': self.era5_data['temperature_year_mean'],
-        #                               'climate_temperature_month_max': self.era5_data['temperature_month_max'],
-        #                               'climate_temperature_last_month_max': self.era5_data['temperature_last_month_max'],
-        #                               'climate_temperature_year_max': self.era5_data['temperature_year_max'],
-        #                               'climate_temperature_month_min': self.era5_data['temperature_month_min'],
-        #                               'climate_temperature_last_month_min': self.era5_data['temperature_last_month_min'],
-        #                               'climate_temperature_year_min': self.era5_data['temperature_year_min'],
-        #                               'climate_precipitation_month': self.era5_data['precipitation_month'],
-        #                               'climate_precipitation_last_month': self.era5_data['precipitation_last_month'],
-        #                               'climate_precipitation_year': self.era5_data['precipitation_year'],
-        #                               'latitude_sin': self.geolocation_encoding['lat_sin'],
-        #                               'latitude_cos': self.geolocation_encoding['lat_cos'],
-        #                               'longitude_sin': self.geolocation_encoding['lon_sin'],
-        #                               'longitude_cos': self.geolocation_encoding['lon_cos'],
-        #                               'month_sin': self.month_encoding['month_sin'],
-        #                               'month_cos': self.month_encoding['month_cos'],
-        #                               'biome': self.biome,
-        #                               'ecoregion': self.ecoregion,
-        #                               'crs': self.crs,
-        #                               'lat': self.lat,
-        #                               'lon': self.lon,
-        #                               's2_date': self.s2_date}
+                with rasterio.open(tiff_path, 'w', **tiff.meta) as updated_tiff:
+                    updated_tiff.write(tiff.read())
+                    updated_tiff.update_tags(**tags)
 
-        #     if isinstance(self.task_values, dict):
-        #         tags.update(image_level_modalities | self.task_values)
-        #     else:
-        #         tags.update(image_level_modalities)
+                    for i in range(tiff.count):
+                        updated_tiff.update_tags(i+1, BAND_NAME=band_names[i])
 
-        #     with rasterio.open(tiff_path, 'w', **tiff.meta) as updated_tiff:
-        #         updated_tiff.write(tiff.read())
-        #         updated_tiff.update_tags(**tags)
-
-        #         for i in range(tiff.count):
-        #             updated_tiff.update_tags(i+1, BAND_NAME=band_names[i])
+            success = True
