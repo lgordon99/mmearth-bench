@@ -37,7 +37,8 @@ bash bash-scripts/install_packages.sh
 ```
 python generate_biomass_tiles.py get_biomass_tile_counts
 ```
-which takes around 10 minutes.
+which takes around 13 minutes.
+
 2. Run
 ```
 python generate_biomass_tiles.py
@@ -48,11 +49,15 @@ python generate_biomass_tiles.py merge_ecoregion_tiles
 ```
 
 ## Generate species tiles
-1. Run
+1. Download the [sinr](https://github.com/elijahcole/sinr/tree/main) repository
+2. Follow the [instructions for data preparation](https://github.com/elijahcole/sinr/tree/main/data#instructions-for-data-preparation)
+3. Rename the `data` folder to `sinr-data`
+4. Move `sinr-data` into your data directory for this code located at `data_dir_path`
+5. Run
 ```
 python generate_species_tiles.py generate_species_tiles
 ```
-2. Run
+6. Run
 ```
 python generate_species_tiles.py make_species_grid
 ```
