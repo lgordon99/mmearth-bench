@@ -63,7 +63,9 @@ python generate_species_tiles.py make_species_grid
 ```
 
 ## Generate soil tiles
-Run
+1. Download the [WoSIS December 2023 snapshot](https://files.isric.org/public/wosis_snapshot/WoSIS_2023_December.zip)
+2. Move the unzipped folder into your data directory for this code located at `data_dir_path`
+3. Run
 ```
 python generate_soil_tiles.py
 ```
