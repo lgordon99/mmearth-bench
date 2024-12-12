@@ -5,7 +5,7 @@ A script to create a GeoJSON with biomass points balanced across biomes
 
 # imports
 from matplotlib.lines import Line2D
-from shapely.geometry import mapping
+# from shapely.geometry import mapping
 from sys import argv
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -76,18 +76,18 @@ def get_biomass_tile_counts():
 
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
-def get_asset_if_valid(asset):
-    try:
-        asset.getInfo()
+# def get_asset_if_valid(asset):
+#     try:
+#         asset.getInfo()
 
-        return asset
-    except ee.ee_exception.EEException as e:
-        if 'not found' in str(e):
-            print(e)
+#         return asset
+#     except ee.ee_exception.EEException as e:
+#         if 'not found' in str(e):
+#             print(e)
 
-            return None
-        else: # for any other kind of error
-            return asset
+#             return None
+#         else: # for any other kind of error
+#             return asset
 
 def get_gedi_points(ecoregion):
     year = '2020'
@@ -100,7 +100,7 @@ def get_gedi_points(ecoregion):
                              .aggregate_array('table_id') # extract the IDs of the feature collections
                              .getInfo()) # list of names of the feature collections
     quality_filter = 'degrade_flag == 0 && l2_quality_flag == 1 && l4_quality_flag == 1 && leaf_off_flag == 0 && region_class > 0'
-    gedi_points = (ee.FeatureCollection([result for _, result in ((collection_name, get_asset_if_valid(ee.FeatureCollection(collection_name))) for collection_name in gedi_collection_names) if result is not None]) # all GEDI feature collections with points in the ecoregion
+    gedi_points = (ee.FeatureCollection([result for _, result in ((collection_name, utils.get_asset_if_valid(ee.FeatureCollection(collection_name))) for collection_name in gedi_collection_names) if result is not None]) # all GEDI feature collections with points in the ecoregion
     # gedi_points = (ee.FeatureCollection([ee.FeatureCollection(collection_name) for collection_name in gedi_collection_names]) # all GEDI feature collections with points in the ecoregion
                     .flatten() # merges all the feature collections into one
                     .filterBounds(ecoregion_collection) # collection of the GEDI points that are within the ecoregion
@@ -186,12 +186,15 @@ def generate_biomass_points():
 
                     if os.path.exists(error_path): # if there is an error file
                         with open(error_path, 'r') as file: # opens error file
-                            error = file.read().replace('*** Earth Engine *** Share your feedback by taking our Annual Developer Satisfaction Survey: https://google.qualtrics.com/jfe/form/SV_0JLhFqfSY1uiEaW?source=Init\n', '')
+                            error = file.read()
 
-                            print(f'\nError = {error.split("\n")[-2]}')
+                            if len(error) > 0: # if there is an error
+                                print(f'\nError = {error.split("\n")[-2]}')
 
-                            if 'Computation timed out' in error: # if the error is "computation timed out"
-                                tiles_from_points = False
+                                if 'Computation timed out' in error: # if the error is "computation timed out"
+                                    tiles_from_points = False
+                            else: # if there is no error
+                                run_ecoregion = False
 
                 if run_ecoregion:
                     while utils.count_running_jobs() > 40: # if more than 40 jobs are running
@@ -272,7 +275,7 @@ def check_biomass_points():
                 # _, gedi_points = get_gedi_points(ecoregion)
 
                 with open(f'bash-errors/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.err', 'r') as file:
-                    content = file.read().replace('*** Earth Engine *** Share your feedback by taking our Annual Developer Satisfaction Survey: https://google.qualtrics.com/jfe/form/SV_0JLhFqfSY1uiEaW?source=Init\n', '')
+                    content = file.read()
 
                     # if len(content) > 0:
                     #     print(content.split('\n')[-2])
