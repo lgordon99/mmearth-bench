@@ -7,10 +7,10 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from ee_data import EEData
 from sys import argv
-import csv
+# import csv
 import ee
-import geojson
-import json
+# import geojson
+# import json
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -29,32 +29,33 @@ partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partitio
 def get_last_day_of_month(month):
     return (datetime(int(year), month, 1) + relativedelta(months=1, days=-1)).day
 
-def get_biomass_points(tile):
+def get_gedi_points(tile):
     collection_names = (ee.FeatureCollection('LARSE/GEDI/GEDI04_A_002_INDEX') # table index
                           .filter(f'time_start >= "{year}-01-01" && time_end <= "{year}-12-31"') # get feature collections with features in the selected year
-                          .filterBounds(tile['geometry']) # get feature collections that have features within the tile
+                          .filterBounds(tile['properties']['outer_tile']) # get feature collections that have features within the tile
                           .aggregate_array('table_id') # extract the IDs of the feature collections
                           .getInfo()) # list of names of the feature collections
     quality_filter = 'degrade_flag == 0 && l2_quality_flag == 1 && l4_quality_flag == 1 && leaf_off_flag == 0 && region_class > 0'
-    points = (ee.FeatureCollection([ee.FeatureCollection(name) for name in collection_names])
-                .flatten() # merge all the feature collections into one
-                .filterBounds(tile['geometry']) # collection of the features that are within the tile
-                .filter(quality_filter) # apply the quality filter
-                .map(lambda point: point.set('off_after_on', ee.Number(point.get('leaf_off_doy')).subtract(ee.Number(point.get('leaf_on_doy'))))) # adding property for difference between leaf off and on days
-                .filter(ee.Filter.gt('off_after_on', 0))) # filtering by points with leaf on before leaf off
+    gedi_points = (ee.FeatureCollection([result for _, result in ((collection_name, utils.get_asset_if_valid(ee.FeatureCollection(collection_name))) for collection_name in collection_names) if result is not None])
+                     .flatten() # merge all the feature collections into one
+                     .filterBounds(tile['properties']['outer_tile']) # collection of the features that are within the tile
+                     .filter(quality_filter) # apply the quality filter
+                     .map(lambda point: point.set('off_after_on', ee.Number(point.get('leaf_off_doy')).subtract(ee.Number(point.get('leaf_on_doy'))))) # adding property for difference between leaf off and on days
+                     .filter(ee.Filter.gt('off_after_on', 0))) # filtering by GEDI points with leaf on before leaf off
 
-    return points
+    return gedi_points
 
-def get_dates(task, tile):
+def get_dates(task, point):
     if task == 'biomass':
-        points = get_biomass_points(tile)
+        points = get_gedi_points(point)
         leaf_on_off = np.array([points.aggregate_array('leaf_on_doy').getInfo(), points.aggregate_array('leaf_off_doy').getInfo()]).T # get pairs of leaf on and off days for each point
         leaf_on_off_unique = list(map(list, set(map(tuple, leaf_on_off)))) # get unique pairs
         leaf_on_off_dates = [[pd.to_datetime(pair[0], unit='D', origin=pd.Timestamp(f'{year}-01-01')).date().strftime('%Y-%m-%d'), pd.to_datetime(pair[1], unit='D', origin=pd.Timestamp(f'{year}-01-01')).date().strftime('%Y-%m-%d')] for pair in leaf_on_off_unique]
 
         return leaf_on_off_dates
+
     elif task == 'species':
-        month = tile['properties']['month']
+        month = point['properties']['month']
 
         if month > 1 and month < 12:
             start_month = month - 1
@@ -70,26 +71,29 @@ def get_dates(task, tile):
             dates = [[f'{year}-{str(start_month).zfill(2)}-01', f'{year}-{str(month).zfill(2)}-31'], [f'{year}-{str(end_month).zfill(2)}-01', f'{year}-{str(end_month).zfill(2)}-{get_last_day_of_month(end_month)}']]
 
         return dates
-    elif 'soil' in task:
-        tile_center_latitude = utils.get_rectangle_center(tile['geometry']['coordinates'][0])[1]
 
-        if tile_center_latitude > 0:
+    elif 'soil' in task:
+        point_latitude = point['geometry']['coordinates'][1]
+
+        if point_latitude > 0:
             dates = [[f'{year}-{str(5).zfill(2)}-01', f'{year}-{str(9).zfill(2)}-{get_last_day_of_month(9)}']]
-        elif tile_center_latitude < 0:
+        elif point_latitude < 0:
             dates = [[f'{year}-{str(11).zfill(2)}-01', f'{year}-{str(12).zfill(2)}-{get_last_day_of_month(12)}'], [f'{year}-{str(1).zfill(2)}-01', f'{year}-{str(3).zfill(2)}-{get_last_day_of_month(3)}']]
 
         return dates
 
-def get_task_values(task, tile):
-    if task == 'biomass':
-        return get_biomass_points(tile)
-    elif task == 'species':
-        species = tile['properties']['species']
-        main_species = tile['properties']['main_species']
+# def get_task_values(task, point):
+#     if task == 'biomass':
+#         return get_gedi_points(point)
 
-        return {'species': species, 'main_species': main_species}
-    elif 'soil' in task:
-        return {task: tile['properties']['value']}
+#     elif task == 'species':
+#         species = point['properties']['species']
+#         main_species = point['properties']['main_species']
+
+#         return {'species': species, 'main_species': main_species}
+
+#     elif 'soil' in task:
+#         return {task: point['properties']['value']}
 
 def plot_missing_modalities(task):
     print(task)
@@ -123,39 +127,30 @@ def plot_missing_modalities(task):
 def get_modalities(task):
     start_time = time.time()
     os.makedirs(f'{task}/data', exist_ok=True)
-    tiles = utils.read_geojson(f'{task}/tiles/{task}_tiles.geojson') # reading the GeoJSON file
-    end_tile = len(tiles['features'])
+    points = utils.read_geojson(f'{task}/points/{task}_points.geojson') # reading the GeoJSON file
+    end_point = len(points['features'])
     tiles_made = 0
     tile_missing_modalities_yml_path = f'{task}/{task}_missing_modalities.yml'
-    tile_missing_modalities = {}
-    start_tile = 0
 
-    if os.path.exists(tile_missing_modalities_yml_path):
+    if os.path.exists(tile_missing_modalities_yml_path): # if there is some data saved
         tile_missing_modalities = utils.read_yaml(tile_missing_modalities_yml_path)
-        start_tile = next(reversed(tile_missing_modalities)) + 1
-        # with open(tile_missing_modalities_yml_path, 'r') as csv_file:
-        #     reader = csv.reader(csv_file)
-        #     tile_missing_modalities = [[int(row[0]), row[1]] for row in reader]
-        #     start_tile = tile_missing_modalities[-1][0] + 1
+        start_point = next(reversed(tile_missing_modalities)) + 1
+    else:
+        tile_missing_modalities = {}
+        start_point = 0
 
-    for tile_index in range(start_tile, end_tile):
-        print(f'Processing tile {tile_index}/{end_tile-1}')
-        tile = tiles['features'][tile_index]
-        dates = get_dates(task, tile)
-        task_values = get_task_values(task, tile)
+    for point_id in range(start_point, end_point):
+        print(f'Processing tile {point_id}/{end_point-1}')
+        point = points['features'][point_id]
+        dates = get_dates(task, point)
+        # task_values = get_task_values(task, point)
 
         if len(dates) > 0:
-            ee_data = EEData(tile, task, dates, task_values)
-            tile_missing_modalities[tile_index] = ee_data.missing_modalities
+            ee_data = EEData(point, task, dates)
+            tile_missing_modalities[point_id] = ee_data.missing_modalities
 
             with open(tile_missing_modalities_yml_path, 'w') as file:
                 yaml.dump(tile_missing_modalities, file, default_flow_style=False)
-
-            # with open(f'{task}/{task}_missing_modalities.csv', 'w', newline='') as file:
-            #     writer = csv.writer(file)
-
-            #     for row in tile_missing_modalities:
-            #         writer.writerow(row)
 
             if not ee_data.no_data:
                 tiles_made += 1
