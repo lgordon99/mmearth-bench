@@ -49,14 +49,17 @@ python generate_biomass_tiles.py merge_ecoregion_tiles
 ```
 
 ## Generate species tiles
-1. Download the [sinr](https://github.com/elijahcole/sinr/tree/main) repository
+1. Download the [sinr repository](https://github.com/elijahcole/sinr/tree/main)
 2. Follow the [instructions for data preparation](https://github.com/elijahcole/sinr/tree/main/data#instructions-for-data-preparation)
 3. Rename the `data` folder to `sinr-data`
 4. Move `sinr-data` into your data directory for this code located at `data_dir_path`
+5. Ensure you have 20GB of memory available
 5. Run
 ```
 python generate_species_tiles.py generate_species_tiles
 ```
+which takes around 22 minutes.
+
 6. Run
 ```
 python generate_species_tiles.py make_species_grid
