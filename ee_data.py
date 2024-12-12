@@ -6,6 +6,7 @@ A general class to collect the data from GEE. Each function in the class will be
 # imports
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+from shapely.geometry import Polygon
 import certifi
 import ee
 import geopandas as gpd
@@ -16,6 +17,7 @@ import time
 import utils
 
 TILE_SIZE_M = utils.read_yaml('config.yml')['TILE_SIZE_M']
+TILE_SIZE = int(TILE_SIZE_M / 10)
 
 class EEData:
     def __init__(self, point, task, start_end_dates):
@@ -42,23 +44,23 @@ class EEData:
         self.missing_modalities = []
 
         if 'biome' in list(point['properties'].keys()):
-            self.biome_name = point['properties']['biome']
-            self.ecoregion_name = point['properties']['ecoregion']
+            self.name_biome = point['properties']['biome']
+            self.name_ecoregion = point['properties']['ecoregion']
         else:
             if len(ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile).getInfo()['features']) > 0:
-                self.biome_name = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile).getInfo()['features'][0]['properties']['BIOME_NAME']
-                self.ecoregion_name = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile).getInfo()['features'][0]['properties']['ECO_NAME']
+                self.name_biome = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile).getInfo()['features'][0]['properties']['BIOME_NAME']
+                self.name_ecoregion = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile).getInfo()['features'][0]['properties']['ECO_NAME']
             else:
-                self.biome_name = None
-                self.ecoregion_name = None
+                self.name_biome = None
+                self.name_ecoregion = None
                 self.missing_modalities.append('biome/ecoregion')
 
-        if self.biome_name is not None:
+        if self.name_biome is not None:
             biome_labels = utils.read_json('biomes_ecoregions_data/biome_labels.json')
             ecoregion_labels = utils.read_json('biomes_ecoregions_data/ecoregion_labels.json')
 
-            self.biome = biome_labels[self.biome_name]
-            self.ecoregion = ecoregion_labels[self.ecoregion_name]
+            self.biome = biome_labels[self.name_biome]
+            self.ecoregion = ecoregion_labels[self.name_ecoregion]
         else:
             self.biome = None
             self.ecoregion = None
@@ -114,6 +116,32 @@ class EEData:
         month = int(self.s2_date.split('-')[1])
         self.month_encoding = {'month_sin': np.sin(np.pi * month / 6), 'month_cos': np.cos(np.pi * month / 6)}
         self.proj = s2_image.select('B4').projection() # projection of B4 band
+        # print(self.point['geometry'])
+        # print(ee.Geometry.Point(self.point['geometry']['coordinates']).getInfo())
+        projected_point_coordinates = ee.Geometry.Point(self.point['geometry']['coordinates']).transform(self.proj).coordinates()
+        # projected_point_x, projected_point_y = projected_point.coordinates().getInfo()
+        # print(projected_point_x, projected_point_y)
+        # coords = projected_point.coordinates()
+        nearest_pixel_intersection_x = ee.Number(projected_point_coordinates.get(0)).round()
+        nearest_pixel_intersection_y = ee.Number(projected_point_coordinates.get(1)).round()
+        self.tile = ee.Geometry.Rectangle([nearest_pixel_intersection_x.subtract(TILE_SIZE/2), nearest_pixel_intersection_y.subtract(TILE_SIZE/2), nearest_pixel_intersection_x.add(TILE_SIZE/2), nearest_pixel_intersection_y.add(TILE_SIZE/2)], proj=self.proj, geodesic=False)
+
+        # intersection_point = ee.Geometry.Point([x, y], self.proj)
+        # self.tile = ee.Geometry.Rectangle([x - TILE_SIZE/2, y - TILE_SIZE/2, x + TILE_SIZE/2, y + TILE_SIZE/2], proj=self.proj, geodesic=False)
+        # projected_point_x, projected_point_y = projected_point.coordinates().getInfo()
+        # x_min = projected_point_x - TILE_SIZE / 2
+        # y_min = projected_point_y - TILE_SIZE / 2
+        # x_max = projected_point_x + TILE_SIZE / 2
+        # y_max = projected_point_y + TILE_SIZE / 2
+        # self.tile = projected_point.buffer(630).bounds()
+        # self.tile = ee.Geometry.Rectangle([x_min, y_min, x_max, y_max], proj=self.proj, geodesic=False)
+        # self.tile = ee.Geometry.Rectangle([ee.Number(projected_coords.get(0)).subtract(63.5),  # minX
+        # ee.Number(projected_coords.get(1)).subtract(63.5),  # minY
+        # ee.Number(projected_coords.get(0)).add(63.5),       # maxX
+        # ee.Number(projected_coords.get(1)).add(63.5)], proj=self.proj, geodesic=False)
+
+        # self.tile = ee.Geometry.Point(self.point['geometry']['coordinates']).transform(self.proj)
+        # self.tile = self.tile.transform(self.proj, maxError=1)
         self.crs = self.proj.getInfo()['crs'] # CRS of B4 band
         s2_image = s2_image.select([band for band in bands if band not in ['SCL', 'QA60']]).resample('bilinear').reproject(self.proj).addBands(s2_image.select(['SCL', 'QA60']).reproject(self.proj))
         self.pixel_level_data['sentinel2'] = s2_image.rename([f'Sentinel2_{band}' if band not in ['SCL', 'MSK_CLDPRB', 'QA60'] else band for band in bands])
@@ -303,19 +331,18 @@ class EEData:
                 allowed_months = [11, month, 1]
 
             observations_selected_species_gdf = gpd.read_file('species/observations_selected_species_gdf.geojson')
-            observations_in_tile = observations_selected_species_gdf[observations_selected_species_gdf.within(self.tile)] # gets observations in the tile
+            observations_in_tile = observations_selected_species_gdf[observations_selected_species_gdf.within(Polygon(self.tile.transform('EPSG:4326', maxError=1).getInfo()['coordinates'][0]))] # gets observations in the tile
             observations_in_tile_filtered = observations_in_tile[observations_in_tile['month'].isin(allowed_months)] # keeps observations within one month of the main species'
             species = list(observations_in_tile_filtered['species'].unique()) # all relevant species to the tile
             main_species = self.point['properties']['main_species']
             species_labels = utils.read_json('species/species_labels.json')
-            main_species_number = species_labels[main_species]
             species_numbers = [species_labels[species_] for species_ in species]
-            species_string = ''
+            main_species_number = species_labels[main_species]
 
-            for i in range(len(species)):
-                species_string += f'{species_numbers[i]},{species[i]}'
-
-            self.task_values = {'species': species_string, 'main_species': f'{main_species_number},{main_species}'}
+            self.task_values = {'species': ','.join(map(str, species_numbers)),
+                                'species_main': main_species_number,
+                                'name_species': ','.join(species),
+                                'name_species_main': main_species}
 
         elif 'soil' in task:
             self.task_values = {task: self.point['properties']['value']}
@@ -341,6 +368,11 @@ class EEData:
                 tiff.write(response.content)
 
             with rasterio.open(tiff_path) as tiff:
+                array = tiff.read()
+                assert array.shape[1] == TILE_SIZE
+                assert array.shape[2] == TILE_SIZE
+
+                # update the tags to include the image level and task data
                 tags = tiff.tags()
                 image_level_modalities = {'climate_temperature_month_mean': self.era5_data['temperature_month_mean'],
                                           'climate_temperature_last_month_mean': self.era5_data['temperature_last_month_mean'],
@@ -360,8 +392,10 @@ class EEData:
                                           'longitude_cos': self.geolocation_encoding['lon_cos'],
                                           'month_sin': self.month_encoding['month_sin'],
                                           'month_cos': self.month_encoding['month_cos'],
-                                          'biome': f'{self.biome},{self.biome_name}',
-                                          'ecoregion': f'{self.ecoregion},{self.ecoregion_name}',
+                                          'biome': self.biome,
+                                          'ecoregion': self.ecoregion,
+                                          'name_biome': self.name_biome,
+                                          'name_ecoregion': self.name_ecoregion,
                                           'crs': self.crs,
                                           'lat': self.lat,
                                           'lon': self.lon,
@@ -374,7 +408,7 @@ class EEData:
                     tags.update(image_level_modalities)
 
                 with rasterio.open(tiff_path, 'w', **tiff.meta) as updated_tiff:
-                    updated_tiff.write(tiff.read())
+                    updated_tiff.write(array)
                     updated_tiff.update_tags(**tags)
 
                     for i in range(tiff.count):
