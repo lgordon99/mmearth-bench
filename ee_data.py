@@ -11,6 +11,7 @@ import certifi
 import ee
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import rasterio
 import requests
 import time
@@ -18,14 +19,20 @@ import utils
 
 TILE_SIZE_M = utils.read_yaml('config.yml')['TILE_SIZE_M']
 TILE_SIZE = int(TILE_SIZE_M / 10)
+year = '2020'
+
+def get_last_day_of_month(month):
+    return (datetime(int(year), month, 1) + relativedelta(months=1, days=-1)).day
 
 class EEData:
-    def __init__(self, point, task, start_end_dates):
+    def __init__(self, point, task):
         start = time.time()
         self.point = point
         self.bands = []
+        self.task = task
+        self.gedi_points = self.get_gedi_points() if task == 'biomass' else None
+        self.date_filter = ee.Filter.Or(*[ee.Filter.date(date_range[0], date_range[1]) for date_range in self.get_dates()])
         self.crs = ''
-        self.date_filter = ee.Filter.Or(*[ee.Filter.date(date_range[0], date_range[1]) for date_range in start_end_dates])
         self.s2_date = ''
         self.month_encoding = ''
         self.id = point['id']
@@ -35,7 +42,6 @@ class EEData:
                                      'lat_cos': np.cos(np.deg2rad(self.lat)),
                                      'lon_sin': np.sin(np.deg2rad(self.lon)),
                                      'lon_cos': np.cos(np.deg2rad(self.lon))}
-        self.task = task
         self.pixel_level_data = {}
         self.no_data = False
         self.era5_data = {}
@@ -47,10 +53,13 @@ class EEData:
             self.name_biome = point['properties']['biome']
             self.name_ecoregion = point['properties']['ecoregion']
         else:
-            if len(ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile).getInfo()['features']) > 0:
-                self.name_biome = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile).getInfo()['features'][0]['properties']['BIOME_NAME']
-                self.name_ecoregion = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile).getInfo()['features'][0]['properties']['ECO_NAME']
-            else:
+            ecoregion_features = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile).getInfo()['features']
+
+            if len(ecoregion_features) > 0:
+                self.name_biome = ecoregion_features[0]['properties']['BIOME_NAME']
+                self.name_ecoregion = ecoregion_features[0]['properties']['ECO_NAME']
+
+            if len(ecoregion_features) == 0 or self.name_biome == 'N/A':                
                 self.name_biome = None
                 self.name_ecoregion = None
                 self.missing_modalities.append('biome/ecoregion')
@@ -91,14 +100,64 @@ class EEData:
 
             print(f'Time elapsed for this tile: {round(time.time() - start, 2)}s')
 
+    def get_gedi_points(self):
+        collection_names = (ee.FeatureCollection('LARSE/GEDI/GEDI04_A_002_INDEX') # table index
+                            .filter(f'time_start >= "{year}-01-01" && time_end <= "{year}-12-31"') # get feature collections with features in the selected year
+                            .filterBounds(self.point['properties']['outer_tile']) # get feature collections that have features within the tile
+                            .aggregate_array('table_id') # extract the IDs of the feature collections
+                            .getInfo()) # list of names of the feature collections
+        quality_filter = 'degrade_flag == 0 && l2_quality_flag == 1 && l4_quality_flag == 1 && leaf_off_flag == 0 && region_class > 0'
+        gedi_points = (ee.FeatureCollection([result for _, result in ((collection_name, utils.get_asset_if_valid(ee.FeatureCollection(collection_name))) for collection_name in collection_names) if result is not None])
+                        .flatten() # merge all the feature collections into one
+                        .filterBounds(self.point['properties']['outer_tile']) # collection of the features that are within the tile
+                        .filter(quality_filter) # apply the quality filter
+                        .map(lambda point: point.set('off_after_on', ee.Number(point.get('leaf_off_doy')).subtract(ee.Number(point.get('leaf_on_doy'))))) # adding property for difference between leaf off and on days
+                        .filter(ee.Filter.gt('off_after_on', 0))) # filtering by GEDI points with leaf on before leaf off
+
+        return gedi_points
+
+    def get_dates(self):
+        if self.task == 'biomass':
+            leaf_on_off = np.array([self.gedi_points.aggregate_array('leaf_on_doy').getInfo(), self.gedi_points.aggregate_array('leaf_off_doy').getInfo()]).T # get pairs of leaf on and off days for each point
+            leaf_on_off_unique = list(map(list, set(map(tuple, leaf_on_off)))) # get unique pairs
+            leaf_on_off_dates = [[pd.to_datetime(pair[0], unit='D', origin=pd.Timestamp(f'{year}-01-01')).date().strftime('%Y-%m-%d'), pd.to_datetime(pair[1], unit='D', origin=pd.Timestamp(f'{year}-01-01')).date().strftime('%Y-%m-%d')] for pair in leaf_on_off_unique]
+
+            return leaf_on_off_dates
+
+        elif self.task == 'species':
+            month = self.point['properties']['month']
+
+            if month > 1 and month < 12:
+                start_month = month - 1
+                end_month = month + 1
+                dates = [[f'{year}-{str(start_month).zfill(2)}-01', f'{year}-{str(end_month).zfill(2)}-{get_last_day_of_month(end_month)}']]
+            elif month == 1:
+                start_month = 12
+                end_month = 2
+                dates = [[f'{year}-{str(start_month).zfill(2)}-01', f'{year}-{str(start_month).zfill(2)}-31'], [f'{year}-{str(month).zfill(2)}-01', f'{year}-{str(end_month).zfill(2)}-{get_last_day_of_month(end_month)}']]
+            elif month == 12:
+                start_month = 11
+                end_month = 1
+                dates = [[f'{year}-{str(start_month).zfill(2)}-01', f'{year}-{str(month).zfill(2)}-31'], [f'{year}-{str(end_month).zfill(2)}-01', f'{year}-{str(end_month).zfill(2)}-{get_last_day_of_month(end_month)}']]
+
+            return dates
+
+        elif 'soil' in self.task:
+            point_latitude = self.point['geometry']['coordinates'][1]
+
+            if point_latitude > 0:
+                dates = [[f'{year}-{str(5).zfill(2)}-01', f'{year}-{str(9).zfill(2)}-{get_last_day_of_month(9)}']]
+            elif point_latitude < 0:
+                dates = [[f'{year}-{str(11).zfill(2)}-01', f'{year}-{str(12).zfill(2)}-{get_last_day_of_month(12)}'], [f'{year}-{str(1).zfill(2)}-01', f'{year}-{str(3).zfill(2)}-{get_last_day_of_month(3)}']]
+
+            return dates
+
     def sentinel2(self):
         bands = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8A', 'B8', 'B9', 'B11', 'B12', 'SCL', 'MSK_CLDPRB', 'QA60']
         sentinel2_images = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') # L2A collection
                               .filter(self.date_filter) # gets images in any of the specified date ranges
                               .filterBounds(self.tile) # gets images that have some overlap with the tile
                               .filter(ee.Filter.contains('.geo', self.tile.buffer(200)))) # gets images containing the tile plus some buffer
-                            #   .map(lambda image: image.clip(self.tile))) # crops to tile
-                            #   .map(lambda image: image.clip(self.buffered_polygon))) # crops to tile
 
         if sentinel2_images.size().getInfo() == 0: # if no images were returned
             return False
@@ -116,32 +175,10 @@ class EEData:
         month = int(self.s2_date.split('-')[1])
         self.month_encoding = {'month_sin': np.sin(np.pi * month / 6), 'month_cos': np.cos(np.pi * month / 6)}
         self.proj = s2_image.select('B4').projection() # projection of B4 band
-        # print(self.point['geometry'])
-        # print(ee.Geometry.Point(self.point['geometry']['coordinates']).getInfo())
         projected_point_coordinates = ee.Geometry.Point(self.point['geometry']['coordinates']).transform(self.proj).coordinates()
-        # projected_point_x, projected_point_y = projected_point.coordinates().getInfo()
-        # print(projected_point_x, projected_point_y)
-        # coords = projected_point.coordinates()
         nearest_pixel_intersection_x = ee.Number(projected_point_coordinates.get(0)).round()
         nearest_pixel_intersection_y = ee.Number(projected_point_coordinates.get(1)).round()
         self.tile = ee.Geometry.Rectangle([nearest_pixel_intersection_x.subtract(TILE_SIZE/2), nearest_pixel_intersection_y.subtract(TILE_SIZE/2), nearest_pixel_intersection_x.add(TILE_SIZE/2), nearest_pixel_intersection_y.add(TILE_SIZE/2)], proj=self.proj, geodesic=False)
-
-        # intersection_point = ee.Geometry.Point([x, y], self.proj)
-        # self.tile = ee.Geometry.Rectangle([x - TILE_SIZE/2, y - TILE_SIZE/2, x + TILE_SIZE/2, y + TILE_SIZE/2], proj=self.proj, geodesic=False)
-        # projected_point_x, projected_point_y = projected_point.coordinates().getInfo()
-        # x_min = projected_point_x - TILE_SIZE / 2
-        # y_min = projected_point_y - TILE_SIZE / 2
-        # x_max = projected_point_x + TILE_SIZE / 2
-        # y_max = projected_point_y + TILE_SIZE / 2
-        # self.tile = projected_point.buffer(630).bounds()
-        # self.tile = ee.Geometry.Rectangle([x_min, y_min, x_max, y_max], proj=self.proj, geodesic=False)
-        # self.tile = ee.Geometry.Rectangle([ee.Number(projected_coords.get(0)).subtract(63.5),  # minX
-        # ee.Number(projected_coords.get(1)).subtract(63.5),  # minY
-        # ee.Number(projected_coords.get(0)).add(63.5),       # maxX
-        # ee.Number(projected_coords.get(1)).add(63.5)], proj=self.proj, geodesic=False)
-
-        # self.tile = ee.Geometry.Point(self.point['geometry']['coordinates']).transform(self.proj)
-        # self.tile = self.tile.transform(self.proj, maxError=1)
         self.crs = self.proj.getInfo()['crs'] # CRS of B4 band
         s2_image = s2_image.select([band for band in bands if band not in ['SCL', 'QA60']]).resample('bilinear').reproject(self.proj).addBands(s2_image.select(['SCL', 'QA60']).reproject(self.proj))
         self.pixel_level_data['sentinel2'] = s2_image.rename([f'Sentinel2_{band}' if band not in ['SCL', 'MSK_CLDPRB', 'QA60'] else band for band in bands])
@@ -152,7 +189,6 @@ class EEData:
                               .filter(self.date_filter) # gets images in any of the specified date ranges
                               .filterBounds(self.tile) # gets images that have some overlap with the tile
                               .filter(ee.Filter.contains('.geo', self.tile.buffer(200))) # gets images containing the tile plus some buffer
-                            #   .map(lambda image: image.clip(self.tile)) # crops to tile
                               .filterMetadata('instrumentMode', 'equals', 'IW') # selects for the interferometric wide swath mode
                               .map(lambda image: image.set('date_difference', image.date().difference(self.s2_date, 'day').abs())) # calculate days off from S2 image
                               .sort('date_difference')) # sort in ascending order by days off
@@ -160,7 +196,6 @@ class EEData:
         asc_image = sentinel1_images.filterMetadata('orbitProperties_pass', 'equals', 'ASCENDING').first() # ascending image
         desc_image = sentinel1_images.filterMetadata('orbitProperties_pass', 'equals', 'DESCENDING').first() # descending image
         s1_image = None
-        # nan_band = ee.Image.constant(-9999).clip(self.tile).float().reproject(self.proj)
         nan_band = ee.Image.constant(-9999).float().reproject(self.proj)
 
         # adding ascending bands
@@ -189,7 +224,6 @@ class EEData:
             return False
 
     def aster(self):
-        # elevation = ee.Image('projects/sat-io/open-datasets/ASTER/GDEM').clip(self.tile).select('b1').float() # get elevation band
         elevation = ee.Image('projects/sat-io/open-datasets/ASTER/GDEM').select('b1').float() # get elevation band
         slope = ee.Terrain.slope(elevation) # calculate slope from elevation data
         self.pixel_level_data['aster'] = ee.Image.cat([elevation, slope]).resample('bilinear').reproject(self.proj).rename(['AsterDEM_elevation', 'AsterDEM_slope']) # combine the elevation and slope into a single image
@@ -241,7 +275,6 @@ class EEData:
             return image
 
         dynamic_world_images = dynamic_world_images.map(reclasify)
-        # dw_image = dynamic_world_images.mode().clip(self.tile)
         dw_image = dynamic_world_images.mode()
         bands = dw_image.bandNames().getInfo()
 
@@ -256,16 +289,13 @@ class EEData:
         Gets the ETH canopy height and standard deviation from the year 2020
         '''
 
-        # height = ee.Image('users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1').clip(self.tile).float()
         height = ee.Image('users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1').float()
-        # std = ee.Image('users/nlang/ETH_GlobalCanopyHeightSD_2020_10m_v1').clip(self.tile).float()
         std = ee.Image('users/nlang/ETH_GlobalCanopyHeightSD_2020_10m_v1').float()
         self.pixel_level_data['canopy_height_eth'] = ee.Image.cat([height, std]).resample('bilinear').reproject(self.proj).rename(['ETHGCH_canopy_height', 'ETHGCH_canopy_height_uncertainty'])
 
     def esa_worldcover(self):
         ''' Gets the ESA worldcover data '''
 
-        # self.pixel_level_data['esa_worldcover'] = ee.ImageCollection('ESA/WorldCover/v100').first().clip(self.tile).select('Map').reproject(self.proj).rename('ESA_Worldcover')
         self.pixel_level_data['esa_worldcover'] = ee.ImageCollection('ESA/WorldCover/v100').first().select('Map').reproject(self.proj).rename('ESA_Worldcover')
 
     def era5(self):
@@ -306,19 +336,7 @@ class EEData:
 
     def task_data(self, task):
         if task == 'biomass':
-            collection_names = (ee.FeatureCollection('LARSE/GEDI/GEDI04_A_002_INDEX') # table index
-                                .filter('time_start >= "2020-01-01" && time_end <= "2020-12-31"') # get feature collections with features in the selected year
-                                .filterBounds(self.tile) # get feature collections that have features within the tile
-                                .aggregate_array('table_id') # extract the IDs of the feature collections
-                                .getInfo()) # list of names of the feature collections
-            quality_filter = 'degrade_flag == 0 && l2_quality_flag == 1 && l4_quality_flag == 1 && leaf_off_flag == 0 && region_class > 0'
-            gedi_points = (ee.FeatureCollection([result for _, result in ((collection_name, utils.get_asset_if_valid(ee.FeatureCollection(collection_name))) for collection_name in collection_names) if result is not None])
-                            .flatten() # merge all the feature collections into one
-                            .filterBounds(self.tile) # collection of the features that are within the tile
-                            .filter(quality_filter) # apply the quality filter
-                            .map(lambda point: point.set('off_after_on', ee.Number(point.get('leaf_off_doy')).subtract(ee.Number(point.get('leaf_on_doy'))))) # adding property for difference between leaf off and on days
-                            .filter(ee.Filter.gt('off_after_on', 0))) # filtering by GEDI points with leaf on before leaf off
-            self.pixel_level_data['biomass'] = ee.Image.constant(-9999).paint(gedi_points, 'agbd').reproject(self.proj).rename('biomass') # image array with -9999 wherever there are no points, aligned with Sentinel-2
+            self.pixel_level_data['biomass'] = ee.Image.constant(-9999).paint(self.gedi_points, 'agbd').reproject(self.proj).rename('biomass') # image array with -9999 wherever there are no points, aligned with Sentinel-2
 
         elif task == 'species':
             month = self.point['properties']['month']
