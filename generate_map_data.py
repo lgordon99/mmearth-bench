@@ -10,7 +10,6 @@ import numpy as np
 import os
 import pandas as pd
 import rasterio
-import subprocess
 import utils
 
 env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
@@ -20,22 +19,6 @@ data_dir = os.listdir(f'{data_dir_path}/{task}/data')
 month_labels = {'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6, 'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12}
 biome_labels = utils.read_json('biomes_ecoregions_data/biome_labels.json')
 ecoregion_labels = utils.read_json('biomes_ecoregions_data/ecoregion_labels.json')
-
-# def generate_gdf(task):
-#     gdf = gpd.GeoDataFrame(columns=['geometry'], crs='EPSG:4326')
-
-#     for tiff_name in data_dir:
-#         with rasterio.open(f'{task}/data/{tiff_name}') as tiff:
-#             crs = tiff.crs
-#             bounds = tiff.bounds
-#             task_value = tiff.tags()[task]
-
-#         if crs != 'EPSG:4326':
-#             bounds = transform_bounds(crs, 'EPSG:4326', *bounds)
-
-#         bbox = box(bounds[0], bounds[1], bounds[2], bounds[3])
-#         gdf = pd.concat([gdf, gpd.GeoDataFrame([{'geometry': bbox, task: task_value}], crs=gdf.crs)], ignore_index=True)
-#         gdf.to_file(f'{task}/{task}_tile_gdf.geojson', driver='GeoJSON')
 
 def normalize(array):
     for i in range(array.shape[0]):
@@ -49,13 +32,13 @@ def normalize(array):
 def convert_tiffs_to_wmts_tiles(task):
     gdf = gpd.GeoDataFrame(columns=['geometry'], crs='EPSG:4326')
     bounds_dict = {}
-    os.makedirs(f'{task}/tiles', exist_ok=True)
-    os.makedirs(f'{task}/tiles/Sentinel-2', exist_ok=True)
-    os.makedirs(f'{task}/tiles/Sentinel-1', exist_ok=True)
-    os.makedirs(f'{task}/tiles/AsterDEM-elevation', exist_ok=True)
-    os.makedirs(f'{task}/tiles/ETHGCH-canopy-height', exist_ok=True)
-    os.makedirs(f'{task}/tiles/DynamicWorld', exist_ok=True)
-    os.makedirs(f'{task}/tiles/ESA-Worldcover', exist_ok=True)
+    os.makedirs(f'{data_dir_path}/{task}/tiles', exist_ok=True)
+    os.makedirs(f'{data_dir_path}/{task}/tiles/Sentinel-2', exist_ok=True)
+    os.makedirs(f'{data_dir_path}/{task}/tiles/Sentinel-1', exist_ok=True)
+    os.makedirs(f'{data_dir_path}/{task}/tiles/AsterDEM-elevation', exist_ok=True)
+    os.makedirs(f'{data_dir_path}/{task}/tiles/ETHGCH-canopy-height', exist_ok=True)
+    os.makedirs(f'{data_dir_path}/{task}/tiles/DynamicWorld', exist_ok=True)
+    os.makedirs(f'{data_dir_path}/{task}/tiles/ESA-Worldcover', exist_ok=True)
 
     for tiff_name in data_dir:
         name = tiff_name.split('data.tif')[0]
@@ -69,7 +52,6 @@ def convert_tiffs_to_wmts_tiles(task):
             array = tiff.read()
 
             rgb = array[[3,2,1]].astype(float) # R, G, B
-            # rgb = tiff.read([4,3,2]).astype(float) # R, G, B
             s1 = np.zeros((array.shape[1:]))
 
             # for i in range(1, tiff.count + 1):  # Bands are 1-indexed
@@ -85,7 +67,7 @@ def convert_tiffs_to_wmts_tiles(task):
             dynamicworld = array[[band_number for band_number, band_name in band_names.items() if 'DynamicWorld' in band_name][0]]
             esa_worldcover = array[[band_number for band_number, band_name in band_names.items() if 'ESA_Worldcover' in band_name][0]]
 
-            task_value = tags[task]
+            task_value = tags[task] if task != 'species' else tags['name_species']
             climate = {key.split('climate_')[1].capitalize().replace('_', ' '): value for key, value in tags.items() if 'climate' in key}
             latitude = tags['lat']
             longitude = tags['lon']
@@ -108,17 +90,16 @@ def convert_tiffs_to_wmts_tiles(task):
         gdf.to_file(f'{task}/{task}_tile_gdf.geojson', driver='GeoJSON')
 
         rgb = np.stack(normalize(rgb), axis=-1) # (H, W, 3)
-        plt.imsave(f'{task}/tiles/Sentinel-2/{name}Sentinel-2.png', rgb)
-        plt.imsave(f'{task}/tiles/Sentinel-1/{name}Sentinel-1.png', s1)
-        plt.imsave(f'{task}/tiles/AsterDEM-elevation/{name}AsterDEM-elevation.png', asterdem_elevation)
-        plt.imsave(f'{task}/tiles/ETHGCH-canopy-height/{name}ETHGCH-canopy-height.png', ethgch_canopy_height)
-        plt.imsave(f'{task}/tiles/DynamicWorld/{name}DynamicWorld.png', dynamicworld)
-        plt.imsave(f'{task}/tiles/ESA-Worldcover/{name}ESA-Worldcover.png', esa_worldcover)
+        plt.imsave(f'{data_dir_path}/{task}/tiles/Sentinel-2/{name}Sentinel-2.png', rgb)
+        plt.imsave(f'{data_dir_path}/{task}/tiles/Sentinel-1/{name}Sentinel-1.png', s1)
+        plt.imsave(f'{data_dir_path}/{task}/tiles/AsterDEM-elevation/{name}AsterDEM-elevation.png', asterdem_elevation)
+        plt.imsave(f'{data_dir_path}/{task}/tiles/ETHGCH-canopy-height/{name}ETHGCH-canopy-height.png', ethgch_canopy_height)
+        plt.imsave(f'{data_dir_path}/{task}/tiles/DynamicWorld/{name}DynamicWorld.png', dynamicworld)
+        plt.imsave(f'{data_dir_path}/{task}/tiles/ESA-Worldcover/{name}ESA-Worldcover.png', esa_worldcover)
 
         bounds_dict[name] = [[bounds[1], bounds[0]], [bounds[3], bounds[2]]]
 
     with open(f'{task}/{task}_tile_bounds.json', 'w') as file:
         json.dump(bounds_dict, file, indent=4)
 
-# generate_gdf(task)
 convert_tiffs_to_wmts_tiles(task)
