@@ -1,0 +1,3 @@
+OUTER_TILE_SIZE_M: 1300 # m or 1.3km or 130 pixels at 10m resolution
+INNER_TILE_SIZE_M: 1260 # m or 126 pixels at 10m resolution
+TILE_SIZE_M: 1280 # 1280 m or 128 pixels at 10m resolution, final desired size
