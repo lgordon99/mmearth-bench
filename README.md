@@ -19,33 +19,39 @@ bash bash-scripts/install_gcloud_CLI.sh
 
 ## Setup conda environment
 1. Open a new terminal
-2. Run
+2. To initialize the Google Cloud CLI and create the conda environment, run
 ```
 bash bash-scripts/create_env.sh PATH_TO_ENV_DIR/mmearth-bench-env
 ```
-3. Run
+3. To activate the conda environment, run
 ```
 conda activate PATH_TO_ENV_DIR/mmearth-bench-env
 ```
-4. Run
+4. To install the needed packages in the conda environment, run
 ```
 bash bash-scripts/install_packages.sh
 ```
 
 ## Generate biomass tiles
-1. Run
+1. To calculate the number of tiles needed in each ecoregion, run
 ```
 python generate_biomass_tiles.py get_biomass_tile_counts
 ```
 which takes around 13 minutes.
 
-2. Run
+2. To generate points in each ecoregion that have GEDI points in their tiles, run
 ```
-python generate_biomass_tiles.py
+python generate_biomass_points.py
 ```
-3. Run
+
+3. To merge all of the ecoregion points into a single file, run
 ```
-python generate_biomass_tiles.py merge_ecoregion_tiles
+python generate_biomass_points.py merge_ecoregion_tiles
+```
+
+4. To save aligned modality and biomass data as a tiff for every tile, run
+```
+python get_tile_data.py biomass
 ```
 
 ## Generate species tiles
@@ -54,33 +60,30 @@ python generate_biomass_tiles.py merge_ecoregion_tiles
 3. Rename the `data` folder to `sinr-data`
 4. Move `sinr-data` into your data directory for this code located at `data_dir_path`
 5. Ensure you have 20GB of memory available
-5. Run
+5. To generate points that have species observations in their tiles, run
 ```
-python generate_species_tiles.py generate_species_tiles
+python generate_species_points.py
 ```
-which takes around 22 minutes.
+which takes around ~1 hour and 10 minutes.
 
 6. Run
 ```
 python generate_species_tiles.py make_species_grid
 ```
 
-## Generate soil tiles
-1. Download the [WoSIS December 2023 snapshot](https://files.isric.org/public/wosis_snapshot/WoSIS_2023_December.zip)
-2. Move the unzipped folder into your data directory for this code located at `data_dir_path`
-3. Run
-```
-python generate_soil_tiles.py
-```
-
-## Download tile data
-Run
-```
-python get_tile_data.py biomass
-```
+7. To save aligned modality and species data as a tiff for every tile, run
 ```
 python get_tile_data.py species
 ```
+
+## Generate soil tiles
+1. Download the [WoSIS December 2023 snapshot](https://files.isric.org/public/wosis_snapshot/WoSIS_2023_December.zip)
+2. Move the unzipped folder into your data directory for this code located at `data_dir_path`
+3. To generate points that have soil observations in their tiles, run
+```
+python generate_soil_points.py
+```
+4. To save aligned modality and soil data as a tiff for every tile, run
 ```
 python get_tile_data.py soil_nitrogen
 ```
