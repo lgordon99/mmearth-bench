@@ -95,35 +95,6 @@ partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partitio
 #     elif 'soil' in task:
 #         return {task: point['properties']['value']}
 
-def plot_missing_modalities(task):
-    print(task)
-
-    tiles = utils.read_geojson(f'{task}/points/{task}_points.geojson')['features']
-    print(f'Number of tiles = {len(tiles)}')
-
-    tile_missing_modalities = utils.read_yaml(f'{task}/{task}_missing_modalities.yml')
-    modalities = ['sentinel2', 'sentinel1', 'aster', 'canopy_height_eth', 'dynamic_world', 'esa_worldcover', 'era5', 'biome/ecoregion']
-    missing_modality_counts = {modality: 0 for modality in modalities}
-
-    for tile_id in range(len(tiles)):
-        missing_modalities = tile_missing_modalities[tile_id]
-
-        if missing_modalities:
-            for modality in missing_modalities:
-                missing_modality_counts[modality] += 1
-
-    num_failed_tiles = sum([missing_modality_counts[modality] for modality in modalities])
-    print(f'Number of tiles after getting modalities = {len(tiles) - num_failed_tiles}')
-
-    plt.figure(dpi=300)
-    plt.bar(missing_modality_counts.keys(), missing_modality_counts.values())
-    plt.title(f'{task}: Missing Modality Counts', fontsize=14)
-    plt.xlabel('Modalities', fontsize=12)
-    plt.ylabel('Tile count', fontsize=12)
-    plt.xticks(rotation=45, ha='right', fontsize=10)
-    plt.tight_layout()
-    plt.savefig(f'{task}/figures/{task}_missing_modality_counts.png')
-
 def get_modalities(task):
     start_time = time.time()
     os.makedirs(f'{task}/data', exist_ok=True)
@@ -154,11 +125,47 @@ def get_modalities(task):
     print(f'{tiles_made} tiles made')
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
+def check_complete(task):
+    tile_count = len(utils.read_geojson(f'{task}/points/{task}_points.geojson')['features'])
+    tile_missing_modalities = utils.read_yaml(f'{task}/{task}_missing_modalities.yml')
+    print(f'All tiles made for {task}: {tile_count == next(reversed(tile_missing_modalities)) + 1}')
+
+def plot_missing_modalities(task):
+    print(task)
+
+    tiles = utils.read_geojson(f'{task}/points/{task}_points.geojson')['features']
+    print(f'Number of tiles = {len(tiles)}')
+
+    tile_missing_modalities = utils.read_yaml(f'{task}/{task}_missing_modalities.yml')
+    modalities = ['sentinel2', 'sentinel1', 'aster', 'canopy_height_eth', 'dynamic_world', 'esa_worldcover', 'era5', 'biome/ecoregion']
+    missing_modality_counts = {modality: 0 for modality in modalities}
+
+    for tile_id in range(len(tiles)):
+        missing_modalities = tile_missing_modalities[tile_id]
+
+        if missing_modalities:
+            for modality in missing_modalities:
+                missing_modality_counts[modality] += 1
+
+    num_failed_tiles = sum([missing_modality_counts[modality] for modality in modalities])
+    print(f'Number of tiles after getting modalities = {len(tiles) - num_failed_tiles}')
+
+    plt.figure(dpi=300)
+    plt.bar(missing_modality_counts.keys(), missing_modality_counts.values())
+    plt.title(f'{task}: Missing Modality Counts', fontsize=14)
+    plt.xlabel('Modalities', fontsize=12)
+    plt.ylabel('Tile count', fontsize=12)
+    plt.xticks(rotation=45, ha='right', fontsize=10)
+    plt.tight_layout()
+    plt.savefig(f'{task}/figures/{task}_missing_modality_counts.png')
+
 if __name__ == '__main__':
-    if 'plot_missing_modalities' in argv[1]:
+    if 'check_complete' in argv[1]:
+        check_complete(argv[2])
+    elif 'plot_missing_modalities' in argv[1]:
         plot_missing_modalities(argv[2])
     elif 'for' not in argv[1]:
-        subprocess.run(['sbatch', '-t', '3-00:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'{argv[1]}_mmearth_modalities', '-o', f'bash-outputs/{argv[1]}_mmearth_modalities.out', '-e', f'bash-errors/{argv[1]}_mmearth_modalities.err', 'job.sh', env_path, 'get_tile_data.py', f'get_modalities_for_{argv[1]}'])
+        subprocess.run(['sbatch', '-t', '4-00:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'{argv[1]}_mmearth_modalities', '-o', f'bash-outputs/{argv[1]}_mmearth_modalities.out', '-e', f'bash-errors/{argv[1]}_mmearth_modalities.err', 'job.sh', env_path, 'get_tile_data.py', f'get_modalities_for_{argv[1]}'])
     elif 'for' in argv[1]:
         task = argv[1].split('for_')[1]
         print(f'Task = {task}')
