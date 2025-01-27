@@ -10,3 +10,4 @@ soil_pH
 biomes_ecoregions_data
 tiles
 scratch.py
+.pre-commit-config.yaml
