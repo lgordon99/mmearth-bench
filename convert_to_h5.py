@@ -1,11 +1,15 @@
+# requires 50GB memory to run
+
 # imports
 from collections import defaultdict
+from sys import argv
 import h5py
 import numpy as np
 import os
 import rasterio
 import utils
 
+data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
 pixel_level_modalities = ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETHGCH', 'DynamicWorld', 'ESA_Worldcover', 'SCL', 'MSK_CLDPRB', 'QA60']
 image_level_modalities = ['climate', 'latitude', 'longitude', 'month', 'biome', 'ecoregion']
 no_data_values = {'Sentinel1': float('-inf'),
@@ -15,6 +19,7 @@ no_data_values = {'Sentinel1': float('-inf'),
                   'month': float('-inf'),
                   'biome': 255,
                   'ecoregion': 65535}
+task = argv[1]
 
 def get_tag_value(tags, key):
     value = tags[key]
@@ -29,18 +34,19 @@ def check_is_number(value):
         return False
 
 def convert_tiffs_to_h5(task):
+    task_data_dir = f'{data_dir_path}/{task}/data'
     data = defaultdict(list) # dictionary whose default value is an empty list
 
-    with h5py.File(f'{task}/{task}_h5.hdf5', 'w') as h5_file:
-        for tiff in os.listdir(f'{task}/data'):
-            with rasterio.open(f'{task}/data/{tiff}') as tiff:
+    with h5py.File(f'{data_dir_path}/{task}/{task}_h5.hdf5', 'w') as h5_file:
+        for tiff in os.listdir(task_data_dir):
+            with rasterio.open(f'{task_data_dir}/{tiff}') as tiff:
                 array = tiff.read()
                 band_names = {band_number: tiff.tags(band_number+1)['BAND_NAME'] for band_number in range(tiff.count)}
                 tags = tiff.tags()
 
                 for modality in pixel_level_modalities:
-                    band_numbers = [band_number for band_number, band_name in band_names.items() if modality in band_name]
-                    modality_array = array[band_numbers]
+                    modality_band_numbers = [band_number for band_number, band_name in band_names.items() if modality in band_name]
+                    modality_array = array[modality_band_numbers]
 
                     if modality == 'Sentinel1':
                         for band_number in range(len(modality_array)):
@@ -67,7 +73,6 @@ def convert_tiffs_to_h5(task):
 
             h5_file.create_dataset(modality, data=np.array(array))
 
-
 def open_h5(task):
     with h5py.File(f'{task}/{task}_h5.hdf5', 'r') as h5_file:
         # print(h5_file.keys())
@@ -75,6 +80,6 @@ def open_h5(task):
         print(len(h5_file['biome'][()]))
 
 if __name__ == '__main__':
-    convert_tiffs_to_h5('species')
+    convert_tiffs_to_h5(task)
 
     # open_h5('soil_nitrogen')
