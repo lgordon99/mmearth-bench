@@ -151,7 +151,7 @@ def generate_species_points():
     # record all species occurring in the points
     observations_selected_species_df = observations_selected_species_df[observations_selected_species_df['species'].isin(species_to_keep)] # only includes selected species
     observations_selected_species_df['geometry'] = observations_selected_species_df.apply(lambda row: Point(row['longitude'], row['latitude']), axis=1) # adds a geometry column
-    observations_selected_species_gdf = gpd.GeoDataFrame(observations_selected_species_df, geometry='geometry') # creates a GeoDataFrame for all the observations for the selected species
+    observations_selected_species_gdf = gpd.GeoDataFrame(observations_selected_species_df, geometry='geometry', crs='EPSG:4326') # creates a GeoDataFrame for all the observations for the selected species
     observations_selected_species_gdf.to_file('species/observations_selected_species_gdf.geojson', driver='GeoJSON')
 
     # for point in points:
@@ -201,7 +201,7 @@ def generate_species_points():
 
 def get_wikipedia_url(species):
     print('Wikipedia image')
-    wikipedia_page_url = f'https://en.wikipedia.org/wiki/{species.replace(' ', '_')}' # URL for the Wikipedia page with the given title
+    wikipedia_page_url = f'https://en.wikipedia.org/wiki/{species.replace("" "", "_")}' # URL for the Wikipedia page with the given title
     response = requests.get(wikipedia_page_url, headers={'User-Agent': 'LuciaGordon (https://lgordon99.github.io; luciagordon@g.harvard.edu)'})
     soup = BeautifulSoup(response.content, 'html.parser')
     url = f'https:{soup.find("table", {"class": "infobox"}).find("img")["src"]}'
@@ -258,7 +258,11 @@ if __name__ == '__main__':
         save_2020_observations() # takes ~3 minutes
 
     if len(argv) == 1:
-        generate_species_points() # takes ~22 minutes
+        partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
+        env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
+        subprocess.run(['sbatch', '-t', '0-02:00:00', '-p', partitions, '--mem', '5G', '--job-name', 'generate_species_points', '-o', 'bash-outputs/generate_species_points.out', '-e', 'bash-errors/generate_species_points.err', 'job.sh', env_path, 'generate_species_points.py', 'generate_species_points'])
     if len(argv) > 1:
+        if argv[1] == 'generate_species_points':
+            generate_species_points() # takes ~45 minutes
         if argv[1] == 'make_species_grid':
             make_species_grid()
