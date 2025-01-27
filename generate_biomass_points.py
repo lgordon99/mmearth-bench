@@ -143,16 +143,16 @@ def generate_ecoregion_points(biome, ecoregion, num_ecoregion_tiles, tiles_from_
         while len(points) < num_ecoregion_tiles:
             candidate_points = (ee.FeatureCollection.randomPoints(region=region, points=num_ecoregion_tiles-len(points), seed=seed) # generates random points in the ecoregion
                                                     .map(lambda point: point.set('outer_tile', point.buffer(OUTER_TILE_SIZE_M / 2).bounds().geometry()))) # creates an outer tile around each point
-            print(f'{candidate_points.size().getInfo()} candidate point(s) generated')
+            # print(f'{candidate_points.size().getInfo()} candidate point(s) generated')
             candidate_points = candidate_points.filter(ee.Filter.contains(leftValue=ecoregion_collection.geometry(), rightField='outer_tile')) # filters out points whose tiles are not contained in the ecoregion
-            print(f'{candidate_points.size().getInfo()} candidate point(s) after filtering for containment in ecoregion')
+            # print(f'{candidate_points.size().getInfo()} candidate point(s) after filtering for containment in ecoregion')
             seed += 1
 
             if candidate_points.size().getInfo() > 0:
                 candidate_points = (candidate_points.map(lambda point: point.set('inner_tile', point.buffer(INNER_TILE_SIZE_M / 2).bounds().geometry())) # creates an inner tile around each point
                                                     .getInfo())
                 candidate_points = [candidate_point for candidate_point in candidate_points['features'] if gedi_points.filterBounds(candidate_point['properties']['inner_tile']).size().getInfo() > 0] # saves the points with at least one GEDI point in their inner tile
-                print(f'{len(candidate_points)} candidate tile(s) after filtering for emptiness')
+                # print(f'{len(candidate_points)} candidate tile(s) after filtering for emptiness')
                 points += [{**{key: value for key, value in candidate_point.items() if key != 'id'}, 'properties': {'outer_tile': candidate_point['properties']['outer_tile'], 'biome': biome, 'ecoregion': ecoregion}} for candidate_point in candidate_points] 
                 print(f'{len(points)} points made so far')
 
@@ -189,7 +189,7 @@ def generate_biomass_points():
                             error = file.read()
 
                             if len(error) > 0: # if there is an error
-                                print(f'\nError = {error.split("\n")[-2]}')
+                                print('\nError = {}'.format(error.split("\n")[-2]))
 
                                 if 'Computation timed out' in error: # if the error is "computation timed out"
                                     tiles_from_points = False
@@ -204,9 +204,9 @@ def generate_biomass_points():
                     print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion}')
                     print(f'tiles_from_points = {tiles_from_points}')
 
-                    hours = 3 if tiles_from_points else 70
+                    hours = 3 if tiles_from_points else 120
                     num_ecoregion_tiles = biomes_ecoregions[biome]['ecoregions'][ecoregion]['num_tiles']
-                    subprocess.run(['sbatch', '-t', f'0-0{hours}:00:00', '-p', partitions, '--job-name', f'biome_{biome.replace("/", "_")}_ecoregion_{ecoregion.replace("/", "_")}', '-o', f'bash-outputs/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.out', '-e', f'bash-errors/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.err', 'job.sh', env_path, 'generate_biomass_points.py', 'generate_ecoregion_points', biome.replace(' ', '_'), ecoregion.replace(' ', '_'), str(num_ecoregion_tiles), str(tiles_from_points)])
+                    subprocess.run(['sbatch', '-t', f'0-0{hours}:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'biome_{biome.replace("/", "_")}_ecoregion_{ecoregion.replace("/", "_")}', '-o', f'bash-outputs/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.out', '-e', f'bash-errors/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.err', 'job.sh', env_path, 'generate_biomass_points.py', 'generate_ecoregion_points', biome.replace(' ', '_'), ecoregion.replace(' ', '_'), str(num_ecoregion_tiles), str(tiles_from_points)])
                     time.sleep(50) # checks again after 50 seconds since there is a delay between the job being submitted and the job running
 
         print(f'Complete = {complete}')
@@ -225,10 +225,12 @@ def merge_ecoregion_points():
 
     utils.save_geojson(features=points, path='biomass/points/biomass_points_overlapping.geojson')
     utils.save_geojson(features=[{'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': point['properties']['outer_tile']['coordinates']}} for point in points], path='biomass/points/biomass_outer_tiles_overlapping.geojson')
+    print(f'{len(points)} points before removing overlaps')
 
     points = utils.remove_overlapping_tiles(points) # removes points with overlapping tiles
     random.shuffle(points) # shuffles the points list
     points = [{**point, 'id': i} for i, point in enumerate(points)] # assigns each point an ID
+    print(f'{len(points)} points after removing overlaps')
 
     utils.save_geojson(features=points, path='biomass/points/biomass_points.geojson') # saves the points
     utils.save_geojson(features=[{'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': point['properties']['outer_tile']['coordinates']}} for point in points], path='biomass/points/biomass_outer_tiles.geojson')
@@ -315,7 +317,7 @@ if __name__ == '__main__':
         get_biomass_tile_counts() # takes ~13 minutes
 
     if len(argv) == 1:
-        subprocess.run(['sbatch', '-t', '7-00:00:00', '-p', partitions, '--job-name', 'generate_biomass_points', '-o', 'bash-outputs/generate_biomass_points.out', '-e', 'bash-errors/generate_biomass_points.err', 'job.sh', env_path, 'generate_biomass_points.py', 'generate_biomass_points'])
+        subprocess.run(['sbatch', '-t', '7-00:00:00', '-p', partitions, '--mem', '500M', '--job-name', 'generate_biomass_points', '-o', 'bash-outputs/generate_biomass_points.out', '-e', 'bash-errors/generate_biomass_points.err', 'job.sh', env_path, 'generate_biomass_points.py', 'generate_biomass_points'])
     if len(argv) > 1:
         if argv[1] == 'generate_biomass_points':
             generate_biomass_points()
