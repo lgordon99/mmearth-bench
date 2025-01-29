@@ -25,7 +25,7 @@ def get_last_day_of_month(month):
     return (datetime(int(year), month, 1) + relativedelta(months=1, days=-1)).day
 
 class EEData:
-    def __init__(self, point, task):
+    def __init__(self, point, task, data_dir_path):
         start = time.time()
         self.point = point
         self.bands = []
@@ -48,6 +48,7 @@ class EEData:
         self.proj = ''
         self.task_values = None
         self.missing_modalities = []
+        self.data_dir_path = data_dir_path
 
         if 'biome' in list(point['properties'].keys()):
             self.name_biome = point['properties']['biome']
@@ -59,7 +60,7 @@ class EEData:
                 self.name_biome = ecoregion_features[0]['properties']['BIOME_NAME']
                 self.name_ecoregion = ecoregion_features[0]['properties']['ECO_NAME']
 
-            if len(ecoregion_features) == 0 or self.name_biome == 'N/A':                
+            if len(ecoregion_features) == 0 or self.name_biome == 'N/A':
                 self.name_biome = None
                 self.name_ecoregion = None
                 self.missing_modalities.append('biome/ecoregion')
@@ -159,18 +160,38 @@ class EEData:
                               .filterBounds(self.tile) # gets images that have some overlap with the tile
                               .filter(ee.Filter.contains('.geo', self.tile.buffer(200)))) # gets images containing the tile plus some buffer
 
-        if sentinel2_images.size().getInfo() == 0: # if no images were returned
+        if sentinel2_images.size().getInfo() == 0: # if no images passed the date and location filters
             return False
 
+        # print('Number of images before cloud filtering =', sentinel2_images.size().getInfo())
+
         msk_cldprob_res = sentinel2_images.select('MSK_CLDPRB').first().projection().nominalScale().getInfo() # resolution of MSK_CLDPRB band
-        sentinel2_images = sentinel2_images.map(lambda image: image.set('cloudy_pixel_frac', image.select('MSK_CLDPRB').gte(0.1).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=msk_cldprob_res).get('MSK_CLDPRB'))).filter(ee.Filter.notNull(['cloudy_pixel_frac'])) # pixels >= 0.1 cloud probability are cloudy    
-        cloudy_pixel_fracs = (sentinel2_images.aggregate_array('cloudy_pixel_frac').getInfo()) # gets the cloudy pixel fraction for each image
-        least_cloudy_image_index = int(np.argmin(cloudy_pixel_fracs)) # gets the index for an image with the fewest cloudy pixels
+        sentinel2_images = sentinel2_images.map(lambda image: image.set('MSK_CLDPRB_CLOUDY_PIXEL_FRACTION', image.select('MSK_CLDPRB').gte(10).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=msk_cldprob_res).get('MSK_CLDPRB'))).filter(ee.Filter.notNull(['MSK_CLDPRB_CLOUDY_PIXEL_FRACTION'])) # pixels >= 10% cloud probability are cloudy
+        sentinel2_images = sentinel2_images.filterMetadata('MSK_CLDPRB_CLOUDY_PIXEL_FRACTION', 'less_than', 0.1) # keeps images with less than 10% cloudy pixels
 
-        if cloudy_pixel_fracs[least_cloudy_image_index] >= 0.1: # if the least cloudy image has > 10% cloudy pixels
-            return False # skipping tile
+        if sentinel2_images.size().getInfo() == 0: # if no images passed the MSK_CLDPRB filter
+            return False
 
-        s2_image = ee.Image(sentinel2_images.toList(sentinel2_images.size()).get(least_cloudy_image_index)).float() # get the least cloudy S2 image
+        # print('Number of images after applying the MSK_CLDPRB filter =', sentinel2_images.size().getInfo())
+
+        s2cloudless_images = (ee.ImageCollection('COPERNICUS/S2_CLOUD_PROBABILITY')
+                                .filter(self.date_filter)
+                                .filterBounds(self.tile)
+                                .filter(ee.Filter.contains('.geo', self.tile.buffer(200))))
+        sentinel2_images = ee.ImageCollection(ee.Join.saveFirst('S2CLOUDLESS').apply(**{'primary': sentinel2_images, 'secondary': s2cloudless_images, 'condition': ee.Filter.equals(**{'leftField': 'system:index', 'rightField': 'system:index'})}))
+        sentinel2_images = sentinel2_images.map(lambda image: image.addBands(ee.Image(image.get('S2CLOUDLESS')).rename('S2CLOUDLESS')))
+        s2cloudless_res = s2cloudless_images.select('probability').first().projection().nominalScale().getInfo() # resolution of s2cloudless probability band
+        sentinel2_images = sentinel2_images.map(lambda image: image.set('S2CLOUDLESS_CLOUDY_PIXEL_FRACTION', image.select('S2CLOUDLESS').gte(10).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=s2cloudless_res).get('S2CLOUDLESS'))) # pixels >= 10% cloud probability are cloudy
+        sentinel2_images = sentinel2_images.filterMetadata('S2CLOUDLESS_CLOUDY_PIXEL_FRACTION', 'less_than', 0.1).sort('S2CLOUDLESS_CLOUDY_PIXEL_FRACTION') # keeps images with less than 10% cloudy pixels
+
+        # print('Number of images after applying the S2CLOUDLESS filter =', sentinel2_images.size().getInfo())
+
+        if sentinel2_images.size().getInfo() == 0: # if no images passed the S2CLOUDLESS filter
+            return False
+
+        # print(sentinel2_images.aggregate_array('S2CLOUDLESS_CLOUDY_PIXEL_FRACTION').getInfo())
+
+        s2_image = sentinel2_images.first().float() # get the least cloudy S2 image
         self.s2_date = s2_image.date().format('YYYY-MM-dd').getInfo() # date of S2 image
         month = int(self.s2_date.split('-')[1])
         self.month_encoding = {'month_sin': np.sin(np.pi * month / 6), 'month_cos': np.cos(np.pi * month / 6)}
@@ -231,7 +252,7 @@ class EEData:
     def dynamic_world(self):
         '''
         This function gets the dynamic world data for the tile. The dynamic world data is a collection of images with the same name as the sentinel 2 image for that tile. It consist of 9 classes, we add one more to indicate missing
-        information. The classes are as follows: 
+        information. The classes are as follows:
         0: No data
         1: Water
         2: Trees
@@ -309,20 +330,17 @@ class EEData:
         last_month_last_day = (last_month_first_day + relativedelta(months=1, days=-1)).strftime('%Y-%m-%d')
         era5_month = (ee.ImageCollection(collection)
                           .filterDate(month_first_day, month_last_day)
-                        #   .map(lambda image: image.clip(self.tile))
                           .select(bands)
                           .toBands()
                           .rename(['temperature_month_mean', 'temperature_month_min', 'temperature_month_max', 'precipitation_month']))
         era5_last_month = (ee.ImageCollection(collection)
                           .filterDate(last_month_first_day, last_month_last_day)
-                        #   .map(lambda image: image.clip(self.tile))
                           .select(bands)
                           .toBands()
                           .rename(['temperature_last_month_mean', 'temperature_last_month_min', 'temperature_last_month_max', 'precipitation_last_month']))
         last_year_month_first_day = datetime(year-1, month, 1).strftime('%Y-%m-%d')
         era5_year = (ee.ImageCollection(collection)
                          .filterDate(last_year_month_first_day, month_last_day))
-                        #  .map(lambda image: image.clip(self.tile)))
         band_reducer = {'temperature_2m':  ee.Reducer.mean(),
                         'temperature_2m_min': ee.Reducer.min(),
                         'temperature_2m_max': ee.Reducer.max(),
@@ -374,7 +392,7 @@ class EEData:
                                     'format': 'GeoTIFF',
                                     'bands': band_names})
         success = False
-        tiff_path = f'{self.task}/data/tile_{self.id}_data.tif'
+        tiff_path = f'{self.data_dir_path}/{self.task}/data/tile_{self.id}_data.tif'
 
         while not success:
             response = requests.get(url, stream=True, verify=certifi.where())
@@ -418,7 +436,9 @@ class EEData:
                                           'lat': self.lat,
                                           'lon': self.lon,
                                           's2_date': self.s2_date,
-                                          'missing_modalities': ','.join(self.missing_modalities)}
+                                          'missing_modalities': ','.join(self.missing_modalities),
+                                          'MSK_CLDPRB_CLOUDY_PIXEL_FRACTION': self.pixel_level_data['sentinel2'].get('MSK_CLDPRB_CLOUDY_PIXEL_FRACTION').getInfo(),
+                                          'S2CLOUDLESS_CLOUDY_PIXEL_FRACTION': self.pixel_level_data['sentinel2'].get('S2CLOUDLESS_CLOUDY_PIXEL_FRACTION').getInfo()}
 
                 if self.task_values:
                     tags.update(image_level_modalities | self.task_values)

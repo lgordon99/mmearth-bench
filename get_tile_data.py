@@ -2,7 +2,8 @@
 get_tile_data.py
 '''
 
-# imports
+# ============================================== IMPORTS ============================================== #
+
 from ee_data import EEData
 from sys import argv
 import ee
@@ -13,16 +14,19 @@ import time
 import utils
 import yaml
 
+# ============================================== GLOBAL VARIABLES ============================================== #
+
 ee.Initialize(project='mmearth-bench') # initializes EE with our project
 year = '2020'
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
 env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
 partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
 
+# ============================================== FUNCTIONS ============================================== #
 
 def get_modalities(task):
     start_time = time.time()
-    os.makedirs(f'{task}/data', exist_ok=True)
+    os.makedirs(f'{data_dir_path}/{task}/data', exist_ok=True)
     points = utils.read_geojson(f'{task}/points/{task}_points.geojson') # reading the GeoJSON file
     end_point = len(points['features'])
     tiles_made = 0
@@ -38,7 +42,7 @@ def get_modalities(task):
     for point_id in range(start_point, end_point):
         print(f'Processing tile {point_id}/{end_point-1}')
         point = points['features'][point_id]
-        ee_data = EEData(point, task)
+        ee_data = EEData(point, task, data_dir_path)
         tile_missing_modalities[point_id] = ee_data.missing_modalities
 
         with open(tile_missing_modalities_yml_path, 'w') as file:
@@ -84,14 +88,16 @@ def plot_missing_modalities(task):
     plt.tight_layout()
     plt.savefig(f'{task}/figures/{task}_missing_modality_counts.png')
 
+# ============================================== RUN ============================================== #
+
 if __name__ == '__main__':
-    if 'check_complete' in argv[1]:
+    if 'check_complete' in argv[1]: # python get_tile_data.py check_complete TASK
         check_complete(argv[2])
-    elif 'plot_missing_modalities' in argv[1]:
+    elif 'plot_missing_modalities' in argv[1]: # python get_tile_data.py plot_missing_modalities TASK
         plot_missing_modalities(argv[2])
-    elif 'for' not in argv[1]:
+    elif 'for' not in argv[1]: # python get_tile_data.py TASK
         subprocess.run(['sbatch', '-t', '5-00:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'{argv[1]}_mmearth_modalities', '-o', f'bash-outputs/{argv[1]}_mmearth_modalities.out', '-e', f'bash-errors/{argv[1]}_mmearth_modalities.err', 'job.sh', env_path, 'get_tile_data.py', f'get_modalities_for_{argv[1]}'])
-    elif 'for' in argv[1]:
+    elif 'for' in argv[1]: # python get_tile_data.py get_modalities_for_TASK
         task = argv[1].split('for_')[1]
         print(f'Task = {task}')
         get_modalities(task)
