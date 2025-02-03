@@ -19,8 +19,6 @@ import yaml
 ee.Initialize(project='mmearth-bench') # initializes EE with our project
 year = '2020'
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
-env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
-partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
 
 # ============================================== FUNCTIONS ============================================== #
 
@@ -57,7 +55,10 @@ def get_modalities(task):
 def check_complete(task):
     tile_count = len(utils.read_geojson(f'{task}/points/{task}_points.geojson')['features'])
     tile_missing_modalities = utils.read_yaml(f'{task}/{task}_missing_modalities.yml')
-    print(f'All tiles made for {task}: {tile_count == next(reversed(tile_missing_modalities)) + 1}')
+    number_of_tiles_made = next(reversed(tile_missing_modalities)) + 1
+    complete = tile_count == number_of_tiles_made
+
+    print(f'All tiles made for {task}: {complete} ({number_of_tiles_made}/{tile_count})')
 
 def plot_missing_modalities(task):
     print(task)
@@ -96,6 +97,8 @@ if __name__ == '__main__':
     elif 'plot_missing_modalities' in argv[1]: # python get_tile_data.py plot_missing_modalities TASK
         plot_missing_modalities(argv[2])
     elif 'for' not in argv[1]: # python get_tile_data.py TASK
+        partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
+        env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
         subprocess.run(['sbatch', '-t', '5-00:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'{argv[1]}_mmearth_modalities', '-o', f'bash-outputs/{argv[1]}_mmearth_modalities.out', '-e', f'bash-errors/{argv[1]}_mmearth_modalities.err', 'job.sh', env_path, 'get_tile_data.py', f'get_modalities_for_{argv[1]}'])
     elif 'for' in argv[1]: # python get_tile_data.py get_modalities_for_TASK
         task = argv[1].split('for_')[1]
