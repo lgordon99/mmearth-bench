@@ -62,6 +62,7 @@ def save_map_data(task):
                     s1 = array[band_number].astype(float)
                     break
 
+            # pixel-level data
             asterdem_elevation = array[[band_number for band_number, band_name in band_names.items() if 'AsterDEM_elevation' in band_name][0]]
             ethgch_canopy_height = array[[band_number for band_number, band_name in band_names.items() if 'ETHGCH_canopy_height' in band_name][0]]
             dynamicworld = array[[band_number for band_number, band_name in band_names.items() if 'DynamicWorld' in band_name][0]]
@@ -69,7 +70,10 @@ def save_map_data(task):
             msk_cldprb = array[[band_number for band_number, band_name in band_names.items() if 'MSK_CLDPRB' in band_name][0]]
             s2cloudless = array[[band_number for band_number, band_name in band_names.items() if 'S2CLOUDLESS' in band_name][0]]
 
-            task_value = tags[task] if task != 'species' else tags['name_species']
+            # image-level data
+            if task != 'biomass':
+                task_value = tags[task] if task != 'species' else tags['name_species']
+
             climate = {key.split('climate_')[1].capitalize().replace('_', ' '): value for key, value in tags.items() if 'climate' in key}
             latitude = tags['lat']
             longitude = tags['lon']
@@ -83,17 +87,21 @@ def save_map_data(task):
             bounds = transform_bounds(crs, 'EPSG:4326', *bounds)
 
         bbox = box(bounds[0], bounds[1], bounds[2], bounds[3])
-        gdf = pd.concat([gdf, gpd.GeoDataFrame([{'id': tile_id,
-                                                 'geometry': bbox,
-                                                 task: task_value,
-                                                 'climate': climate,
-                                                 'latitude': latitude,
-                                                 'longitude': longitude,
-                                                 'month': month,
-                                                 'biome': biome,
-                                                 'ecoregion': ecoregion,
-                                                 'msk_cldprb_cloudy_pixel_fraction': msk_cldprb_cloudy_pixel_fraction,
-                                                 's2cloudless_cloudy_pixel_fraction': s2cloudless_cloudy_pixel_fraction}], crs=gdf.crs)], ignore_index=True)
+        image_level_data = {'id': tile_id,
+                            'geometry': bbox,
+                            'climate': climate,
+                            'latitude': latitude,
+                            'longitude': longitude,
+                            'month': month,
+                            'biome': biome,
+                            'ecoregion': ecoregion,
+                            'msk_cldprb_cloudy_pixel_fraction': msk_cldprb_cloudy_pixel_fraction,
+                            's2cloudless_cloudy_pixel_fraction': s2cloudless_cloudy_pixel_fraction}
+
+        if task != 'biomass':
+            image_level_data[task] = task_value
+
+        gdf = pd.concat([gdf, gpd.GeoDataFrame([image_level_data], crs=gdf.crs)], ignore_index=True)
         gdf.to_file(f'{task}/{task}_tile_gdf.geojson', driver='GeoJSON')
 
         rgb = np.stack(normalize(rgb), axis=-1) # (H, W, 3)
