@@ -154,7 +154,7 @@ class EEData:
             return dates
 
     def sentinel2(self):
-        bands = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8A', 'B8', 'B9', 'B11', 'B12', 'SCL', 'MSK_CLDPRB', 'QA60']
+        bands = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8A', 'B8', 'B9', 'B11', 'B12', 'SCL', 'MSK_CLDPRB', 'QA60', 'S2CLOUDLESS']
         sentinel2_images = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') # L2A collection
                               .filter(self.date_filter) # gets images in any of the specified date ranges
                               .filterBounds(self.tile) # gets images that have some overlap with the tile
@@ -201,8 +201,8 @@ class EEData:
         nearest_pixel_intersection_y = ee.Number(projected_point_coordinates.get(1)).round()
         self.tile = ee.Geometry.Rectangle([nearest_pixel_intersection_x.subtract(TILE_SIZE/2), nearest_pixel_intersection_y.subtract(TILE_SIZE/2), nearest_pixel_intersection_x.add(TILE_SIZE/2), nearest_pixel_intersection_y.add(TILE_SIZE/2)], proj=self.proj, geodesic=False)
         self.crs = self.proj.getInfo()['crs'] # CRS of B4 band
-        s2_image = s2_image.select([band for band in bands if band not in ['SCL', 'QA60']]).resample('bilinear').reproject(self.proj).addBands(s2_image.select(['SCL', 'QA60']).reproject(self.proj))
-        self.pixel_level_data['sentinel2'] = s2_image.rename([f'Sentinel2_{band}' if band not in ['SCL', 'MSK_CLDPRB', 'QA60'] else band for band in bands])
+        s2_image = s2_image.select([band for band in bands if band not in ['SCL', 'QA60']]).resample('bilinear').reproject(self.proj).addBands(s2_image.select(['SCL', 'QA60']).reproject(self.proj)) # bands with continuous pixel values get bilinear projection and those with categorical pixel values get nearest neighbor projection
+        self.pixel_level_data['sentinel2'] = s2_image.rename([f'Sentinel2_{band}' if band not in ['SCL', 'MSK_CLDPRB', 'QA60', 'S2CLOUDLESS'] else band for band in bands])
 
     def sentinel1(self):
         bands = ['VV', 'VH', 'HH', 'HV']
