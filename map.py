@@ -1,9 +1,15 @@
-from shapely.geometry import box
-from rasterio.warp import transform_bounds
+'''
+map.py
+'''
 
+# ============================================== IMPORTS ============================================== #
+
+from rasterio.warp import transform_bounds
+from shapely.geometry import box
 import folium
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 import pandas as pd
 import rasterio
@@ -12,11 +18,11 @@ m = folium.Map(location=[0, 0], zoom_start=3, tiles=None)
 folium.TileLayer('cartodbpositron', name='World map', control=True, show=True).add_to(m)
 folium.TileLayer(tiles='', name='Clear', control=True, attr='No attribution needed', show=False).add_to(m)
 layers = {}
-tasks = {'species': {'title': 'Species', 'color': 'red'},
-         'soil_nitrogen': {'title': 'Soil nitrogen', 'color': 'blue'},
-         'soil_organic_carbon': {'title': 'Soil organic carbon', 'color': 'brown'},
-         'soil_pH': {'title': 'Soil pH', 'color': 'purple'}}
-
+# tasks = {'species': {'title': 'Species', 'color': 'red'},
+#          'soil_nitrogen': {'title': 'Soil nitrogen', 'color': 'blue'},
+#          'soil_organic_carbon': {'title': 'Soil organic carbon', 'color': 'brown'},
+#          'soil_pH': {'title': 'Soil pH', 'color': 'purple'}}
+tasks = {'species': {'title': 'Species', 'color': 'red'}}
 for task, properties in tasks.items():
     title = properties['title']
     color = properties['color']
@@ -26,34 +32,35 @@ for task, properties in tasks.items():
 
     # extract bounding boxes from TIFFs
     for tiff_name in os.listdir(datadir):
-        try:
-            with rasterio.open(f'{datadir}/{tiff_name}') as tiff:
-                bounds = tiff.bounds
-                crs = tiff.crs
-                rgb = tiff.read([4,3,2]).astype(float) # R, G, B
-                task_value = tiff.tags()[task]
+        with rasterio.open(f'{datadir}/{tiff_name}') as tiff:
+            bounds = tiff.bounds
+            crs = tiff.crs
+            rgb = tiff.read([4,3,2]).astype(float) # R, G, B
+            task_value = tiff.tags()[task]
 
-            if crs != 'EPSG:4326':
-                bounds = transform_bounds(crs, 'EPSG:4326', *bounds)
+        if crs != 'EPSG:4326':
+            bounds = transform_bounds(crs, 'EPSG:4326', *bounds)
 
-            for i in range(3):  # normalize each band to the [0,1] range
-                rgb[i] = (rgb[i] - rgb[i].min()) / (rgb[i].max() - rgb[i].min())
+        for i in range(3):  # normalize each band to the [0,1] range
+            rgb[i] = (rgb[i] - rgb[i].min()) / (rgb[i].max() - rgb[i].min())
 
-            rgb = np.stack(rgb, axis=-1) # (H, W, 3)
-            img_path = f'temp/{task}_{tiff_name}.png'
-            plt.imsave(img_path, rgb)
+        rgb = np.stack(rgb, axis=-1) # (H, W, 3)
+        os.makedirs('temp', exist_ok=True)
+        img_path = f'temp/{task}_{tiff_name}.png'
+        plt.imsave(img_path, rgb)
 
-            folium.raster_layers.ImageOverlay(name=tiff_name,
-                                              image=img_path,
-                                              bounds=[[bounds[1], bounds[0]], [bounds[3], bounds[2]]],
-                                              opacity=0.7,
-                                              interactive=True,
-                                              cross_origin=True).add_to(task_layer)
+        folium.raster_layers.ImageOverlay(name=tiff_name,
+                                            image=img_path,
+                                            bounds=[[bounds[1], bounds[0]], [bounds[3], bounds[2]]],
+                                            opacity=0.7,
+                                            interactive=True,
+                                            cross_origin=True).add_to(task_layer)
 
-            bbox = box(bounds[0], bounds[1], bounds[2], bounds[3])
-            gdf = pd.concat([gdf, gpd.GeoDataFrame([{'geometry': bbox, task: task_value}], crs=gdf.crs)], ignore_index=True)
-        except:
-            continue
+        bbox = box(bounds[0], bounds[1], bounds[2], bounds[3])
+        gdf = pd.concat([gdf, gpd.GeoDataFrame([{'geometry': bbox, task: task_value}], crs=gdf.crs)], ignore_index=True)
+        # except:
+        #     print('except')
+        #     continue
 
     # for _, row in gdf.iterrows():
     #     folium.GeoJson(data=row['geometry'].__geo_interface__,
@@ -111,13 +118,17 @@ document.addEventListener("DOMContentLoaded", function() {
 m.get_root().html.add_child(folium.Element(javascript))
 map_html = m.get_root().render()
 
-# Read the HTML template
+# read the HTML template
 with open('template.html', 'r') as f:
     template_html = f.read()
 
-# Replace the placeholder with the Folium map HTML
+# replace the placeholder with the Folium map HTML
 embedded_html = template_html.replace('{{ folium_map }}', map_html)
 
-# Save the combined HTML to a new file
+# save the combined HTML to a new file
 with open('index.html', 'w') as f:
     f.write(embedded_html)
+
+# web map tile service
+# KU server
+# leaderboard
