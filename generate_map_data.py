@@ -43,6 +43,9 @@ def save_map_data(task):
     os.makedirs(f'{data_dir_path}/{task}/tiles/MSK_CLDPRB', exist_ok=True)
     os.makedirs(f'{data_dir_path}/{task}/tiles/S2CLOUDLESS', exist_ok=True)
 
+    if task == 'biomass':
+        os.makedirs(f'{data_dir_path}/{task}/tiles/biomass', exist_ok=True)
+
     for tiff_name in os.listdir(f'{data_dir_path}/{task}/data'):
         tile_id = tiff_name.split('_')[1]
 
@@ -69,6 +72,9 @@ def save_map_data(task):
             esa_worldcover = array[[band_number for band_number, band_name in band_names.items() if 'ESA_Worldcover' in band_name][0]]
             msk_cldprb = array[[band_number for band_number, band_name in band_names.items() if 'MSK_CLDPRB' in band_name][0]]
             s2cloudless = array[[band_number for band_number, band_name in band_names.items() if 'S2CLOUDLESS' in band_name][0]]
+
+            if task == 'biomass':
+                biomass = array[[band_number for band_number, band_name in band_names.items() if 'biomass' in band_name][0]]
 
             # image-level data
             if task != 'biomass':
@@ -114,6 +120,9 @@ def save_map_data(task):
         plt.imsave(f'{data_dir_path}/{task}/tiles/ESA-Worldcover/tile_{tile_id}_ESA-Worldcover.png', esa_worldcover)
         plt.imsave(f'{data_dir_path}/{task}/tiles/MSK_CLDPRB/tile_{tile_id}_MSK_CLDPRB.png', msk_cldprb)
         plt.imsave(f'{data_dir_path}/{task}/tiles/S2CLOUDLESS/tile_{tile_id}_S2CLOUDLESS.png', s2cloudless)
+
+        if task == 'biomass':
+            plt.imsave(f'{data_dir_path}/{task}/tiles/biomass/tile_{tile_id}_biomass.png', biomass)
 
 if __name__ == '__main__':
     if 'for' not in argv[1]: # python generate_map_data.py TASK
