@@ -7,11 +7,12 @@ import h5py
 import numpy as np
 import os
 import rasterio
+import subprocess
 import utils
 
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
-pixel_level_modalities = ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETHGCH', 'DynamicWorld', 'ESA_Worldcover', 'SCL', 'MSK_CLDPRB', 'QA60']
-image_level_modalities = ['climate', 'latitude', 'longitude', 'month', 'biome', 'ecoregion']
+pixel_level_modalities = ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETHGCH', 'DynamicWorld', 'ESA_Worldcover', 'SCL', 'MSK_CLDPRB', 'QA60', 'S2CLOUDLESS']
+image_level_modalities = ['climate', 'latitude', 'longitude', 'month', 'biome', 'ecoregion', 'MSK_CLDPRB_CLOUDY_PIXEL_FRACTION', 'S2CLOUDLESS_CLOUDY_PIXEL_FRACTION']
 no_data_values = {'Sentinel1': float('-inf'),
                   'climate': float('inf'),
                   'latitude': float('-inf'),
@@ -19,7 +20,6 @@ no_data_values = {'Sentinel1': float('-inf'),
                   'month': float('-inf'),
                   'biome': 255,
                   'ecoregion': 65535}
-task = argv[1]
 
 def get_tag_value(tags, key):
     value = tags[key]
@@ -44,6 +44,7 @@ def convert_tiffs_to_h5(task):
                 band_names = {band_number: tiff.tags(band_number+1)['BAND_NAME'] for band_number in range(tiff.count)}
                 tags = tiff.tags()
 
+                # pixel-level modalities
                 for modality in pixel_level_modalities:
                     modality_band_numbers = [band_number for band_number, band_name in band_names.items() if modality in band_name]
                     modality_array = array[modality_band_numbers]
@@ -55,9 +56,11 @@ def convert_tiffs_to_h5(task):
 
                     data[modality].append(modality_array)
 
+                # image-level modalities
                 for modality in image_level_modalities:
                     data[modality].append(np.array([value for key, value in ((key, get_tag_value(tags, key)) for key in tags.keys()) if modality in key.split('_')[0] and check_is_number(value)]).astype('float32'))
 
+                # task data
                 if task == 'biomass':
                     data[task].append(array[29])
                 elif task == 'species':
@@ -68,18 +71,27 @@ def convert_tiffs_to_h5(task):
                 elif 'soil' in task:
                     data[task].append(np.array([tags[task]]).astype('float32'))
 
-        for modality, array in data.items():
-            print(modality, np.array(array).shape)
+                # geographic data
+                data['crs'] = tiff.crs.to_string()
+                data['transform'] = np.array([i for i in tiff.transform])
+                assert all(data['transform'][i] == tiff.transform[i] for i in range(len(data['transform'])))
 
-            h5_file.create_dataset(modality, data=np.array(array))
+        for key, value in data.items():
+            if key != 'crs':
+                print(key, np.array(value).shape)
 
-def open_h5(task):
-    with h5py.File(f'{task}/{task}_h5.hdf5', 'r') as h5_file:
-        # print(h5_file.keys())
-        # print(h5_file['Sentinel1'].shape)
-        print(len(h5_file['biome'][()]))
+                h5_file.create_dataset(key, data=np.array(value))
+            else:
+                print(key, len(value))
+
+                h5_file.create_dataset(key, data=value)
 
 if __name__ == '__main__':
-    convert_tiffs_to_h5(task)
-
-    # open_h5('soil_nitrogen')
+    if 'for' not in argv[1]: # python convert_to_h5.py TASK
+        partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
+        env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
+        subprocess.run(['sbatch', '-t', '0-01:00:00', '-p', partitions, '--mem', '50G', '--job-name', f'{argv[1]}_convert_to_h5', '-o', f'bash-outputs/{argv[1]}_convert_to_h5.out', '-e', f'bash-errors/{argv[1]}_convert_to_h5.err', 'job.sh', env_path, 'convert_to_h5.py', f'for_{argv[1]}'])
+    else: # python generate_map_data.py for_TASK
+        task = argv[1].split('for_')[1]
+        print(f'Task = {task}')
+        convert_tiffs_to_h5(task)
