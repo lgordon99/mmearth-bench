@@ -39,6 +39,8 @@ def convert_tiffs_to_h5(task):
 
     with h5py.File(f'{data_dir_path}/{task}/{task}_h5.hdf5', 'w') as h5_file:
         for tiff in os.listdir(task_data_dir):
+            tile_id = tiff.split('_')[1]
+
             with rasterio.open(f'{task_data_dir}/{tiff}') as tiff:
                 array = tiff.read()
                 band_names = {band_number: tiff.tags(band_number+1)['BAND_NAME'] for band_number in range(tiff.count)}
@@ -72,19 +74,14 @@ def convert_tiffs_to_h5(task):
                     data[task].append(np.array([tags[task]]).astype('float32'))
 
                 # geographic data
-                data['crs'] = tiff.crs.to_string()
-                data['transform'] = np.array([i for i in tiff.transform])
-                assert all(data['transform'][i] == tiff.transform[i] for i in range(len(data['transform'])))
+                data['crs'].append(np.array(tiff.crs.to_string(), dtype='S'))
+                data['transform'].append(np.array([i for i in tiff.transform]))
+                data['id'].append(int(tile_id))
 
         for key, value in data.items():
-            if key != 'crs':
-                print(key, np.array(value).shape)
+            print(key, np.array(value).shape)
 
-                h5_file.create_dataset(key, data=np.array(value))
-            else:
-                print(key, len(value))
-
-                h5_file.create_dataset(key, data=value)
+            h5_file.create_dataset(key, data=np.array(value))
 
 if __name__ == '__main__':
     if 'for' not in argv[1]: # python convert_to_h5.py TASK
