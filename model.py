@@ -38,7 +38,8 @@ class ResNetSentinel2(nn.Module):
             self.model.conv1.weight[:, 2] = original_weights[:, 1]
             self.model.conv1.weight[:, 1] = original_weights[:, 2]
             mean_original_weights = torch.mean(original_weights, dim=1)
-            self.model.conv1.weight[:, 0], self.model.conv1.weight[:, 4:] = mean_original_weights, mean_original_weights
+            self.model.conv1.weight[:, 0] = mean_original_weights
+            self.model.conv1.weight[:, 4:] = mean_original_weights.unsqueeze(1).expand(-1, self.model.conv1.weight.shape[1]-4, -1, -1)
             self.model.conv1.weight *= 3/num_bands
 
         num_features = self.model.fc.in_features # input to final layer
@@ -70,11 +71,14 @@ class Model(LightningModule):
         self.test_metrics = metrics.clone(prefix='Test ')
 
     def configure_optimizers(self):
-        return optim.SGD(self.model.parameters(), lr=1e-3)
+        return optim.Adam(self.model.parameters(), lr=1e-3)
+
+    def forward(self, images):
+        return self.model(images.float())
 
     def training_step(self, batch, batch_idx):
         images, target = batch
-        prediction = self(images, target)
+        prediction = self(images)
         batch_size = images.shape[0]
 
         loss = self.criterion(prediction, target)
@@ -86,10 +90,18 @@ class Model(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         images, target = batch
-        prediction = self(images, target)
+        prediction = self(images)
         batch_size = images.shape[0]
 
         loss = self.criterion(prediction, target)
         self.log('Val loss', loss, batch_size=batch_size)
         self.val_metrics(prediction, target)
         self.log_dict(self.val_metrics, batch_size=batch_size)
+
+    def test_step(self, batch, batch_idx):
+        images, target = batch
+        prediction = self(images)
+        batch_size = images.shape[0]
+
+        self.test_metrics(prediction, target)
+        self.log_dict(self.test_metrics, batch_size=batch_size)
