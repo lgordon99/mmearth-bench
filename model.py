@@ -15,10 +15,10 @@ class ResNet(nn.Module):
         super(ResNet, self).__init__()
         self.model = resnet18(weights='DEFAULT')
         num_features = self.model.fc.in_features # input to final layer
-        self.model.fc = nn.Linear(in_features=num_features, out_features=1)
+        self.model.fc = nn.Linear(in_features=num_features, out_features=1) # adapts last layer for regression
 
     def forward(self, images):
-        return self.model(images)
+        return self.model(images[:, [3,2,1], :, :])
 
 class ResNetSentinel2(nn.Module):
     def __init__(self):
@@ -62,6 +62,10 @@ class Model(LightningModule):
             self.model = ResNet()
         elif self.hparams.model == 'resnet_sentinel2':
             self.model = ResNetSentinel2()
+        elif self.hparams.model == 'mmearth':
+            self.model = torch.hub.load('vishalned/mmearth-train', 'MPMAE', trust_repo=True, num_classes=1)
+        elif self.hparams.model == 'anysat':
+            self.model = torch.hub.load('gastruc/anysat', 'anysat', pretrained=True, flash_attn=False)
 
     def configure_metrics(self):
         metrics = MetricCollection({'RMSE': MeanSquaredError(squared=False)})
@@ -71,7 +75,7 @@ class Model(LightningModule):
         self.test_metrics = metrics.clone(prefix='Test ')
 
     def configure_optimizers(self):
-        return optim.Adam(self.model.parameters(), lr=1e-3)
+        return optim.AdamW(self.model.parameters(), lr=1e-3)
 
     def forward(self, images):
         return self.model(images.float())
