@@ -29,11 +29,11 @@ class DataModule(LightningDataModule):
         if stage == 'fit':
             self.train_dataset = Subset(dataset=self.dataset, indices=split_data['train_ids'])
             self.val_dataset = Subset(dataset=self.dataset, indices=split_data['val_ids'])
-            self._plot_target_distribution('train')
-            self._plot_target_distribution('val')
+            self._plot_task_distribution('train')
+            self._plot_task_distribution('val')
         elif stage == 'test':
             self.test_dataset = Subset(dataset=self.dataset, indices=split_data['test_ids'])
-            self._plot_target_distribution('test')
+            self._plot_task_distribution('test')
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, generator=torch.Generator().manual_seed(42), pin_memory=True)
@@ -47,12 +47,12 @@ class DataModule(LightningDataModule):
     def predict_dataloader(self):
         return DataLoader(self.dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True)
 
-    def _plot_target_distribution(self, stage):
+    def _plot_task_distribution(self, stage):
         dataset = getattr(self, f'{stage}_dataset')
-        target_values = [target.squeeze() for _, target in dataset]
-        max_value = np.max(target_values)
+        task_values = [task_value.squeeze() for _, task_value in dataset]
+        max_value = np.max(task_values)
         bins = np.arange(0, max_value + 5, 5)
-        plt.hist(target_values, bins=bins)
+        plt.hist(task_values, bins=bins)
         task_name = self.task.replace("_", " ").capitalize()
         plt.xlabel(f'{task_name} value')
         plt.ylabel('Count')
