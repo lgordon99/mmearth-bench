@@ -32,7 +32,7 @@ def generate_property_points(property_):
     print(properties[property_]['title'])
 
     dataframe = properties[property_]['dataframe']
-    dataframe.to_csv(f'{data_dir_path}/{property_}.csv', index=False) # saves the dataframe as a CSV
+    dataframe.to_csv(f'{data_dir_path}/{property_}/{property_}.csv', index=False) # saves the dataframe as a CSV
     points = np.concatenate([ee.FeatureCollection([ee.Feature(ee.Geometry.Point([measurement.longitude, measurement.latitude])).set({'value': measurement.value_avg}) for measurement in dataframe[i: i+5000].itertuples() if measurement.positional_uncertainty == 'Circa 100 m']).map(lambda point: point.set('outer_tile', point.buffer(OUTER_TILE_SIZE_M / 2).bounds().geometry())).getInfo()['features'] for i in range(0, len(dataframe), 5000)])
     points = [{**{key: value for key, value in point.items() if key != 'id'}} for point in points] # removes ID property
 
