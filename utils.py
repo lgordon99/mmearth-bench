@@ -12,7 +12,7 @@ import yaml
 
 ee.Initialize(project='mmearth-bench') # initializes EE with our project
 
-def count_running_jobs():    
+def count_running_jobs():
     result = subprocess.run(['squeue', '--noheader', '--format=%u'], stdout=subprocess.PIPE, text=True) # gets running jobs
     user = subprocess.getoutput('whoami').strip()
     job_count = result.stdout.split().count(user) # counts the number of jobs for the user
@@ -34,6 +34,8 @@ def format_time(seconds):
         return f'{hours} hour(s), {minutes} minute(s), {seconds} second(s)'
     if minutes > 0:
         return f'{minutes} minute(s), {seconds} second(s)'
+    else:
+        return f'{seconds} second(s)'
 
 def get_asset_if_valid(asset):
     try:
