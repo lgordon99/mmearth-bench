@@ -296,14 +296,15 @@ class EEData:
             return image
 
         dynamic_world_images = dynamic_world_images.map(reclasify)
-        dw_image = dynamic_world_images.mode()
+        dw_image = dynamic_world_images.mode().reproject(self.proj).rename('DynamicWorld')
         bands = dw_image.bandNames().getInfo()
 
         if len(bands) == 0:
-            self.pixel_level_data['dynamic_world'] = None
+            self.pixel_level_data['dynamic_world'] = ee.Image.constant(0).reproject(self.proj)
+
+            return False
         else:
-            dw_image = dw_image.reproject(self.proj)
-            self.pixel_level_data['dynamic_world'] = dw_image.rename('DynamicWorld')
+            self.pixel_level_data['dynamic_world'] = dw_image
 
     def canopy_height_eth(self):
         '''
