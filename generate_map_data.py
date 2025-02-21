@@ -122,7 +122,7 @@ def save_map_data(task):
         plt.imsave(f'{data_dir_path}/{task}/tiles/S2CLOUDLESS/tile_{tile_id}_S2CLOUDLESS.png', s2cloudless)
 
         if task == 'biomass':
-            plt.imsave(f'{data_dir_path}/{task}/tiles/biomass/tile_{tile_id}_biomass.png', biomass)
+            plt.imsave(f'{data_dir_path}/{task}/tiles/biomass/tile_{tile_id}_biomass.png', biomass, vmin=0, cmap='gnuplot2')
 
 if __name__ == '__main__':
     if 'for' not in argv[1]: # python generate_map_data.py TASK
