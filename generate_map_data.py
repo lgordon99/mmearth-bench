@@ -6,6 +6,7 @@ from sys import argv
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.ma as ma
 import os
 import pandas as pd
 import rasterio
@@ -122,13 +123,14 @@ def save_map_data(task):
         plt.imsave(f'{data_dir_path}/{task}/tiles/S2CLOUDLESS/tile_{tile_id}_S2CLOUDLESS.png', s2cloudless)
 
         if task == 'biomass':
-            plt.imsave(f'{data_dir_path}/{task}/tiles/biomass/tile_{tile_id}_biomass.png', biomass, vmin=0, cmap='gnuplot2')
+            biomass = ma.masked_equal(biomass, -9999) # masks nodata values
+            plt.imsave(f'{data_dir_path}/{task}/tiles/biomass/tile_{tile_id}_biomass.png', biomass, cmap='gnuplot2')
 
 if __name__ == '__main__':
     if 'for' not in argv[1]: # python generate_map_data.py TASK
         partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
         env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
-        subprocess.run(['sbatch', '-t', '0-01:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'{argv[1]}_map_data', '-o', f'bash-outputs/{argv[1]}_map_data.out', '-e', f'bash-errors/{argv[1]}_map_data.err', 'job.sh', env_path, 'generate_map_data.py', f'for_{argv[1]}'])
+        subprocess.run(['sbatch', '-t', '0-10:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'{argv[1]}_map_data', '-o', f'bash-outputs/{argv[1]}_map_data.out', '-e', f'bash-errors/{argv[1]}_map_data.err', 'job.sh', env_path, 'generate_map_data.py', f'for_{argv[1]}'])
     else: # python generate_map_data.py for_TASK
         task = argv[1].split('for_')[1]
         print(f'Task = {task}')
