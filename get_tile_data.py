@@ -7,6 +7,7 @@ get_tile_data.py
 from ee_data import EEData
 from sys import argv
 import ee
+import h5py
 import matplotlib.pyplot as plt
 import os
 import subprocess
@@ -77,8 +78,17 @@ def plot_missing_modalities(task):
             for modality in missing_modalities:
                 missing_modality_counts[modality] += 1
 
-    num_failed_tiles = sum([missing_modality_counts[modality] for modality in modalities])
-    print(f'Number of tiles after getting modalities = {len(tiles) - num_failed_tiles}')
+    num_failed_tiles = missing_modality_counts['sentinel2']
+    tiles_made = len(tiles) - num_failed_tiles
+
+    print(f'Number of tiles after getting modalities = {tiles_made}')
+    assert tiles_made == len(os.listdir(f'{data_dir_path}/{task}/data'))
+
+    for folder in os.listdir(f'{data_dir_path}/{task}/tiles'):
+        assert tiles_made == len(os.listdir(f'{data_dir_path}/{task}/tiles/{folder}'))
+
+    with h5py.File(f'{data_dir_path}/{task}/{task}_h5.hdf5', 'r') as h5_file:
+        assert tiles_made == len(h5_file['id']) # number of tiles for the task
 
     plt.figure(dpi=300)
     plt.bar(missing_modality_counts.keys(), missing_modality_counts.values())
