@@ -19,9 +19,11 @@ data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
 
 def run_model():
     torch.set_float32_matmul_precision('high')
-    monitor = 'Val loss'
-    logger = WandbLogger(project='mmearth-bench', log_model=True)
+    task = 'soil_nitrogen'
+    split_type = 'geographic' # "world_random", "random", or "geographic"
+    logger = WandbLogger(project='mmearth-bench', name=f'{task}_{split_type}', log_model=True)
     print('Logging run to Wandb')
+    monitor = 'Val loss'
     checkpoint_callback = ModelCheckpoint(monitor=monitor, dirpath=logger.experiment.dir, save_top_k=1, save_last=True)
     print(f'Local log folder: {logger.experiment.dir}')
     early_stopping_callback = EarlyStopping(monitor=monitor, min_delta=0.00, patience=100)
@@ -32,10 +34,8 @@ def run_model():
                       min_epochs=1,
                       max_epochs=200,
                       num_sanity_val_steps=0)
-    model = Model(model='resnet_rgb')
-    task = 'soil_nitrogen'
-    split_type = 'random' # 'random' or 'geographic'
     datamodule = DataModule(task=task, dataset_class=MMEarthBenchDataset, split_type=split_type, batch_size=64, num_workers=0)
+    model = Model(model='resnet_rgb')
     trainer.fit(model, datamodule=datamodule)
     trainer.test(model, datamodule=datamodule)
 
