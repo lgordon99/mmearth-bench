@@ -53,7 +53,7 @@ class MMEarthBenchDataset(Dataset):
             self.task_data = h5_file[task][:]
             self.crs = h5_file['crs'][:].astype(str).tolist() # coordinate reference system for each tile
             self.transforms = h5_file['transform'][:] # affine transformation for each tile
-            self.split_data_path = f'{split_type}_split_data.json'
+            self.split_data_path = f'{task}/{task}_{split_type}_split_data.json'
 
             print(f'{task} tile count: {self.tile_count}')
             print(f'Sentinel-2: {self.sentinel2.shape}')
@@ -140,7 +140,7 @@ class MMEarthBenchDataset(Dataset):
                       'train_band_means': self.train_band_means,
                       'train_band_stds': self.train_band_stds}
 
-        with open(f'{split_type}_split_data.json', 'w') as file:
+        with open(self.split_data_path, 'w') as file:
             json.dump(split_data, file, indent=4)
 
         val_indices = np.array([np.where(self.tile_ids == tile_id)[0][0] for tile_id in val_ids])
