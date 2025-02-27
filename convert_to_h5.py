@@ -1,5 +1,3 @@
-# requires 50GB memory to run
-
 # imports
 from collections import defaultdict
 from sys import argv
@@ -87,7 +85,8 @@ if __name__ == '__main__':
     if 'for' not in argv[1]: # python convert_to_h5.py TASK
         partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
         env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
-        subprocess.run(['sbatch', '-t', '0-01:00:00', '-p', partitions, '--mem', '50G', '--job-name', f'{argv[1]}_convert_to_h5', '-o', f'bash-outputs/{argv[1]}_convert_to_h5.out', '-e', f'bash-errors/{argv[1]}_convert_to_h5.err', 'job.sh', env_path, 'convert_to_h5.py', f'for_{argv[1]}'])
+        mem = 300 if argv[1] == 'biomass' else 60
+        subprocess.run(['sbatch', '-t', '0-01:00:00', '-p', partitions, '--mem', f'{mem}G', '--job-name', f'{argv[1]}_convert_to_h5', '-o', f'bash-outputs/{argv[1]}_convert_to_h5.out', '-e', f'bash-errors/{argv[1]}_convert_to_h5.err', 'job.sh', env_path, 'convert_to_h5.py', f'for_{argv[1]}'])
     else: # python generate_map_data.py for_TASK
         task = argv[1].split('for_')[1]
         print(f'Task = {task}')
