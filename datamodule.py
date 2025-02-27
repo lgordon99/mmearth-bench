@@ -14,17 +14,18 @@ import utils
 # ============================================== CLASSES ============================================== #
 
 class DataModule(LightningDataModule):
-    def __init__(self, task, dataset_class, batch_size, num_workers):
+    def __init__(self, task, dataset_class, split_type, batch_size, num_workers):
         super().__init__()
 
         self.task = task
         self.dataset_class = dataset_class
+        self.split_type = split_type
         self.batch_size = batch_size
         self.num_workers = num_workers
 
     def setup(self, stage):
-        self.dataset = self.dataset_class(task=self.task)
-        split_data = utils.read_json('split_data.json')
+        self.dataset = self.dataset_class(task=self.task, split_type=self.split_type)
+        split_data = utils.read_json(f'{self.task}/{self.task}_{self.split_type}_split_data.json')
 
         if stage == 'fit':
             self.train_dataset = Subset(dataset=self.dataset, indices=split_data['train_ids'])
