@@ -25,19 +25,15 @@ class DataModule(LightningDataModule):
 
     def setup(self, stage):
         self.dataset = self.dataset_class(task=self.task, split_type=self.split_type)
+
         split_data = utils.read_json(f'{self.task}/{self.task}_{self.split_type}_split_data.json')
-        self.train_dataset = Subset(dataset=self.dataset, indices=split_data['train_ids'])
-        self.val_dataset = Subset(dataset=self.dataset, indices=split_data['val_ids'])
-        self.test_dataset = Subset(dataset=self.dataset, indices=split_data['test_ids'])
+
+        self.train_dataset = Subset(dataset=self.dataset, indices=split_data['train_indices'])
+        self.val_dataset = Subset(dataset=self.dataset, indices=split_data['val_indices'])
+        self.test_dataset = Subset(dataset=self.dataset, indices=split_data['test_indices'])
+
         self._plot_task_distribution()
-        # if stage == 'fit':
-        #     self.train_dataset = Subset(dataset=self.dataset, indices=split_data['train_ids'])
-        #     self.val_dataset = Subset(dataset=self.dataset, indices=split_data['val_ids'])
-        #     self._plot_task_distribution('train')
-        #     self._plot_task_distribution('val')
-        # elif stage == 'test':
-        #     self.test_dataset = Subset(dataset=self.dataset, indices=split_data['test_ids'])
-        #     self._plot_task_distribution('test')
+        self._calculate_test_rmse_with_train_mean()
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, generator=torch.Generator().manual_seed(42), pin_memory=True)
@@ -52,41 +48,19 @@ class DataModule(LightningDataModule):
         return DataLoader(self.dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True)
 
     def _plot_task_distribution(self):
-        # for stage in ['train', 'val', 'test']:
-        #     dataset = getattr(self, f'{stage}_dataset')
-        #     task_values = [task_value.squeeze() for _, task_value in dataset]
-
-        #     if stage == 'train':
-        #         print(f'Mean of {self.task} train values: {np.mean(task_values)}')
-
-        #     max_value = np.max(task_values)
-        #     bins = np.arange(0, max_value + 5, 5)
-        #     counts, bin_edges = np.histogram(task_values, bins=bins)
-        #     percentages = counts / counts.sum() * 100
-        #     plt.bar(bin_edges[:-1], percentages, width=np.diff(bin_edges), align='edge', edgecolor='black')
-        #     task_name = self.task.replace("_", " ").capitalize()
-        #     plt.xlabel(f'{task_name} value')
-        #     plt.ylabel('Percentage (%)')
-        #     plt.title(f'{task_name}: Distribution of Task Values in {stage.capitalize()} Dataset')
-        #     plt.tight_layout()
-        #     plt.savefig(f'{self.task}/figures/{self.task}_{self.split_type}_{stage}.png', dpi=300)
-        #     plt.close()
-
         fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(8, 12), sharex=True) # 3 rows, 1 column, shared x-axis
+        max_value = max([np.max([task_value.squeeze() for _, task_value in dataset]) for dataset in [self.train_dataset, self.val_dataset, self.test_dataset]])
+        step = np.ceil(max_value / 10)
+        bins = np.arange(0, max_value + step, step)
 
         for i, stage in enumerate(['train', 'val', 'test']):
             dataset = getattr(self, f'{stage}_dataset')
             task_values = [task_value.squeeze() for _, task_value in dataset]
-
-            if stage == 'train':
-                print(f'Mean of {self.task} train values: {np.mean(task_values)}')
-
-            max_value = np.max(task_values)
-            bins = np.arange(0, max_value + 5, 5)
             counts, bin_edges = np.histogram(task_values, bins=bins)
             percentages = counts / counts.sum() * 100
 
             axes[i].bar(bin_edges[:-1], percentages, width=np.diff(bin_edges), align='edge', edgecolor='black')
+            axes[i].set_xticks(bin_edges)
             axes[i].set_ylabel('Percentage (%)')
             axes[i].set_title(stage.capitalize())
 
@@ -95,3 +69,13 @@ class DataModule(LightningDataModule):
         plt.tight_layout()
         plt.savefig(f'{self.task}/figures/{self.task}_{self.split_type}_distributions.png', dpi=300)
         plt.close()
+
+    def _calculate_test_rmse_with_train_mean(self):
+        train_values = [task_value.squeeze() for _, task_value in self.train_dataset]
+        train_mean = np.mean(train_values)
+        print(f'Mean of train values: {round(float(train_mean), 2)}')
+
+        test_values = [task_value.squeeze() for _, task_value in self.test_dataset]
+        test_rmse = np.sqrt(np.mean((np.array(test_values) - train_mean) ** 2))
+
+        print(f'Test RMSE using the train mean as the prediction: {round(float(test_rmse), 2)}')
