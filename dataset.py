@@ -99,35 +99,18 @@ class MMEarthBenchDataset(Dataset):
             print(f'Tiles in Africa: {len(africa_boxes)}')
             print(f'Tiles outside Africa: {len(non_africa_boxes)}')
 
-            # # plot the Africa split
-            # fig, ax = plt.subplots(figsize=(10, 10), subplot_kw={'projection': ccrs.PlateCarree()})
-            # ax.set_extent([-180, 180, -90, 90], crs=ccrs.PlateCarree())
-            # ax.add_feature(cfeature.COASTLINE, linewidth=1)
-            # ax.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.7)
-            # ax.add_feature(cfeature.LAND, facecolor='lightgray', alpha=0.5)
-            # ax.add_feature(cfeature.OCEAN, facecolor='lightblue')
-            # africa_gdf = gpd.GeoDataFrame(geometry=[africa_boundaries])
-            # africa_gdf.plot(ax=ax, facecolor='none', edgecolor='blue', linewidth=1, transform=ccrs.PlateCarree())
-            # africa_boxes_gdf = gpd.GeoDataFrame(geometry=list(africa_boxes.values()))
-            # africa_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='green', linewidth=1, transform=ccrs.PlateCarree())
-            # non_africa_boxes_gdf = gpd.GeoDataFrame(geometry=list(non_africa_boxes.values()))
-            # non_africa_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='red', linewidth=1, transform=ccrs.PlateCarree())
-            # ax.set_title(f'{self.task} Africa Split', fontsize=14)
-            # plt.savefig(f'figures/{self.task}_africa_split.png', dpi=300, bbox_inches='tight')
-            # plt.close(fig)
-
             # training and validation tile IDs
             non_africa_tile_ids = list(map(int, non_africa_boxes.keys()))
             random.shuffle(non_africa_tile_ids) # randomly reorders the non-Africa-tile IDs
             end_train_ids = int(training_fraction * len(non_africa_tile_ids)) # 70% of the non-Africa tiles for training
-            end_val_ids = int((training_fraction+validation_fraction) * len(non_africa_tile_ids)) # 15% of the data for validation
+            end_val_ids = int((training_fraction+validation_fraction) * len(non_africa_tile_ids)) # 15% of the non-Africa tiles for validation
             train_ids = non_africa_tile_ids[:end_train_ids]
             val_ids = non_africa_tile_ids[end_train_ids:end_val_ids]
 
             if split_type == 'random':
-                test_ids = non_africa_tile_ids[end_val_ids:]
+                test_ids = non_africa_tile_ids[end_val_ids:] # remaining 15% of the non-Africa tiles for testing
             elif split_type == 'geographic':
-                test_ids = list(map(int, africa_boxes.keys()))
+                test_ids = list(map(int, africa_boxes.keys())) # Africa tiles for testing
 
         print(f'Dataset lengths for {split_type} split: Train = {len(train_ids)}, Val = {len(val_ids)}, Test = {len(test_ids)}')
         train_indices = np.array([np.where(self.tile_ids == tile_id)[0][0] for tile_id in train_ids])
