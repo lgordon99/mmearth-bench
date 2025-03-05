@@ -70,14 +70,14 @@ class MMEarthBenchDataset(Dataset):
         height, width = self.sentinel2.shape[-2:] # height and width of the Sentinel-2 images
 
         if split_type == 'world_random': # for random split over the whole world
-            tile_ids = self.tile_ids.copy()
-            random.shuffle(tile_ids) # randomly reorders the tile IDs
-            end_train_ids = int(training_fraction * self.tile_count) # 70% of the data for training
-            end_val_ids = int((training_fraction+validation_fraction) * self.tile_count) # 15% of the data for validation
+            tile_indices = list(range(self.tile_count))
+            random.shuffle(tile_indices) # randomly reorders the tile IDs
+            end_train_indices = int(training_fraction * self.tile_count) # 70% of the data for training
+            end_val_indices = int((training_fraction+validation_fraction) * self.tile_count) # 15% of the data for validation
 
-            train_ids = tile_ids[:end_train_ids].tolist()
-            val_ids = tile_ids[end_train_ids:end_val_ids].tolist()
-            test_ids = tile_ids[end_val_ids:].tolist()
+            train_indices = tile_indices[:end_train_indices]
+            val_indices = tile_indices[end_train_indices:end_val_indices]
+            test_indices = tile_indices[end_val_indices:]
         else:
             country_data = utils.read_geojson(f'{data_dir_path}/world_administrative_boundaries.geojson')['features'] # country boundary data
             african_country_data = [country for country in country_data if country['properties'].get('continent') == 'Africa'] # African country boundary data
@@ -93,44 +93,41 @@ class MMEarthBenchDataset(Dataset):
                         africa_polygons.append(Polygon(polygon_coordinates[0])) # saves the polygon's coordinates
 
             africa_boundaries = MultiPolygon(africa_polygons) # boundaries of all the African countries
-            boxes = {self.tile_ids[i]: get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in range(self.tile_count)} # dictionairy of boxes for each tile
-            africa_boxes = {tile_id: box for tile_id, box in boxes.items() if box.within(africa_boundaries)} # dictionairy of boxes for each tile within the Africa boundaries
-            non_africa_boxes = {tile_id: box for tile_id, box in boxes.items() if box.disjoint(africa_boundaries)}
+            boxes = {i: get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in range(self.tile_count)} # dictionairy of boxes for each tile
+            africa_boxes = {tile_index: box for tile_index, box in boxes.items() if box.within(africa_boundaries)} # dictionairy of boxes for each tile within the Africa boundaries
+            non_africa_boxes = {tile_index: box for tile_index, box in boxes.items() if box.disjoint(africa_boundaries)}
             print(f'Tiles in Africa: {len(africa_boxes)}')
             print(f'Tiles outside Africa: {len(non_africa_boxes)}')
 
             # training and validation tile IDs
-            non_africa_tile_ids = list(map(int, non_africa_boxes.keys()))
-            random.shuffle(non_africa_tile_ids) # randomly reorders the non-Africa-tile IDs
-            end_train_ids = int(training_fraction * len(non_africa_tile_ids)) # 70% of the non-Africa tiles for training
-            end_val_ids = int((training_fraction+validation_fraction) * len(non_africa_tile_ids)) # 15% of the non-Africa tiles for validation
-            train_ids = non_africa_tile_ids[:end_train_ids]
-            val_ids = non_africa_tile_ids[end_train_ids:end_val_ids]
+            non_africa_tile_indices = list(map(int, non_africa_boxes.keys()))
+            random.shuffle(non_africa_tile_indices) # randomly reorders the non-Africa-tile indices
+            end_train_indices = int(training_fraction * len(non_africa_tile_indices)) # 70% of the non-Africa tiles for training
+            end_val_indices = int((training_fraction+validation_fraction) * len(non_africa_tile_indices)) # 15% of the non-Africa tiles for validation
+            train_indices = non_africa_tile_indices[:end_train_indices]
+            val_indices = non_africa_tile_indices[end_train_indices:end_val_indices]
 
             if split_type == 'random':
-                test_ids = non_africa_tile_ids[end_val_ids:] # remaining 15% of the non-Africa tiles for testing
+                test_indices = non_africa_tile_indices[end_val_indices:] # remaining 15% of the non-Africa tiles for testing
             elif split_type == 'geographic':
-                test_ids = list(map(int, africa_boxes.keys())) # Africa tiles for testing
+                test_indices = list(map(int, africa_boxes.keys())) # Africa tiles for testing
 
-        print(f'Dataset lengths for {split_type} split: Train = {len(train_ids)}, Val = {len(val_ids)}, Test = {len(test_ids)}')
-        train_indices = np.array([np.where(self.tile_ids == tile_id)[0][0] for tile_id in train_ids])
+        print(f'Dataset lengths for {split_type} split: Train = {len(train_indices)}, Val = {len(val_indices)}, Test = {len(test_indices)}')
         train_images = self.sentinel2[train_indices]
         self.train_band_means = train_images.mean(axis=(0,2,3))[:, None, None].tolist()
         self.train_band_stds = train_images.std(axis=(0,2,3))[:, None, None].tolist()
-        split_data = {'train_ids': train_ids,
-                      'val_ids': val_ids,
-                      'test_ids': test_ids,
+        split_data = {'train_indices': train_indices,
+                      'val_indices': val_indices,
+                      'test_indices': test_indices,
                       'train_band_means': self.train_band_means,
                       'train_band_stds': self.train_band_stds}
 
         with open(self.split_data_path, 'w') as file:
             json.dump(split_data, file, indent=4)
 
-        val_indices = np.array([np.where(self.tile_ids == tile_id)[0][0] for tile_id in val_ids])
-        test_indices = np.array([np.where(self.tile_ids == tile_id)[0][0] for tile_id in test_ids])
-        train_boxes = {self.tile_ids[i]: get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in train_indices} # dictionairy of boxes for the training tiles
-        val_boxes = {self.tile_ids[i]: get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in val_indices}
-        test_boxes = {self.tile_ids[i]: get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in test_indices}
+        train_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in train_indices] # dictionairy of boxes for the training tiles
+        val_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in val_indices]
+        test_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in test_indices]
 
         # plot the split
         fig, ax = plt.subplots(figsize=(10, 10), subplot_kw={'projection': ccrs.PlateCarree()})
@@ -139,11 +136,11 @@ class MMEarthBenchDataset(Dataset):
         ax.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
         ax.add_feature(cfeature.LAND, facecolor='lightgray', alpha=0.5)
         ax.add_feature(cfeature.OCEAN, facecolor='lightblue')
-        train_boxes_gdf = gpd.GeoDataFrame(geometry=list(train_boxes.values()))
+        train_boxes_gdf = gpd.GeoDataFrame(geometry=train_boxes)
         train_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='red', linewidth=1, transform=ccrs.PlateCarree())
-        val_boxes_gdf = gpd.GeoDataFrame(geometry=list(val_boxes.values()))
+        val_boxes_gdf = gpd.GeoDataFrame(geometry=val_boxes)
         val_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='green', linewidth=1, transform=ccrs.PlateCarree())
-        test_boxes_gdf = gpd.GeoDataFrame(geometry=list(test_boxes.values()))
+        test_boxes_gdf = gpd.GeoDataFrame(geometry=test_boxes)
         test_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='blue', linewidth=1, transform=ccrs.PlateCarree())
         legend_handles = [Line2D([0], [0], color='red', lw=2, label='Train'),
                           Line2D([0], [0], color='green', lw=2, label='Val'),
@@ -156,8 +153,7 @@ class MMEarthBenchDataset(Dataset):
     def __len__(self):
         return self.tile_count
 
-    def __getitem__(self, tile_id):
-        index = np.where(self.tile_ids == tile_id)[0][0] # gets the index of the tile_id
+    def __getitem__(self, index):
         sentinel2 = self.sentinel2[index]
         sentinel2 = (sentinel2 - self.train_band_means) / self.train_band_stds # normalization
         task_data = self.task_data[index]
