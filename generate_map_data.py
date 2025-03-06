@@ -124,7 +124,9 @@ def save_map_data(task):
 
         if task == 'biomass':
             biomass = ma.masked_equal(biomass, -9999) # masks nodata values
-            plt.imsave(f'{data_dir_path}/{task}/tiles/biomass/tile_{tile_id}_biomass.png', biomass, cmap='gnuplot2')
+            cmap = plt.get_cmap('gnuplot2')
+            cmap.set_bad(color='black')
+            plt.imsave(f'{data_dir_path}/{task}/tiles/biomass/tile_{tile_id}_biomass.png', biomass, cmap=cmap)
 
 if __name__ == '__main__':
     if 'for' not in argv[1]: # python generate_map_data.py TASK
