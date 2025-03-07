@@ -71,11 +71,20 @@ class DataModule(LightningDataModule):
         plt.close()
 
     def _calculate_test_rmse_with_train_mean(self):
-        train_values = [task_value.squeeze() for _, task_value in self.train_dataset]
+        train_values = np.array([task_value.squeeze() for _, task_value in self.train_dataset]).ravel()
+
+        if self.task == 'biomass':
+            train_values = [value for value in train_values if value != -9999]
+
         train_mean = np.mean(train_values)
+
         print(f'Mean of train values: {round(float(train_mean), 2)}')
 
-        test_values = [task_value.squeeze() for _, task_value in self.test_dataset]
+        test_values = np.array([task_value.squeeze() for _, task_value in self.test_dataset]).ravel()
+
+        if self.task == 'biomass':
+            test_values = [value for value in test_values if value != -9999]
+
         test_rmse = np.sqrt(np.mean((np.array(test_values) - train_mean) ** 2))
 
         print(f'Test RMSE using the train mean as the prediction: {round(float(test_rmse), 2)}')
