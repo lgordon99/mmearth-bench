@@ -9,7 +9,7 @@ import subprocess
 import utils
 
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
-pixel_level_modalities = ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETHGCH', 'DynamicWorld', 'ESA_Worldcover', 'SCL', 'MSK_CLDPRB', 'QA60', 'S2CLOUDLESS']
+pixel_level_modalities = ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETHGCH', 'DynamicWorld', 'ESA_Worldcover', 'MSK_CLDPRB', 'S2CLOUDLESS', 'SCL', 'QA60']
 image_level_modalities = ['climate', 'latitude', 'longitude', 'month', 'biome', 'ecoregion', 'MSK_CLDPRB_CLOUDY_PIXEL_FRACTION', 'S2CLOUDLESS_CLOUDY_PIXEL_FRACTION']
 no_data_values = {'Sentinel1': float('-inf'),
                   'climate': float('inf'),
@@ -62,7 +62,8 @@ def convert_tiffs_to_h5(task):
 
                 # task data
                 if task == 'biomass':
-                    data[task].append(array[29])
+                    biomass = array[[band_number for band_number, band_name in band_names.items() if 'biomass' in band_name][0]]
+                    data[task].append(biomass)
                 elif task == 'species':
                     species = [int(value) for value in get_tag_value(tags, task).split(',')]
                     species_vector = np.zeros(100)
