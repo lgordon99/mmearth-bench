@@ -1,4 +1,5 @@
-# imports
+# ============================================== IMPORTS ============================================== #
+
 from collections import defaultdict
 from sys import argv
 import h5py
@@ -7,6 +8,8 @@ import os
 import rasterio
 import subprocess
 import utils
+
+# ============================================== GLOBAL VARIABLES ============================================== #
 
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
 pixel_level_modalities = ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETHGCH', 'DynamicWorld', 'ESA_Worldcover', 'MSK_CLDPRB', 'S2CLOUDLESS', 'SCL', 'QA60']
@@ -18,6 +21,8 @@ no_data_values = {'Sentinel1': float('-inf'),
                   'month': float('-inf'),
                   'biome': 255,
                   'ecoregion': 65535}
+
+# ============================================== FUNCTIONS ============================================== #
 
 def get_tag_value(tags, key):
     value = tags[key]

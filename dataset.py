@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
+import torch
 import utils
 
 # ============================================== GLOBAL VARIABLES ============================================== #
@@ -158,4 +159,7 @@ class MMEarthBenchDataset(Dataset):
         sentinel2 = (sentinel2 - self.train_band_means) / self.train_band_stds # normalization
         task_data = self.task_data[index]
 
-        return sentinel2, task_data
+        if len(task_data.shape) == 2:
+            task_data = np.expand_dims(task_data, axis=0)
+
+        return torch.tensor(sentinel2, dtype=torch.float32), torch.tensor(task_data, dtype=torch.float32)
