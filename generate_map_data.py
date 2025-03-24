@@ -132,7 +132,7 @@ if __name__ == '__main__':
     if 'for' not in argv[1]: # python generate_map_data.py TASK
         partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
         env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
-        subprocess.run(['sbatch', '-t', '0-10:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'{argv[1]}_map_data', '-o', f'bash-outputs/{argv[1]}_map_data.out', '-e', f'bash-errors/{argv[1]}_map_data.err', 'job.sh', env_path, 'generate_map_data.py', f'for_{argv[1]}'])
+        subprocess.run(['sbatch', '-t', '0-5:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'{argv[1]}_map_data', '-o', f'bash-outputs/{argv[1]}_map_data.out', '-e', f'bash-errors/{argv[1]}_map_data.err', 'job.sh', env_path, 'generate_map_data.py', f'for_{argv[1]}'])
     else: # python generate_map_data.py for_TASK
         task = argv[1].split('for_')[1]
         print(f'Task = {task}')
