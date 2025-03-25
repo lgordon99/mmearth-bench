@@ -21,13 +21,6 @@ import random
 import torch
 import utils
 
-# ============================================== GLOBAL VARIABLES ============================================== #
-
-data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
-training_fraction = 0.7
-validation_fraction = 0.15
-random.seed(42)
-
 # ============================================== FUNCTIONS ============================================== #
 
 def get_box_wgs_84(transform, width, height, crs):
@@ -44,17 +37,19 @@ def get_box_wgs_84(transform, width, height, crs):
 # ============================================== CLASSES ============================================== #
 
 class MMEarthBenchDataset(Dataset):
-    def __init__(self, task, split_type):
+    def __init__(self, task, split_type, data_dir_path):
         self.task = task
 
-        with h5py.File(f'{data_dir_path}/{task}/{task}_h5.hdf5', 'r') as h5_file:
+        # with h5py.File(f'{data_dir_path}/{task}/{task}_h5.hdf5', 'r') as h5_file:
+        with h5py.File(f'/scratch/{task}_h5.hdf5', 'r') as h5_file:
             self.tile_ids = h5_file['id'][:]
             self.tile_count = len(self.tile_ids) # number of tiles for the task
             self.sentinel2 = h5_file['Sentinel2'][:]
             self.task_data = h5_file[task][:]
             self.crs = h5_file['crs'][:].astype(str).tolist() # coordinate reference system for each tile
             self.transforms = h5_file['transform'][:] # affine transformation for each tile
-            self.split_data_path = f'{task}/{task}_{split_type}_split_data.json'
+            # self.split_data_path = f'{data_dir_path}/{task}/{task}_{split_type}_split_data.json'
+            self.split_data_path = f'/scratch/{task}_{split_type}_split_data.json'
 
             print(f'{task} tile count: {self.tile_count}')
             print(f'Sentinel-2: {self.sentinel2.shape}')
@@ -68,6 +63,8 @@ class MMEarthBenchDataset(Dataset):
             self._get_split_data(split_type)
 
     def _get_split_data(self, split_type):
+        training_fraction = 0.7
+        validation_fraction = 0.15
         height, width = self.sentinel2.shape[-2:] # height and width of the Sentinel-2 images
 
         if split_type == 'world_random': # for random split over the whole world
@@ -123,7 +120,7 @@ class MMEarthBenchDataset(Dataset):
                       'train_band_means': self.train_band_means,
                       'train_band_stds': self.train_band_stds}
 
-        with open(self.split_data_path, 'w') as file:
+        with open(f'{data_dir_path}/{task}/{task}_{self.split_type}_split_data.json', 'w') as file:
             json.dump(split_data, file, indent=4)
 
         train_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in train_indices] # dictionairy of boxes for the training tiles
