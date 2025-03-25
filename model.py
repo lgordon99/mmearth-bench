@@ -36,7 +36,7 @@ def remap_checkpoint_keys(ckpt):
                 new_ckpt[new_k] = (v.permute(1, 0).reshape(dim, 1, ks, ks).transpose(3, 2))
             continue
         elif 'ln' in k or 'linear' in k:
-            k = k.split(''.')
+            k = k.split('.')
             k.pop(-2)  # remove ln and linear in the name
             new_k = '.'.join(k)
         # elif "backbone.resnet" in k:
