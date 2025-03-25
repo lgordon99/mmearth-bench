@@ -4,29 +4,30 @@ datamodule.py
 
 # ============================================== IMPORTS ============================================== #
 
+from dataset import MMEarthBenchDataset
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader, Subset
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import torch
 import utils
 
 # ============================================== CLASSES ============================================== #
 
 class DataModule(LightningDataModule):
-    def __init__(self, task, dataset_class, split_type, batch_size, num_workers):
+    def __init__(self, task, split_type, batch_size, data_dir_path, num_workers):
         super().__init__()
 
         self.task = task
-        self.dataset_class = dataset_class
         self.split_type = split_type
         self.batch_size = batch_size
+        self.data_dir_path = data_dir_path
         self.num_workers = num_workers
 
     def setup(self, stage):
-        self.dataset = self.dataset_class(task=self.task, split_type=self.split_type)
-
-        split_data = utils.read_json(f'{self.task}/{self.task}_{self.split_type}_split_data.json')
+        self.dataset = MMEarthBenchDataset(task=self.task, split_type=self.split_type, data_dir_path=self.data_dir_path)
+        split_data = utils.read_json(self.dataset.split_data_path)
 
         self.train_dataset = Subset(dataset=self.dataset, indices=split_data['train_indices'])
         self.val_dataset = Subset(dataset=self.dataset, indices=split_data['val_indices'])
@@ -67,7 +68,8 @@ class DataModule(LightningDataModule):
         fig.suptitle(self.task.replace("_", " ").capitalize(), fontweight='bold')
         axes[-1].set_xlabel(f'{self.task.replace("_", " ").capitalize()} value') # sets common x-label
         plt.tight_layout()
-        plt.savefig(f'{self.task}/figures/{self.task}_{self.split_type}_distributions.png', dpi=300)
+        os.makedirs(f'{self.data_dir_path}/{self.task}/figures', exist_ok=True)
+        plt.savefig(f'{self.data_dir_path}/{self.task}/figures/{self.task}_{self.split_type}_distributions.png', dpi=300)
         plt.close()
 
     def _calculate_test_rmse_with_train_mean(self):
