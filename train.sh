@@ -12,8 +12,8 @@ fi
 
 cat > temp_job.sh <<EOF
 #!/bin/bash
-#SBATCH --job-name run_model
-#SBATCH --time 0-00:10
+#SBATCH --job-name train_${TASK}_${SPLIT_TYPE}_${MODEL_TYPE}
+#SBATCH --time 1-00:00
 #SBATCH --partition davies_gpu,gpu,seas_gpu
 #SBATCH --mem ${MEM}
 #SBATCH --gres gpu:1
@@ -27,12 +27,12 @@ echo "Number of GPUs: \$NUM_GPUS"
 SCRATCH_DIR=/scratch
 echo "Copying h5 file to \$SCRATCH_DIR"
 H5_FILE=/n/davies_lab/Users/luciagordon/mmearth-bench/${TASK}/${TASK}_h5.hdf5
-cp \$H5_FILE \$SCRATCH_DIR
+rsync -ahP \$H5_FILE \$SCRATCH_DIR
 echo "Copied h5 file to \$SCRATCH_DIR"
 SPLIT_DATA=/n/davies_lab/Users/luciagordon/mmearth-bench/${TASK}/${TASK}_${SPLIT_TYPE}_split_data.json
-if [ -e ${SPLIT_DATA} ]; then
+if [ -f "${SPLIT_DATA}" ]; then
     echo "Copying split data to \$SCRATCH_DIR"
-    cp \$SPLIT_DATA \$SCRATCH_DIR
+    rsync -ahP \$SPLIT_DATA \$SCRATCH_DIR
     echo "Copied split data to \$SCRATCH_DIR"
 fi
 python train.py +task=${TASK} +split_type=${SPLIT_TYPE} +model_type=${MODEL_TYPE}
