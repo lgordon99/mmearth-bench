@@ -39,6 +39,8 @@ def get_box_wgs_84(transform, width, height, crs):
 class MMEarthBenchDataset(Dataset):
     def __init__(self, task, split_type, data_dir_path):
         self.task = task
+        self.split_type = split_type
+        self.data_dir_path = data_dir_path
 
         # with h5py.File(f'{data_dir_path}/{task}/{task}_h5.hdf5', 'r') as h5_file:
         with h5py.File(f'/scratch/{task}_h5.hdf5', 'r') as h5_file:
@@ -77,7 +79,7 @@ class MMEarthBenchDataset(Dataset):
             val_indices = tile_indices[end_train_indices:end_val_indices]
             test_indices = tile_indices[end_val_indices:]
         else:
-            country_data = utils.read_geojson(f'{data_dir_path}/world_administrative_boundaries.geojson')['features'] # country boundary data
+            country_data = utils.read_geojson(f'{self.data_dir_path}/world_administrative_boundaries.geojson')['features'] # country boundary data
             african_country_data = [country for country in country_data if country['properties'].get('continent') == 'Africa'] # African country boundary data
             africa_polygons = [] # list of polygons for boundaries of African countries
 
@@ -120,7 +122,10 @@ class MMEarthBenchDataset(Dataset):
                       'train_band_means': self.train_band_means,
                       'train_band_stds': self.train_band_stds}
 
-        with open(f'{data_dir_path}/{task}/{task}_{self.split_type}_split_data.json', 'w') as file:
+        with open(f'{self.data_dir_path}/{self.task}/{self.task}_{self.split_type}_split_data.json', 'w') as file:
+            json.dump(split_data, file, indent=4)
+
+        with open(self.split_data_path, 'w') as file:
             json.dump(split_data, file, indent=4)
 
         train_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in train_indices] # dictionairy of boxes for the training tiles
@@ -145,6 +150,7 @@ class MMEarthBenchDataset(Dataset):
                           Line2D([0], [0], color='blue', lw=2, label='Test')]
         ax.legend(handles=legend_handles, loc='upper right')
         ax.set_title(f'{self.task} {split_type} Split', fontsize=14)
+        os.makedirs('figures', exist_ok=True)
         plt.savefig(f'figures/{self.task}_{split_type}_split.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
 
