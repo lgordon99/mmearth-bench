@@ -9,6 +9,7 @@ from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader, Subset
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import torch
 import utils
 
@@ -32,8 +33,9 @@ class DataModule(LightningDataModule):
         self.val_dataset = Subset(dataset=self.dataset, indices=split_data['val_indices'])
         self.test_dataset = Subset(dataset=self.dataset, indices=split_data['test_indices'])
 
-        self._plot_task_distribution()
-        self._calculate_test_rmse_with_train_mean()
+        if self.task != 'species':
+            self._plot_task_distribution()
+            self._calculate_test_rmse_with_train_mean()
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, generator=torch.Generator().manual_seed(42), pin_memory=True)
@@ -67,6 +69,7 @@ class DataModule(LightningDataModule):
         fig.suptitle(self.task.replace("_", " ").capitalize(), fontweight='bold')
         axes[-1].set_xlabel(f'{self.task.replace("_", " ").capitalize()} value') # sets common x-label
         plt.tight_layout()
+        os.makedirs('figures', exist_ok=True)
         plt.savefig(f'figures/{self.task}_{self.split_type}_distributions.png', dpi=300)
         plt.close()
 
