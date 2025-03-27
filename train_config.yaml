@@ -38,3 +38,4 @@ model:
   _target_: model.Model
   task: "${task}"
   model: "${model_type}"
+  adaptation_mode: "${adaptation_mode}"
