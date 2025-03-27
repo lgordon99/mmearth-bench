@@ -4,7 +4,7 @@ from collections import OrderedDict
 from convnextv2_unet import convnextv2_unet_atto
 from lightning.pytorch import LightningModule
 from timm.models.layers import trunc_normal_
-from torchmetrics import MetricCollection
+from torchmetrics import MetricCollection, Recall
 from torchmetrics.regression import MeanSquaredError
 from torchvision.models import resnet50
 import math
@@ -39,10 +39,6 @@ def remap_checkpoint_keys(ckpt):
             k = k.split('.')
             k.pop(-2)  # remove ln and linear in the name
             new_k = '.'.join(k)
-        # elif "backbone.resnet" in k:
-        #     # sometimes the resnet model is saved with the prefix backbone.resnet
-        #     # we need to remove this prefix
-        #     new_k = k.split("backbone.resnet.")[1]
         else:
             new_k = k
 
@@ -159,17 +155,17 @@ def load_custom_checkpoint(model, checkpoint_path):
 # ============================================== CLASSES ============================================== #
 
 class ResNet(nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes):
         super(ResNet, self).__init__()
         self.model = resnet50(weights='DEFAULT')
         num_features = self.model.fc.in_features # input to final layer
-        self.model.fc = nn.Linear(in_features=num_features, out_features=1) # adapts last layer for regression
+        self.model.fc = nn.Linear(in_features=num_features, out_features=num_classes)
 
     def forward(self, images):
         return self.model(images[:, [3,2,1], :, :])
 
 class ResNetSentinel2(nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes):
         super(ResNetSentinel2, self).__init__()
         self.model = resnet50(weights='DEFAULT')
         num_bands = 12
@@ -191,53 +187,92 @@ class ResNetSentinel2(nn.Module):
             self.model.conv1.weight *= 3/num_bands
 
         num_features = self.model.fc.in_features # input to final layer
-        self.model.fc = nn.Linear(in_features=num_features, out_features=1)
+        self.model.fc = nn.Linear(in_features=num_features, out_features=num_classes)
 
     def forward(self, images):
         return self.model(images)
 
-class MMEarthPixelwiseRegression(nn.Module):
+class ConvnextV2Unet_MMEarth(nn.Module):
     def __init__(self):
-        super(MMEarthPixelwiseRegression, self).__init__()
+        super(ConvnextV2Unet_MMEarth, self).__init__()
 
         model = convnextv2_unet_atto(patch_size=8, # patch size used during pretraining
-                                          img_size=56, # patch size used during pretraining
-                                          in_chans=12, # number of Sentinel-2 bands
-                                          num_classes=1) # regression
-        checkpoint_path='/n/davies_lab/Users/luciagordon/MMEarth-train/mmearth-ckpts-pt/pretrain_200_epochs/checkpoint-199.pth'
+                                     img_size=56, # patch size used during pretraining
+                                     in_chans=12, # number of Sentinel-2 bands
+                                     num_classes=1) # regression
+        # checkpoint_path='/n/davies_lab/Users/luciagordon/MMEarth-train/mmearth-ckpts-pt/pretrain_200_epochs/checkpoint-199.pth'
+        checkpoint_path = '/n/davies_lab/Users/luciagordon/mmearth-bench/all_mod_atto_1M_64_uncertainty_56-8.pth'
         self.model = load_custom_checkpoint(model, checkpoint_path) # freezing and unfreezing is done in this function
 
     def forward(self, images):
         return self.model(images)
 
+class ConvnextV2Unet(nn.Module):
+    def __init__(self):
+        super(ConvnextV2Unet, self).__init__()
+
+        model = convnextv2_unet_atto(patch_size=8, # patch size used during pretraining
+                                     img_size=56, # patch size used during pretraining
+                                     in_chans=12, # number of Sentinel-2 bands
+                                     num_classes=1) # regression
+
+    def forward(self, images):
+        return self.model(images)
+
 class Model(LightningModule):
-    def __init__(self, task, model):
+    def __init__(self, task, model, adaptation_mode):
         super().__init__()
 
         self.save_hyperparameters()
         self.configure_models()
         self.configure_metrics()
 
-        self.criterion = nn.MSELoss()
+        if task == 'species': # multi-label classification
+            self.criterion = nn.BCEWithLogitsLoss()
+        else: # regression
+            self.criterion = nn.MSELoss()
 
     def configure_models(self):
+        num_classes = 100 if self.hparams.task == 'species' else 1
+
         if self.hparams.model == 'resnet_rgb':
-            self.model = ResNet()
+            self.model = ResNet(num_classes)
         elif self.hparams.model == 'resnet_sentinel2':
-            self.model = ResNetSentinel2()
+            self.model = ResNetSentinel2(num_classes)
         elif self.hparams.model == 'unet':
             self.model = smp.Unet(encoder_name='resnet50',
                                   encoder_weights='imagenet',
                                   in_channels=12)
-        elif self.hparams.model == 'mmearth':
-            self.model = torch.hub.load('vishalned/mmearth-train', 'MPMAE', trust_repo=True, num_classes=1)
-        elif self.hparams.model == 'mmearth-pixelwise_regression':
-            self.model = MMEarthPixelwiseRegression()
+        elif self.hparams.model == 'mpmae_mmearth':
+            self.model = torch.hub.load('vishalned/mmearth-train', 'MPMAE', trust_repo=True, num_classes=num_classes)
+        elif self.hparams.model == 'mpmae_pixelwise_regression_mmearth':
+            self.model = ConvnextV2Unet_MMEarth()
+        elif self.hparams.model == 'mpmae_pixelwise_regression':
+            self.model = ConvnextV2Unet()
         elif self.hparams.model == 'anysat':
             self.model = torch.hub.load('gastruc/anysat', 'anysat', pretrained=True, flash_attn=False)
 
+        if self.hparams.adaptation_mode == 'linear_probing' or self.hparams.adaptation_mode == 'two_stage':
+            # freeze all parameters
+            for param in self.model.parameters():
+                param.requires_grad = False
+
+            if 'resnet' in self.hparams.model:
+                parameters_to_unfreeze = self.model.model.fc.parameters()
+            elif 'pixelwise_regression' in self.hparams.model:
+                children_to_unfreeze = ['norm', 'head', 'upsample_layers', 'initial_conv_upsample'] # decoder parts
+                parameters_to_unfreeze = [p for name, module in self.model.named_modules() for child_name in children_to_unfreeze if child_name in name for p in module.parameters()]
+            elif 'mpmae' in self.hparams.model:
+                parameters_to_unfreeze = self.model.head.parameters()
+
+            for param in parameters_to_unfreeze:
+                param.requires_grad = True
+
     def configure_metrics(self):
-        metrics = MetricCollection({'RMSE': MeanSquaredError(squared=False)})
+        if self.hparams.task == 'species':
+            metrics = MetricCollection({'recall': Recall(task='multilabel', average='macro', num_labels=100)})
+        else:
+            metrics = MetricCollection({'RMSE': MeanSquaredError(squared=False)})
 
         self.train_metrics = metrics.clone(prefix='Train ')
         self.val_metrics = metrics.clone(prefix='Val ')
@@ -295,3 +330,32 @@ class Model(LightningModule):
 
         self.test_metrics(prediction, target)
         self.log_dict(self.test_metrics, batch_size=batch_size)
+
+    def on_train_epoch_start(self):
+        if self.current_epoch == 2 and self.hparams.adaptation_mode == 'two_stage':
+            optimizer = self.trainer.optimizers[0]
+
+            num_params_in_optimizer = sum(p.numel() for group in optimizer.param_groups for p in group['params'])
+            print("Total number of parameters in optimizer:", num_params_in_optimizer)
+            num_params = sum(p.numel() for p in self.model.parameters())
+            print("Total number of parameters:", num_params)
+            print(num_params_in_optimizer == num_params)
+            num_trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            print("Total number of trainable parameters:", num_trainable_params)
+
+            for param in self.model.parameters():
+                param.requires_grad = True
+
+            num_params_in_optimizer = sum(p.numel() for group in optimizer.param_groups for p in group['params'])
+            print("Total number of parameters in optimizer:", num_params)
+            num_params = sum(p.numel() for p in self.model.parameters())
+            print("Total number of parameters:", num_params)
+            print(num_params_in_optimizer == num_params)
+            num_trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            print("Total number of trainable parameters:", num_trainable_params)
+
+            # optimizer = self.trainer.optimizers[0]
+            # optimizer_param_ids = {id(p) for p in optimizer.param_groups[0]['params']}
+            # new_parameters = [parameter for parameter in self.model.parameters() if parameter.requires_grad and id(parameter) not in optimizer_param_ids]
+            # optimizer.add_param_group({'params': new_parameters})
+            # print(f'Unfroze an additional {len(new_parameters)} parameters')
