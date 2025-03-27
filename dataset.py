@@ -112,6 +112,11 @@ class MMEarthBenchDataset(Dataset):
             elif split_type == 'geographic':
                 test_indices = list(map(int, africa_boxes.keys())) # Africa tiles for testing
 
+        if self.task == 'species':
+            train_species_counts = self.task_data[train_indices].sum(axis=0)
+            species_with_too_few_train_observations = np.where(train_species_counts < 50)[0]
+            self.task_data[np.ix_(test_indices, species_with_too_few_train_observations)] = 0
+
         print(f'Dataset lengths for {split_type} split: Train = {len(train_indices)}, Val = {len(val_indices)}, Test = {len(test_indices)}')
         train_images = self.sentinel2[train_indices]
         self.train_band_means = train_images.mean(axis=(0,2,3))[:, None, None].tolist()
