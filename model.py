@@ -1,10 +1,12 @@
 # ============================================== IMPORTS ============================================== #
 
 from collections import OrderedDict
+from convnextv2 import convnextv2_atto
 from convnextv2_unet import convnextv2_unet_atto
 from lightning.pytorch import LightningModule
 from timm.models.layers import trunc_normal_
 from torchmetrics import MetricCollection, Recall
+from torchmetrics.classification import MultilabelRecall, MultilabelAveragePrecision
 from torchmetrics.regression import MeanSquaredError
 from torchvision.models import resnet50
 import math
@@ -192,29 +194,40 @@ class ResNetSentinel2(nn.Module):
     def forward(self, images):
         return self.model(images)
 
-class ConvnextV2Unet_MMEarth(nn.Module):
-    def __init__(self):
-        super(ConvnextV2Unet_MMEarth, self).__init__()
+class ConvNextV2(nn.Module):
+    def __init__(self, num_classes, mmearth):
+        super(ConvNextV2, self).__init__()
 
-        model = convnextv2_unet_atto(patch_size=8, # patch size used during pretraining
+        self.model = convnextv2_atto(patch_size=8, # patch size used during pretraining
                                      img_size=56, # patch size used during pretraining
                                      in_chans=12, # number of Sentinel-2 bands
-                                     num_classes=1) # regression
-        # checkpoint_path='/n/davies_lab/Users/luciagordon/MMEarth-train/mmearth-ckpts-pt/pretrain_200_epochs/checkpoint-199.pth'
-        checkpoint_path = '/n/davies_lab/Users/luciagordon/mmearth-bench/all_mod_atto_1M_64_uncertainty_56-8.pth'
-        self.model = load_custom_checkpoint(model, checkpoint_path) # freezing and unfreezing is done in this function
+                                     num_classes=num_classes)
+
+        if mmearth:
+            checkpoint_path = '/n/davies_lab/Users/luciagordon/mmearth-bench/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
+            self.model = load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
+
+        for parameter in self.model.parameters():
+            parameter.requires_grad = True
 
     def forward(self, images):
         return self.model(images)
 
 class ConvnextV2Unet(nn.Module):
-    def __init__(self):
+    def __init__(self, mmearth):
         super(ConvnextV2Unet, self).__init__()
 
-        model = convnextv2_unet_atto(patch_size=8, # patch size used during pretraining
-                                     img_size=56, # patch size used during pretraining
-                                     in_chans=12, # number of Sentinel-2 bands
-                                     num_classes=1) # regression
+        self.model = convnextv2_unet_atto(patch_size=8, # patch size used during pretraining
+                                         img_size=56, # patch size used during pretraining
+                                         in_chans=12, # number of Sentinel-2 bands
+                                         num_classes=1) # regression
+
+        if mmearth:
+            checkpoint_path = '/n/davies_lab/Users/luciagordon/mmearth-bench/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
+            self.model = load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
+
+        for parameter in self.model.parameters():
+            parameter.requires_grad = True
 
     def forward(self, images):
         return self.model(images)
@@ -244,11 +257,14 @@ class Model(LightningModule):
                                   encoder_weights='imagenet',
                                   in_channels=12)
         elif self.hparams.model == 'mpmae_mmearth':
-            self.model = torch.hub.load('vishalned/mmearth-train', 'MPMAE', trust_repo=True, num_classes=num_classes)
+            self.model = ConvNextV2(num_classes=num_classes, mmearth=True)
+            # self.model = torch.hub.load('vishalned/mmearth-train', 'MPMAE', trust_repo=True, num_classes=num_classes)
+        elif self.hparams.model == 'mpmae':
+            self.model = ConvNextV2(num_classes=num_classes, mmearth=False)
         elif self.hparams.model == 'mpmae_pixelwise_regression_mmearth':
-            self.model = ConvnextV2Unet_MMEarth()
+            self.model = ConvnextV2Unet(mmearth=True)
         elif self.hparams.model == 'mpmae_pixelwise_regression':
-            self.model = ConvnextV2Unet()
+            self.model = ConvnextV2Unet(mmearth=False)
         elif self.hparams.model == 'anysat':
             self.model = torch.hub.load('gastruc/anysat', 'anysat', pretrained=True, flash_attn=False)
 
@@ -270,7 +286,9 @@ class Model(LightningModule):
 
     def configure_metrics(self):
         if self.hparams.task == 'species':
-            metrics = MetricCollection({'recall': Recall(task='multilabel', average='macro', num_labels=100)})
+            num_labels = 100
+            metrics = MetricCollection({'Recall': MultilabelRecall(num_labels),
+                                        'MAP': MultilabelAveragePrecision(num_labels)})
         else:
             metrics = MetricCollection({'RMSE': MeanSquaredError(squared=False)})
 
@@ -297,6 +315,11 @@ class Model(LightningModule):
         loss = self.criterion(prediction, target)
 
         self.log('Train loss', loss, batch_size=batch_size)
+
+        if self.hparams.task == 'species':
+            prediction = torch.sigmoid(prediction) # converts logits to probabilities
+            target = target.long()
+
         self.train_metrics(prediction, target)
         self.log_dict(self.train_metrics, batch_size=batch_size)
 
@@ -315,6 +338,11 @@ class Model(LightningModule):
         loss = self.criterion(prediction, target)
 
         self.log('Val loss', loss, batch_size=batch_size)
+
+        if self.hparams.task == 'species':
+            prediction = torch.sigmoid(prediction) # converts logits to probabilities
+            target = target.long()
+
         self.val_metrics(prediction, target)
         self.log_dict(self.val_metrics, batch_size=batch_size)
 
@@ -327,6 +355,9 @@ class Model(LightningModule):
             valid_mask = target != -9999
             prediction = prediction[valid_mask]
             target = target[valid_mask]
+        elif self.hparams.task == 'species':
+            prediction = torch.sigmoid(prediction) # converts logits to probabilities
+            target = target.long()
 
         self.test_metrics(prediction, target)
         self.log_dict(self.test_metrics, batch_size=batch_size)
