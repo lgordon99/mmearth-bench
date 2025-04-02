@@ -123,7 +123,6 @@ class ConvNeXtV2_unet(nn.Module):
         drop_path_rate: float = 0.1,
         head_init_scale: float = 0.001,
         use_orig_stem: bool = False,
-        # args: Namespace = None,
     ):
         super().__init__()
         self.depths = depths
@@ -138,7 +137,6 @@ class ConvNeXtV2_unet(nn.Module):
             dims = [96, 192, 384, 768]
 
         self.use_orig_stem = use_orig_stem
-        # self.args = args
         self.downsample_layers = nn.ModuleList() # stem and 3 intermediate downsampling conv layers
         self.num_stage = len(depths)
 
@@ -189,7 +187,6 @@ class ConvNeXtV2_unet(nn.Module):
         self.norm = nn.LayerNorm(dims[-1], eps=1e-6) # final norm layer
         self.head = nn.Conv2d(int(dims[0] / 2), num_classes, kernel_size=1, stride=1)
         self.upsample_layers = nn.ModuleList()
-        self.layerNorm = nn.ModuleList()
 
         # creating the upsampling with nn.upsample + conv + layernorm + gelu activation.
         for i in reversed(range(self.num_stage)):
