@@ -70,15 +70,7 @@ def load_state_dict(model, state_dict, ignore_missing="relative_position_index",
 
     def load(module, prefix=''):
         local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
-        module._load_from_state_dict(
-            state_dict,
-            prefix,
-            local_metadata,
-            True,
-            missing_keys,
-            unexpected_keys,
-            error_msgs,
-        )
+        module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
 
         for name, child in module._modules.items():
             if child is not None:
@@ -141,8 +133,8 @@ def load_custom_checkpoint(model, checkpoint_path):
     checkpoint_model_keys = list(checkpoint_model.keys())
 
     for k in checkpoint_model_keys:
-        if "decoder" in k or "mask_token" in k or "proj" in k or "pred" in k:
-            print(f"Removing key {k} from pretrained checkpoint")
+        if 'decoder' in k or 'mask_token' in k or 'proj' in k or 'pred' in k:
+            print(f'Removing key {k} from pretrained checkpoint')
             del checkpoint_model[k]
 
     checkpoint_model = remap_checkpoint_keys(checkpoint_model)
@@ -218,22 +210,22 @@ class ConvnextV2Unet(nn.Module):
         super(ConvnextV2Unet, self).__init__()
 
         self.model = convnextv2_unet_atto(patch_size=8, # patch size used during pretraining
-                                         img_size=56, # patch size used during pretraining
-                                         in_chans=12, # number of Sentinel-2 bands
-                                         num_classes=1) # regression
+                                          img_size=56, # patch size used during pretraining
+                                          in_chans=12, # number of Sentinel-2 bands
+                                          num_classes=1) # regression
 
         if mmearth:
             checkpoint_path = '/n/davies_lab/Users/luciagordon/mmearth-bench/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
             self.model = load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
 
-        for parameter in self.model.parameters():
-            parameter.requires_grad = True
+        # for parameter in self.model.parameters():
+        #     parameter.requires_grad = True
 
     def forward(self, images):
         return self.model(images)
 
 class Model(LightningModule):
-    def __init__(self, task, model, adaptation_mode):
+    def __init__(self, task, model, adaptation_mode, lr, weight_decay, epochs, min_lr, warmup_epochs):
         super().__init__()
 
         self.save_hyperparameters()
@@ -297,7 +289,10 @@ class Model(LightningModule):
         self.test_metrics = metrics.clone(prefix='Test ')
 
     def configure_optimizers(self):
-        return optim.AdamW(self.model.parameters(), lr=1e-3)
+        optimizer = optim.AdamW(self.model.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.hparams.epochs, eta_min=self.hparams.min_lr)
+
+        return ([optimizer], [scheduler])
 
     def forward(self, images):
         return self.model(images)
@@ -363,7 +358,7 @@ class Model(LightningModule):
         self.log_dict(self.test_metrics, batch_size=batch_size)
 
     def on_train_epoch_start(self):
-        if self.current_epoch == 2 and self.hparams.adaptation_mode == 'two_stage':
+        if self.current_epoch == 50 and self.hparams.adaptation_mode == 'two_stage':
             optimizer = self.trainer.optimizers[0]
 
             num_params_in_optimizer = sum(p.numel() for group in optimizer.param_groups for p in group['params'])
@@ -384,9 +379,3 @@ class Model(LightningModule):
             print(num_params_in_optimizer == num_params)
             num_trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
             print("Total number of trainable parameters:", num_trainable_params)
-
-            # optimizer = self.trainer.optimizers[0]
-            # optimizer_param_ids = {id(p) for p in optimizer.param_groups[0]['params']}
-            # new_parameters = [parameter for parameter in self.model.parameters() if parameter.requires_grad and id(parameter) not in optimizer_param_ids]
-            # optimizer.add_param_group({'params': new_parameters})
-            # print(f'Unfroze an additional {len(new_parameters)} parameters')
