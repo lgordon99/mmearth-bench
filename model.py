@@ -218,14 +218,11 @@ class ConvnextV2Unet(nn.Module):
             checkpoint_path = '/n/davies_lab/Users/luciagordon/mmearth-bench/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
             self.model = load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
 
-        # for parameter in self.model.parameters():
-        #     parameter.requires_grad = True
-
     def forward(self, images):
         return self.model(images)
 
 class Model(LightningModule):
-    def __init__(self, task, model, adaptation_mode, lr, weight_decay, epochs, min_lr, warmup_epochs):
+    def __init__(self, task, model, adaptation_mode, lr, weight_decay, epochs, min_lr, warmup_epochs, num_train_batches):
         super().__init__()
 
         self.save_hyperparameters()
@@ -290,9 +287,13 @@ class Model(LightningModule):
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.model.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.hparams.epochs, eta_min=self.hparams.min_lr)
+        warmup_steps = self.hparams.warmup_epochs * self.hparams.num_train_batches
+        warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=self.hparams.min_lr/self.hparams.lr, total_iters=warmup_steps)
+        cooldown_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(self.hparams.epochs-self.hparams.warmup_epochs)*self.hparams.num_train_batches, eta_min=self.hparams.min_lr)
+        scheduler = optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, cooldown_scheduler], milestones=[warmup_steps])
 
-        return ([optimizer], [scheduler])
+        return {'optimizer': optimizer,
+                'lr_scheduler': {'scheduler': scheduler, 'interval': 'step'}}
 
     def forward(self, images):
         return self.model(images)
