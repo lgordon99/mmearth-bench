@@ -25,6 +25,8 @@ class DataModule(LightningDataModule):
         self.data_dir_path = data_dir_path
         self.num_workers = num_workers
 
+        self.setup(None)
+
     def setup(self, stage):
         self.dataset = MMEarthBenchDataset(task=self.task, split_type=self.split_type, data_dir_path=self.data_dir_path)
         split_data = utils.read_json(self.dataset.split_data_path)
@@ -33,7 +35,7 @@ class DataModule(LightningDataModule):
         self.val_dataset = Subset(dataset=self.dataset, indices=split_data['val_indices'])
         self.test_dataset = Subset(dataset=self.dataset, indices=split_data['test_indices'])
 
-        if self.task != 'species':
+        if self.task != 'species' and stage is not None:
             self._plot_task_distribution()
             self._calculate_test_rmse_with_train_mean()
 
@@ -82,6 +84,15 @@ class DataModule(LightningDataModule):
         train_mean = np.mean(train_values)
 
         print(f'Mean of train values: {round(float(train_mean), 2)}')
+
+        val_values = np.array([task_value.squeeze() for _, task_value in self.val_dataset]).ravel()
+
+        if self.task == 'biomass':
+            val_values = [value for value in val_values if value != -9999]
+
+        val_rmse = np.sqrt(np.mean((np.array(val_values) - train_mean) ** 2))
+
+        print(f'Val RMSE using the train mean as the prediction: {round(float(val_rmse), 2)}')
 
         test_values = np.array([task_value.squeeze() for _, task_value in self.test_dataset]).ravel()
 
