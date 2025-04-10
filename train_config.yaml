@@ -1,21 +1,23 @@
 seed: 42
+project_dir_path: /n/davies_lab/Users/luciagordon/mmearth-bench
+epochs: 200
 
 hydra:
   job:
     chdir: true
   run:
-    dir: experiments/${task}/${split_type}/${model_type}/${now:%Y-%m-%d_%H-%M-%S}
+    dir: ${project_dir_path}/experiments/${task}/${split_type}/${model_type}/${env:JOB_ID}
 
 logger:
   _target_: lightning.pytorch.loggers.wandb.WandbLogger
-  project: "mmearth-bench"
-  name: "${task}_${split_type}_${model_type}"
+  entity: luciagordon-harvard-university
+  project: mmearth-bench
+  name: ${task}_${split_type}_${model_type}_${env:JOB_ID}
   log_model: true
-  entity: "luciagordon-harvard-university"
 
 trainer:
   _target_: lightning.pytorch.Trainer
-  max_epochs: 200
+  max_epochs: ${epochs}
   logger: ${logger}
   log_every_n_steps: 1
   num_sanity_val_steps: 0
@@ -24,18 +26,26 @@ trainer:
     - _target_: lightning.pytorch.callbacks.ModelCheckpoint
       monitor: "Val loss"
       save_last: true
-      dirpath: "checkpoints"
+      dirpath: checkpoints
+    - _target_: lightning.pytorch.callbacks.LearningRateMonitor
+      logging_interval: step
 
 datamodule:
   _target_: datamodule.DataModule
-  task: "${task}"
-  split_type: "${split_type}"
+  task: ${task}
+  split_type: ${split_type}
   batch_size: 64
-  data_dir_path: "/n/davies_lab/Users/luciagordon/mmearth-bench"
+  data_dir_path: ${project_dir_path}
   num_workers: 0
 
 model:
   _target_: model.Model
-  task: "${task}"
-  model: "${model_type}"
-  adaptation_mode: "${adaptation_mode}"
+  task: ${task}
+  model: ${model_type}
+  adaptation_mode: ${adaptation_mode}
+  max_lr: 0.0001
+  weight_decay: 0.01
+  warmup_epochs: 20
+  num_train_batches: null
+  min_lr: 1e-6
+  epochs: ${epochs}
