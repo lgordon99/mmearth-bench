@@ -22,15 +22,6 @@ ecoregion_labels = utils.read_json('biomes_ecoregions_data/ecoregion_labels.json
 
 # ============================================== FUNCTIONS ============================================== #
 
-def normalize(array):
-    for i in range(array.shape[0]):
-        if array[i].max() != array[i].min(): # check to avoid division by zero
-            array[i] = (array[i] - array[i].min()) / (array[i].max() - array[i].min())
-        else:
-            array[i] = np.zeros_like(array[i]) # assigns a default value when all elements in the band are the same
-
-    return array
-
 def save_map_data(task):
     gdf = gpd.GeoDataFrame(columns=['geometry'], crs='EPSG:4326')
 
@@ -111,7 +102,7 @@ def save_map_data(task):
         gdf = pd.concat([gdf, gpd.GeoDataFrame([image_level_data], crs=gdf.crs)], ignore_index=True)
         gdf.to_file(f'{task}/{task}_tile_gdf.geojson', driver='GeoJSON')
 
-        rgb = np.stack(normalize(rgb), axis=-1) # (H, W, 3)
+        rgb = np.stack(utils.normalize(rgb), axis=-1) # (H, W, 3)
         msk_cldprb = np.nan_to_num(msk_cldprb, nan=100)
         plt.imsave(f'{data_dir_path}/{task}/tiles/Sentinel-2/tile_{tile_id}_Sentinel-2.png', rgb)
         plt.imsave(f'{data_dir_path}/{task}/tiles/Sentinel-1/tile_{tile_id}_Sentinel-1.png', s1)
