@@ -42,16 +42,15 @@ class MMEarthBenchDataset(Dataset):
         self.split_type = split_type
         self.data_dir_path = data_dir_path
 
-        # with h5py.File(f'{data_dir_path}/{task}/{task}_h5.hdf5', 'r') as h5_file:
-        with h5py.File(f'/scratch/{task}_h5.hdf5', 'r') as h5_file:
+        with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
+        # with h5py.File(f'/scratch/{task}_h5.hdf5', 'r') as h5_file:
             self.tile_ids = h5_file['id'][:]
             self.tile_count = len(self.tile_ids) # number of tiles for the task
             self.sentinel2 = h5_file['Sentinel2'][:]
             self.task_data = h5_file[task][:]
             self.crs = h5_file['crs'][:].astype(str).tolist() # coordinate reference system for each tile
             self.transforms = h5_file['transform'][:] # affine transformation for each tile
-            # self.split_data_path = f'{data_dir_path}/{task}/{task}_{split_type}_split_data.json'
-            self.split_data_path = f'/scratch/{task}_{split_type}_split_data.json'
+            self.split_data_path = f'{data_dir_path}/{task}/{task}_{split_type}_split_data.json'
 
             print(f'{task} tile count: {self.tile_count}')
             print(f'Sentinel-2: {self.sentinel2.shape}')
@@ -92,7 +91,8 @@ class MMEarthBenchDataset(Dataset):
                     for polygon_coordinates in geometry['coordinates']: # for each polygon
                         africa_polygons.append(Polygon(polygon_coordinates[0])) # saves the polygon's coordinates
 
-            africa_boundaries = MultiPolygon(africa_polygons) # boundaries of all the African countries
+            tolerance = 0.1
+            africa_boundaries = MultiPolygon(africa_polygons).buffer(tolerance).buffer(-tolerance) # boundaries of all the African countries
             boxes = {i: get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in range(self.tile_count)} # dictionairy of boxes for each tile
             africa_boxes = {tile_index: box for tile_index, box in boxes.items() if box.within(africa_boundaries)} # dictionairy of boxes for each tile within the Africa boundaries
             non_africa_boxes = {tile_index: box for tile_index, box in boxes.items() if box.disjoint(africa_boundaries)}
@@ -127,9 +127,6 @@ class MMEarthBenchDataset(Dataset):
                       'train_band_means': self.train_band_means,
                       'train_band_stds': self.train_band_stds}
 
-        with open(f'{self.data_dir_path}/{self.task}/{self.task}_{self.split_type}_split_data.json', 'w') as file:
-            json.dump(split_data, file, indent=4)
-
         with open(self.split_data_path, 'w') as file:
             json.dump(split_data, file, indent=4)
 
@@ -144,11 +141,11 @@ class MMEarthBenchDataset(Dataset):
         ax.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
         ax.add_feature(cfeature.LAND, facecolor='lightgray', alpha=0.5)
         ax.add_feature(cfeature.OCEAN, facecolor='lightblue')
-        train_boxes_gdf = gpd.GeoDataFrame(geometry=train_boxes)
+        train_boxes_gdf = gpd.GeoDataFrame(geometry=train_boxes, crs='EPSG:4326')
         train_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='red', linewidth=1, transform=ccrs.PlateCarree())
-        val_boxes_gdf = gpd.GeoDataFrame(geometry=val_boxes)
+        val_boxes_gdf = gpd.GeoDataFrame(geometry=val_boxes, crs='EPSG:4326')
         val_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='green', linewidth=1, transform=ccrs.PlateCarree())
-        test_boxes_gdf = gpd.GeoDataFrame(geometry=test_boxes)
+        test_boxes_gdf = gpd.GeoDataFrame(geometry=test_boxes, crs='EPSG:4326')
         test_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='blue', linewidth=1, transform=ccrs.PlateCarree())
         legend_handles = [Line2D([0], [0], color='red', lw=2, label='Train'),
                           Line2D([0], [0], color='green', lw=2, label='Val'),
@@ -158,6 +155,16 @@ class MMEarthBenchDataset(Dataset):
         os.makedirs('figures', exist_ok=True)
         plt.savefig(f'figures/{self.task}_{split_type}_split.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
+
+        africa_gdf = gpd.GeoDataFrame(geometry=[africa_boundaries], crs='EPSG:4326')
+        os.mkdir('africa_shapefile')
+        africa_gdf.to_file('africa_shapefile/africa_shapefile.shp')
+        os.mkdir('train_shapefile')
+        train_boxes_gdf.to_file('train_shapefile/train_shapefile.shp')
+        os.mkdir('val_shapefile')
+        val_boxes_gdf.to_file('val_shapefile/val_shapefile.shp')
+        os.mkdir('test_shapefile')
+        test_boxes_gdf.to_file('test_shapefile/test_shapefile.shp')
 
     def __len__(self):
         return self.tile_count
