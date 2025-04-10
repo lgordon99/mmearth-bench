@@ -7,6 +7,7 @@ import geojson
 import geopandas as gpd
 import json
 import matplotlib.pyplot as plt
+import numpy as np
 import subprocess
 import yaml
 
@@ -75,6 +76,15 @@ def make_global_map(tiles, color, path, title):
     ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
     plt.savefig(f'{path}.pdf', bbox_inches='tight')
     plt.savefig(f'{path}.png', bbox_inches='tight')
+
+def normalize(array):
+    for i in range(array.shape[0]):
+        if array[i].max() != array[i].min(): # check to avoid division by zero
+            array[i] = (array[i] - array[i].min()) / (array[i].max() - array[i].min())
+        else:
+            array[i] = np.zeros_like(array[i]) # assigns a default value when all elements in the band are the same
+
+    return array
 
 def read_geojson(path):
     with open(path) as geojson_file:
