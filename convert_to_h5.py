@@ -43,7 +43,7 @@ def convert_tiffs_to_h5(task):
     data = defaultdict(list) # dictionary whose default value is an empty list
 
     with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'w') as h5_file:
-        for tiff in os.listdir(task_data_dir):
+        for tiff in sorted(os.listdir(task_data_dir)):
             tile_id = tiff.split('_')[1]
 
             with rasterio.open(f'{task_data_dir}/{tiff}') as tiff:
