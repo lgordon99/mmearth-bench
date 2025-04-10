@@ -10,10 +10,21 @@ from torchmetrics.classification import MultilabelRecall, MultilabelAveragePreci
 from torchmetrics.regression import MeanSquaredError
 from torchvision.models import resnet50
 import math
+import matplotlib.pyplot as plt
+import numpy as np
+import os
 import segmentation_models_pytorch as smp
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import utils
+import wandb
+
+# ============================================== GLOBAL VARIABLES ============================================== #
+
+num_logged_images = 25
+fontsize = 50
+pad = 10
 
 # ============================================== FUNCTIONS ============================================== #
 
@@ -172,9 +183,9 @@ class ResNetSentinel2(nn.Module):
                                      bias=self.model.conv1.bias)
 
         with torch.no_grad():
-            self.model.conv1.weight[:, 3] = original_weights[:, 0]
-            self.model.conv1.weight[:, 2] = original_weights[:, 1]
-            self.model.conv1.weight[:, 1] = original_weights[:, 2]
+            self.model.conv1.weight[:, 3] = original_weights[:, 0] # R
+            self.model.conv1.weight[:, 2] = original_weights[:, 1] # G
+            self.model.conv1.weight[:, 1] = original_weights[:, 2] # B
             mean_original_weights = torch.mean(original_weights, dim=1)
             self.model.conv1.weight[:, 0] = mean_original_weights
             self.model.conv1.weight[:, 4:] = mean_original_weights.unsqueeze(1).expand(-1, self.model.conv1.weight.shape[1]-4, -1, -1)
@@ -222,7 +233,7 @@ class ConvnextV2Unet(nn.Module):
         return self.model(images)
 
 class Model(LightningModule):
-    def __init__(self, task, model, adaptation_mode, lr, weight_decay, epochs, min_lr, warmup_epochs, num_train_batches):
+    def __init__(self, task, model, adaptation_mode, max_lr, weight_decay, epochs, min_lr, warmup_epochs, num_train_batches):
         super().__init__()
 
         self.save_hyperparameters()
@@ -286,9 +297,9 @@ class Model(LightningModule):
         self.test_metrics = metrics.clone(prefix='Test ')
 
     def configure_optimizers(self):
-        optimizer = optim.AdamW(self.model.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
+        optimizer = optim.AdamW(self.model.parameters(), lr=self.hparams.max_lr, weight_decay=self.hparams.weight_decay)
         warmup_steps = self.hparams.warmup_epochs * self.hparams.num_train_batches
-        warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=self.hparams.min_lr/self.hparams.lr, total_iters=warmup_steps)
+        warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=self.hparams.min_lr/self.hparams.max_lr, total_iters=warmup_steps)
         cooldown_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(self.hparams.epochs-self.hparams.warmup_epochs)*self.hparams.num_train_batches, eta_min=self.hparams.min_lr)
         scheduler = optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, cooldown_scheduler], milestones=[warmup_steps])
 
@@ -319,6 +330,10 @@ class Model(LightningModule):
         self.train_metrics(prediction, target)
         self.log_dict(self.train_metrics, batch_size=batch_size)
 
+        if batch_idx == 0: # if we are on the first batch
+            self._log_images(images.cpu().numpy()[:, [3,2,1]].astype(float), 'training')
+            wandb.log({'Training': wandb.Image('figures/training.png')})
+
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -342,6 +357,10 @@ class Model(LightningModule):
         self.val_metrics(prediction, target)
         self.log_dict(self.val_metrics, batch_size=batch_size)
 
+        if batch_idx == 0: # if we are on the first batch
+            self._log_images(images.cpu().numpy()[:, [3,2,1]].astype(float), 'validation')
+            wandb.log({'Validation': wandb.Image('figures/validation.png')})
+
     def test_step(self, batch, batch_idx):
         images, target = batch
         prediction = self(images)
@@ -357,6 +376,10 @@ class Model(LightningModule):
 
         self.test_metrics(prediction, target)
         self.log_dict(self.test_metrics, batch_size=batch_size)
+
+        if batch_idx == 0: # if we are on the first batch
+            self._log_images(images.cpu().numpy()[:, [3,2,1]].astype(float), 'testing')
+            wandb.log({'Testing': wandb.Image('figures/testing.png')})
 
     def on_train_epoch_start(self):
         if self.current_epoch == 50 and self.hparams.adaptation_mode == 'two_stage':
@@ -380,3 +403,20 @@ class Model(LightningModule):
             print(num_params_in_optimizer == num_params)
             num_trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
             print("Total number of trainable parameters:", num_trainable_params)
+
+    def _log_images(self, images, mode):
+        images = np.array([np.stack(utils.normalize(image), axis=-1) for image in images])
+        num_images = min(len(images), num_logged_images)
+        fig, axes = plt.subplots(1, num_images, figsize=(num_images*4, 4))
+
+        for i in range(num_images):
+            axes[i].imshow(images[i])
+            axes[i].axis('off')
+
+            if i == int(num_images / 2):
+                axes[i].set_title('RGB Images', fontsize=fontsize, pad=pad)
+
+        plt.tight_layout()
+        os.makedirs('figures', exist_ok=True)
+        plt.savefig(f'figures/{mode}.png', dpi=300, bbox_inches='tight')
+        plt.close(fig)
