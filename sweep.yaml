@@ -1,0 +1,24 @@
+project: mmearth-bench
+entity: luciagordon-harvard-university
+name: biomass_random_mpmae_pixelwise_regression_mmearth_finetuning
+program: train.py
+method: grid
+metric:
+  name: "Val loss"
+  goal: minimize
+parameters:
+  model.max_lr:
+    # distribution: log_uniform
+    # min: 1e-5
+    # max: 1e-1
+    values: [1e-4, 1e-3, 1e-2]
+  model.weight_decay:
+    values: [1e-3, 1e-4]
+# run_cap: 50
+command:
+  - python
+  - train.py
+  - +task=biomass
+  - +split_type=random
+  - +model_type=mpmae_pixelwise_regression_mmearth
+  - +adaptation_mode=finetuning
