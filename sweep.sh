@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name sweep
-#SBATCH --time 1-00:00
+#SBATCH --time 0-10:00
 #SBATCH --partition davies_gpu,gpu,seas_gpu
 #SBATCH --mem 60G
 #SBATCH --gres gpu:1
