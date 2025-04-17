@@ -233,7 +233,7 @@ class ConvnextV2Unet(nn.Module):
         return self.model(images)
 
 class Model(LightningModule):
-    def __init__(self, task, model, adaptation_mode, max_lr, weight_decay, epochs, min_lr, warmup_epochs, num_train_batches):
+    def __init__(self, task, model, adaptation_mode, decay_factor, max_lr, weight_decay, epochs, min_lr, warmup_epochs, num_train_batches):
         super().__init__()
 
         self.save_hyperparameters()
@@ -268,22 +268,6 @@ class Model(LightningModule):
         elif self.hparams.model == 'anysat':
             self.model = torch.hub.load('gastruc/anysat', 'anysat', pretrained=True, flash_attn=False)
 
-        if self.hparams.adaptation_mode == 'linear_probing' or self.hparams.adaptation_mode == 'two_stage':
-            # freeze all parameters
-            for param in self.model.parameters():
-                param.requires_grad = False
-
-            if 'resnet' in self.hparams.model:
-                parameters_to_unfreeze = self.model.model.fc.parameters()
-            elif 'pixelwise_regression' in self.hparams.model:
-                children_to_unfreeze = ['norm', 'head', 'upsample_layers', 'initial_conv_upsample'] # decoder parts
-                parameters_to_unfreeze = [p for name, module in self.model.named_modules() for child_name in children_to_unfreeze if child_name in name for p in module.parameters()]
-            elif 'mpmae' in self.hparams.model:
-                parameters_to_unfreeze = self.model.head.parameters()
-
-            for param in parameters_to_unfreeze:
-                param.requires_grad = True
-
     def configure_metrics(self):
         if self.hparams.task == 'species':
             num_labels = 100
@@ -296,8 +280,65 @@ class Model(LightningModule):
         self.val_metrics = metrics.clone(prefix='Val ')
         self.test_metrics = metrics.clone(prefix='Test ')
 
+    def configure_parameters(self, max_lr):
+        if self.hparams.adaptation_mode == 'layer_wise_decay':
+            layer_names = []
+
+            for name, _ in self.model.model.named_parameters():
+                parts = name.split('.')
+                num_digits = sum(1 for char in name if char.isdigit())
+
+                if num_digits == 0:
+                    layer_name = parts[0]
+                elif num_digits == 1:
+                    layer_name = f'{parts[0]}.{parts[1]}'
+                elif num_digits == 2:
+                    layer_name = f'{parts[0]}.{parts[1]}.{parts[2]}'
+
+                if layer_name not in layer_names:
+                    layer_names.append(layer_name)
+
+            layer_names.reverse()
+            print(layer_names)
+            print(len(layer_names))
+            parameters = []
+
+            for i, name in enumerate(layer_names):
+                # multiplier = decay_factor ** i
+                learning_rate = max_lr * self.hparams.decay_factor ** i
+                print(f'{name}: {learning_rate}')
+                parameters += [{'params': [p for n, p in self.model.model.named_parameters() if n.startswith(name)],
+                                'lr': learning_rate,
+                                # 'multiplier': multiplier,
+                                'name': name}]
+                # learning_rate *= decay_factor
+
+            return parameters
+
+        # if self.hparams.adaptation_mode == 'linear_probing' or self.hparams.adaptation_mode == 'two_stage':
+        if self.hparams.adaptation_mode != 'finetuning':
+            # freeze all parameters
+            for param in self.model.parameters():
+                param.requires_grad = False
+
+            # unfreeze the final or decoder layers
+            if 'resnet' in self.hparams.model:
+                parameters_to_unfreeze = self.model.model.fc.parameters() # final layer
+            elif 'pixelwise_regression' in self.hparams.model:
+                children_to_unfreeze = ['norm', 'head', 'upsample_layers', 'initial_conv_upsample'] # decoder parts
+                parameters_to_unfreeze = [p for name, module in self.model.named_modules() for child_name in children_to_unfreeze if child_name in name for p in module.parameters()]
+            elif 'mpmae' in self.hparams.model:
+                parameters_to_unfreeze = self.model.head.parameters() # final layer
+
+            for param in parameters_to_unfreeze:
+                param.requires_grad = True
+
+        return self.model.parameters()
+
     def configure_optimizers(self):
-        optimizer = optim.AdamW(self.model.parameters(), lr=self.hparams.max_lr, weight_decay=self.hparams.weight_decay)
+        parameters = self.configure_parameters(max_lr=self.hparams.max_lr)
+        optimizer = optim.AdamW(parameters, lr=self.hparams.max_lr, weight_decay=self.hparams.weight_decay)
+        # optimizer = optim.AdamW(self.model.parameters(), lr=self.hparams.max_lr, weight_decay=self.hparams.weight_decay)
         warmup_steps = self.hparams.warmup_epochs * self.hparams.num_train_batches
         warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=self.hparams.min_lr/self.hparams.max_lr, total_iters=warmup_steps)
         cooldown_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(self.hparams.epochs-self.hparams.warmup_epochs)*self.hparams.num_train_batches, eta_min=self.hparams.min_lr)
@@ -403,6 +444,13 @@ class Model(LightningModule):
             print(num_params_in_optimizer == num_params)
             num_trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
             print("Total number of trainable parameters:", num_trainable_params)
+
+    # def on_train_batch_start(self, batch, batch_idx):
+    #     # if self.hparams.adaptation_mode == 'layer_wise_decay':
+    #     optimizer = self.trainer.optimizers[0]
+    #     print(f'Step {self.global_step}, Base lr: {optimizer.param_groups[0]["lr"]}')
+    #     # for group in optimizer.param_groups:
+    #     #     print(f'{group["name"]}: {group["lr"]}')
 
     def _log_images(self, images, mode):
         images = np.array([np.stack(utils.normalize(image), axis=-1) for image in images])
