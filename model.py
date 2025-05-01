@@ -159,19 +159,19 @@ def load_custom_checkpoint(model, checkpoint_path):
 
 # ============================================== CLASSES ============================================== #
 
-class ResNet(nn.Module):
-    def __init__(self, num_classes):
-        super(ResNet, self).__init__()
-        self.model = resnet50(weights='DEFAULT')
+class ResNet50(nn.Module):
+    def __init__(self, num_classes, weights):
+        super(ResNet50, self).__init__()
+        self.model = resnet50(weights=weights)
         num_features = self.model.fc.in_features # input to final layer
         self.model.fc = nn.Linear(in_features=num_features, out_features=num_classes)
 
     def forward(self, images):
         return self.model(images[:, [3,2,1], :, :])
 
-class ResNetSentinel2(nn.Module):
+class ResNet50Sentinel2(nn.Module):
     def __init__(self, num_classes):
-        super(ResNetSentinel2, self).__init__()
+        super(ResNet50Sentinel2, self).__init__()
         self.model = resnet50(weights='DEFAULT')
         num_bands = 12
         original_weights = self.model.conv1.weight.clone()
@@ -232,6 +232,21 @@ class ConvnextV2Unet(nn.Module):
     def forward(self, images):
         return self.model(images)
 
+class Dinov2(nn.Module):
+    def __init__(self):
+        super(Dinov2, self).__init__()
+
+        self.backbone = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg')
+        self.head = torch.load('/n/davies_lab/Users/luciagordon/mmearth-bench/dinov2_vits14_ade20k_ms_head.pth')
+
+    def forward(self, images):
+        images = images[:, [3,2,1], :, :] # convert Sentinel-2 to RGB
+        print(images.shape)
+        representations = self.backbone(images)
+        print(type(representations))
+        print(representations.shape)
+        return self.head(representations)
+
 class Model(LightningModule):
     def __init__(self, task, model, adaptation_mode, decay_factor, max_lr, weight_decay, epochs, min_lr, warmup_epochs, num_train_batches):
         super().__init__()
@@ -248,10 +263,12 @@ class Model(LightningModule):
     def configure_models(self):
         num_classes = 100 if self.hparams.task == 'species' else 1
 
-        if self.hparams.model == 'resnet_rgb':
-            self.model = ResNet(num_classes)
+        if self.hparams.model == 'resnet50':
+            self.model = ResNet50(num_classes=num_classes, weights=None)
+        elif self.hparams.model == 'resnet50_imagenet':
+            self.model = ResNet50(num_classes=num_classes, weights='DEFAULT')
         elif self.hparams.model == 'resnet_sentinel2':
-            self.model = ResNetSentinel2(num_classes)
+            self.model = ResNet50Sentinel2(num_classes)
         elif self.hparams.model == 'unet':
             self.model = smp.Unet(encoder_name='resnet50',
                                   encoder_weights='imagenet',
@@ -261,10 +278,12 @@ class Model(LightningModule):
             # self.model = torch.hub.load('vishalned/mmearth-train', 'MPMAE', trust_repo=True, num_classes=num_classes)
         elif self.hparams.model == 'mpmae':
             self.model = ConvNextV2(num_classes=num_classes, mmearth=False)
-        elif self.hparams.model == 'mpmae_pixelwise_regression_mmearth':
+        elif self.hparams.model == 'mpmae_pixel_reg_mmearth':
             self.model = ConvnextV2Unet(mmearth=True)
-        elif self.hparams.model == 'mpmae_pixelwise_regression':
+        elif self.hparams.model == 'mpmae_pixel_reg':
             self.model = ConvnextV2Unet(mmearth=False)
+        elif self.hparams.model == 'dinov2':
+            self.model = Dinov2()
         elif self.hparams.model == 'anysat':
             self.model = torch.hub.load('gastruc/anysat', 'anysat', pretrained=True, flash_attn=False)
 
@@ -281,42 +300,44 @@ class Model(LightningModule):
         self.test_metrics = metrics.clone(prefix='Test ')
 
     def configure_parameters(self, max_lr):
-        if self.hparams.adaptation_mode == 'layer_wise_decay':
+        if self.hparams.adaptation_mode == 'llrd':
             layer_names = []
 
             for name, _ in self.model.model.named_parameters():
                 parts = name.split('.')
                 num_digits = sum(1 for char in name if char.isdigit())
 
-                if num_digits == 0:
-                    layer_name = parts[0]
-                elif num_digits == 1:
-                    layer_name = f'{parts[0]}.{parts[1]}'
-                elif num_digits == 2:
-                    layer_name = f'{parts[0]}.{parts[1]}.{parts[2]}'
+                if 'resnet' in self.hparams.model:
+                    if num_digits == 0 or num_digits == 1:
+                        layer_name = parts[0]
+                    elif num_digits == 3:
+                        layer_name = f'{parts[0]}.{parts[1]}'
+                elif 'mpmae' in self.hparams.model:
+                    if num_digits == 0:
+                        layer_name = parts[0]
+                    elif num_digits == 1:
+                        layer_name = f'{parts[0]}.{parts[1]}'
+                    elif num_digits == 2:
+                        layer_name = f'{parts[0]}.{parts[1]}.{parts[2]}'
 
                 if layer_name not in layer_names:
                     layer_names.append(layer_name)
 
             layer_names.reverse()
+            print(f'{len(layer_names)} layer groups')
             print(layer_names)
-            print(len(layer_names))
             parameters = []
 
             for i, name in enumerate(layer_names):
-                # multiplier = decay_factor ** i
                 learning_rate = max_lr * self.hparams.decay_factor ** i
                 print(f'{name}: {learning_rate}')
                 parameters += [{'params': [p for n, p in self.model.model.named_parameters() if n.startswith(name)],
                                 'lr': learning_rate,
-                                # 'multiplier': multiplier,
                                 'name': name}]
-                # learning_rate *= decay_factor
 
             return parameters
 
-        # if self.hparams.adaptation_mode == 'linear_probing' or self.hparams.adaptation_mode == 'two_stage':
-        if self.hparams.adaptation_mode != 'finetuning':
+        if self.hparams.adaptation_mode != 'ft':
             # freeze all parameters
             for param in self.model.parameters():
                 param.requires_grad = False
@@ -338,7 +359,6 @@ class Model(LightningModule):
     def configure_optimizers(self):
         parameters = self.configure_parameters(max_lr=self.hparams.max_lr)
         optimizer = optim.AdamW(parameters, lr=self.hparams.max_lr, weight_decay=self.hparams.weight_decay)
-        # optimizer = optim.AdamW(self.model.parameters(), lr=self.hparams.max_lr, weight_decay=self.hparams.weight_decay)
         warmup_steps = self.hparams.warmup_epochs * self.hparams.num_train_batches
         warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=self.hparams.min_lr/self.hparams.max_lr, total_iters=warmup_steps)
         cooldown_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(self.hparams.epochs-self.hparams.warmup_epochs)*self.hparams.num_train_batches, eta_min=self.hparams.min_lr)
@@ -444,13 +464,6 @@ class Model(LightningModule):
             print(num_params_in_optimizer == num_params)
             num_trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
             print("Total number of trainable parameters:", num_trainable_params)
-
-    # def on_train_batch_start(self, batch, batch_idx):
-    #     # if self.hparams.adaptation_mode == 'layer_wise_decay':
-    #     optimizer = self.trainer.optimizers[0]
-    #     print(f'Step {self.global_step}, Base lr: {optimizer.param_groups[0]["lr"]}')
-    #     # for group in optimizer.param_groups:
-    #     #     print(f'{group["name"]}: {group["lr"]}')
 
     def _log_images(self, images, mode):
         images = np.array([np.stack(utils.normalize(image), axis=-1) for image in images])
