@@ -1,15 +1,11 @@
-#!/bin/bash
-#SBATCH --job-name sweep
-#SBATCH --time 0-10:00
-#SBATCH --partition davies_gpu,gpu,seas_gpu
-#SBATCH --mem 60G
-#SBATCH --gres gpu:1
-#SBATCH --output bash-outputs/sweep_%j.out
-#SBATCH --account davies_lab
+NUM_RUNS=${1}
+wandb sweep sweep.yaml &> sweep_output.txt
+SWEEP_ID=$(cat sweep_output.txt | grep "agent" | tail -1 | awk '{print $NF}')
+rm sweep_output.txt
 
-SWEEP_ID=${1}
-source ~/.bashrc
-conda activate /n/davies_lab/Users/luciagordon/mmearth-bench/mmearth-bench-env
-NUM_GPUS=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
-echo "Number of GPUs: $NUM_GPUS"
-wandb agent --count 1 $SWEEP_ID
+echo "Sweep ID: $SWEEP_ID"
+echo "Number of runs: $NUM_RUNS"
+
+for _ in $(seq 1 $NUM_RUNS); do
+    sbatch spawn_agent.sh $SWEEP_ID
+done
