@@ -34,6 +34,15 @@ def get_box_wgs_84(transform, width, height, crs):
 
     return box(*bounds)
 
+def center_crop(array, crop_size=112):
+    height, width = array.shape[-2:]
+    top = (height - crop_size) // 2
+    left = (width - crop_size) // 2
+    bottom = top + crop_size
+    right = left + crop_size
+
+    return array[..., top:bottom, left:right]
+
 # ============================================== CLASSES ============================================== #
 
 class MMEarthBenchDataset(Dataset):
@@ -130,7 +139,7 @@ class MMEarthBenchDataset(Dataset):
         with open(self.split_data_path, 'w') as file:
             json.dump(split_data, file, indent=4)
 
-        train_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in train_indices] # dictionairy of boxes for the training tiles
+        train_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in train_indices] # dictionary of boxes for the training tiles
         val_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in val_indices]
         test_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in test_indices]
 
@@ -174,7 +183,9 @@ class MMEarthBenchDataset(Dataset):
         sentinel2 = (sentinel2 - self.train_band_means) / self.train_band_stds # normalization
         task_data = self.task_data[index]
 
-        if len(task_data.shape) == 2:
+        if len(task_data.shape) == 2: # for biomass
+            sentinel2 = center_crop(sentinel2)
+            task_data = center_crop(task_data)
             task_data = np.expand_dims(task_data, axis=0)
 
         return torch.tensor(sentinel2, dtype=torch.float32), torch.tensor(task_data, dtype=torch.float32)
