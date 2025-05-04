@@ -34,15 +34,6 @@ def get_box_wgs_84(transform, width, height, crs):
 
     return box(*bounds)
 
-def center_crop(array, crop_size=112):
-    height, width = array.shape[-2:]
-    top = (height - crop_size) // 2
-    left = (width - crop_size) // 2
-    bottom = top + crop_size
-    right = left + crop_size
-
-    return array[..., top:bottom, left:right]
-
 # ============================================== CLASSES ============================================== #
 
 class MMEarthBenchDataset(Dataset):
@@ -52,25 +43,24 @@ class MMEarthBenchDataset(Dataset):
         self.data_dir_path = data_dir_path
 
         with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
-        # with h5py.File(f'/scratch/{task}_h5.hdf5', 'r') as h5_file:
             self.tile_ids = h5_file['id'][:]
             self.tile_count = len(self.tile_ids) # number of tiles for the task
             self.sentinel2 = h5_file['Sentinel2'][:]
             self.task_data = h5_file[task][:]
             self.crs = h5_file['crs'][:].astype(str).tolist() # coordinate reference system for each tile
             self.transforms = h5_file['transform'][:] # affine transformation for each tile
-            self.split_data_path = f'{data_dir_path}/{task}/{task}_{split_type}_split_data.json'
+            self.split_data_path = f'{data_dir_path}/{task}/{split_type}/{task}_{split_type}_split_data.json'
 
             print(f'{task} tile count: {self.tile_count}')
             print(f'Sentinel-2: {self.sentinel2.shape}')
             print(f'{task}: {self.task_data.shape}')
 
-        if os.path.exists(self.split_data_path): # if the split data has already been generated
-            split_data = utils.read_json(self.split_data_path)
-            self.train_band_means = split_data['train_band_means']
-            self.train_band_stds = split_data['train_band_stds']
-        else: # if the split data has not been generated
-            self._get_split_data(split_type)
+        # if os.path.exists(self.split_data_path): # if the split data has already been generated
+        #     split_data = utils.read_json(self.split_data_path)
+        #     self.train_band_means = split_data['train_band_means']
+        #     self.train_band_stds = split_data['train_band_stds']
+        # else: # if the split data has not been generated
+        self._get_split_data(split_type)
 
     def _get_split_data(self, split_type):
         training_fraction = 0.7
@@ -136,12 +126,18 @@ class MMEarthBenchDataset(Dataset):
                       'train_band_means': self.train_band_means,
                       'train_band_stds': self.train_band_stds}
 
+        os.makedirs(f'{self.data_dir_path}/{self.task}/{self.split_type}', exist_ok=True) # creates the directory for the split data
+
         with open(self.split_data_path, 'w') as file:
             json.dump(split_data, file, indent=4)
 
-        train_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in train_indices] # dictionary of boxes for the training tiles
-        val_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in val_indices]
-        test_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in test_indices]
+        indices = {'train': train_indices, 'val': val_indices, 'test': test_indices}
+        colors = ['red', 'green', 'blue']
+        splits = {split: {'boxes': [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in indices[split]], 'color': ['red', 'green', 'blue'][j]} for j, split in enumerate(['train', 'val', 'test'])}
+
+        # train_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in train_indices] # dictionary of boxes for the training tiles
+        # val_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in val_indices]
+        # test_boxes = [get_box_wgs_84(transform=self.transforms[i], width=width, height=height, crs=self.crs[i]) for i in test_indices]
 
         # plot the split
         fig, ax = plt.subplots(figsize=(10, 10), subplot_kw={'projection': ccrs.PlateCarree()})
@@ -150,30 +146,38 @@ class MMEarthBenchDataset(Dataset):
         ax.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
         ax.add_feature(cfeature.LAND, facecolor='lightgray', alpha=0.5)
         ax.add_feature(cfeature.OCEAN, facecolor='lightblue')
-        train_boxes_gdf = gpd.GeoDataFrame(geometry=train_boxes, crs='EPSG:4326')
-        train_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='red', linewidth=1, transform=ccrs.PlateCarree())
-        val_boxes_gdf = gpd.GeoDataFrame(geometry=val_boxes, crs='EPSG:4326')
-        val_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='green', linewidth=1, transform=ccrs.PlateCarree())
-        test_boxes_gdf = gpd.GeoDataFrame(geometry=test_boxes, crs='EPSG:4326')
-        test_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='blue', linewidth=1, transform=ccrs.PlateCarree())
-        legend_handles = [Line2D([0], [0], color='red', lw=2, label='Train'),
-                          Line2D([0], [0], color='green', lw=2, label='Val'),
-                          Line2D([0], [0], color='blue', lw=2, label='Test')]
+
+        for split in splits.keys():
+            splits[split][f'{split}_boxes_gdf'] = gpd.GeoDataFrame(geometry=splits[split]['boxes'], crs='EPSG:4326')
+            splits[split][f'{split}_boxes_gdf'].plot(ax=ax, facecolor='none', edgecolor=splits[split]['color'], linewidth=1, transform=ccrs.PlateCarree())
+            splits[split][f'{split}_boxes_gdf'].to_file(f'{self.data_dir_path}/{self.task}/{self.split_type}/{self.task}_{self.split_type}_{split}_tiles.geojson', driver='GeoJSON')
+
+        legend_handles = [Line2D([0], [0], color=splits[split]['color'], lw=2, label=split.capitalize()) for split in splits.keys()]
+
+        # train_boxes_gdf = gpd.GeoDataFrame(geometry=train_boxes, crs='EPSG:4326')
+        # train_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='red', linewidth=1, transform=ccrs.PlateCarree())
+        # val_boxes_gdf = gpd.GeoDataFrame(geometry=val_boxes, crs='EPSG:4326')
+        # val_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='green', linewidth=1, transform=ccrs.PlateCarree())
+        # test_boxes_gdf = gpd.GeoDataFrame(geometry=test_boxes, crs='EPSG:4326')
+        # test_boxes_gdf.plot(ax=ax, facecolor='none', edgecolor='blue', linewidth=1, transform=ccrs.PlateCarree())
+        # legend_handles = [Line2D([0], [0], color='red', lw=2, label='Train'),
+        #                   Line2D([0], [0], color='green', lw=2, label='Val'),
+        #                   Line2D([0], [0], color='blue', lw=2, label='Test')]
         ax.legend(handles=legend_handles, loc='upper right')
         ax.set_title(f'{self.task} {split_type} Split', fontsize=14)
-        os.makedirs('figures', exist_ok=True)
-        plt.savefig(f'figures/{self.task}_{split_type}_split.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{self.data_dir_path}/{self.task}/{self.split_type}/{self.task}_{self.split_type}_split.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
 
         africa_gdf = gpd.GeoDataFrame(geometry=[africa_boundaries], crs='EPSG:4326')
-        os.mkdir('africa_shapefile')
-        africa_gdf.to_file('africa_shapefile/africa_shapefile.shp')
-        os.mkdir('train_shapefile')
-        train_boxes_gdf.to_file('train_shapefile/train_shapefile.shp')
-        os.mkdir('val_shapefile')
-        val_boxes_gdf.to_file('val_shapefile/val_shapefile.shp')
-        os.mkdir('test_shapefile')
-        test_boxes_gdf.to_file('test_shapefile/test_shapefile.shp')
+        # os.mkdir('africa_shapefile')
+        # africa_gdf.to_file('africa_shapefile/africa_shapefile.shp')
+        africa_gdf.to_file(f'{self.data_dir_path}/{self.task}/{self.split_type}/{self.task}_{self.split_type}_africa.geojson', driver='GeoJSON')
+        # os.mkdir('train_shapefile')
+        # train_boxes_gdf.to_file('train_shapefile/train_shapefile.shp')
+        # os.mkdir('val_shapefile')
+        # val_boxes_gdf.to_file('val_shapefile/val_shapefile.shp')
+        # os.mkdir('test_shapefile')
+        # test_boxes_gdf.to_file('test_shapefile/test_shapefile.shp')
 
     def __len__(self):
         return self.tile_count
@@ -184,8 +188,6 @@ class MMEarthBenchDataset(Dataset):
         task_data = self.task_data[index]
 
         if len(task_data.shape) == 2: # for biomass
-            sentinel2 = center_crop(sentinel2)
-            task_data = center_crop(task_data)
             task_data = np.expand_dims(task_data, axis=0)
 
         return torch.tensor(sentinel2, dtype=torch.float32), torch.tensor(task_data, dtype=torch.float32)
