@@ -19,9 +19,9 @@ cat > $temp_job_file <<EOF
 #!/bin/bash
 #SBATCH --job-name train_${TASK}_${SPLIT_TYPE}_${MODEL_TYPE}
 #SBATCH --time 1-00:00
-#SBATCH --partition davies_gpu,gpu,seas_gpu
+#SBATCH --partition gpu,seas_gpu
 #SBATCH --mem $MEM
-#SBATCH --gres gpu:1
+#SBATCH --gres gpu:nvidia_a100-sxm4-80gb:1
 #SBATCH --output bash-outputs/train_${TASK}_${SPLIT_TYPE}_${MODEL_TYPE}.out
 
 source ~/.bashrc
