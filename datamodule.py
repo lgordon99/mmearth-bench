@@ -7,20 +7,16 @@ datamodule.py
 from dataset import MMEarthBenchDataset
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader, Subset
-import matplotlib.pyplot as plt
 import numpy as np
-import os
 import torch
-import utils
 
 # ============================================== CLASSES ============================================== #
 
 class DataModule(LightningDataModule):
-    def __init__(self, task, split_type, batch_size, data_dir_path, num_workers, seed):
+    def __init__(self, task, batch_size, data_dir_path, num_workers, seed):
         super().__init__()
 
         self.task = task
-        self.split_type = split_type
         self.batch_size = batch_size
         self.data_dir_path = data_dir_path
         self.num_workers = num_workers
@@ -30,12 +26,6 @@ class DataModule(LightningDataModule):
         self.setup('init')
 
     def setup(self, stage):
-        # self.dataset = MMEarthBenchDataset(task=self.task, data_dir_path=self.data_dir_path)
-        # split_data = self.dataset.split_data
-
-        # for split in ['train', 'val', 'random_test', 'geographic_test']:
-        #     setattr(self, f'{split}_dataset', Subset(dataset=self.dataset, indices=split_data[f'{split}_indices']))
-
         if stage == 'init':
             splits = ['train']
         if stage == 'fit':
@@ -48,14 +38,6 @@ class DataModule(LightningDataModule):
 
         if self.task != 'species' and stage == 'test':
             self._calculate_test_rmse_with_train_mean()
-
-        # self.train_dataset = Subset(dataset=self.dataset, indices=split_data['train_indices']) # TODO: MODIFY TRAIN INDICES TO GET A SUBSET
-        # self.val_dataset = Subset(dataset=self.dataset, indices=split_data['val_indices'])
-        # self.random_test_dataset = Subset(dataset=self.dataset, indices=split_data['random_test_indices'])
-        # self.geographic_test_dataset = Subset(dataset=self.dataset, indices=split_data['geographic_test_indices'])
-
-        # if self.task != 'species' and stage == 'fit':
-        #     self._calculate_test_rmse_with_train_mean()
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True, shuffle=True, generator=torch.Generator().manual_seed(self.seed))

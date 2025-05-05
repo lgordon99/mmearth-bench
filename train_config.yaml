@@ -7,13 +7,13 @@ hydra:
   job:
     chdir: true
   run:
-    dir: ${project_dir_path}/experiments/${task}/${split_type}/${model_type}/${env:JOB_ID}
+    dir: ${project_dir_path}/experiments/${task}/${model_type}/${env:JOB_ID}
 
 logger:
   _target_: lightning.pytorch.loggers.wandb.WandbLogger
   entity: luciagordon-harvard-university
   project: mmearth-bench
-  name: ${task}_${split_type}_${model_type}_${adaptation_mode}_${env:JOB_ID}
+  name: ${task}_${model_type}_${adaptation_mode}_${env:JOB_ID}
   log_model: true
 
 trainer:
@@ -34,7 +34,6 @@ trainer:
 datamodule:
   _target_: datamodule.DataModule
   task: ${task}
-  split_type: ${split_type}
   batch_size: 64
   data_dir_path: ${project_dir_path}
   num_workers: 1

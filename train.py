@@ -20,7 +20,6 @@ OmegaConf.register_new_resolver('env', lambda key: os.environ.get(key, ''))
 @hydra.main(config_path='.', config_name='train_config', version_base=None)
 def train(cfg):
     print(f'Task: {cfg.task}')
-    print(f'Split type: {cfg.split_type}')
     print(f'Model type: {cfg.model_type}')
     print(f'Adaptation mode: {cfg.adaptation_mode}')
 
