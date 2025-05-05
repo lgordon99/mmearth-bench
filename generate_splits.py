@@ -3,10 +3,13 @@
 from affine import Affine
 from rasterio.warp import transform_bounds
 from shapely.geometry import box, Polygon, MultiPolygon
+from tqdm import tqdm
 import geopandas as gpd
 import h5py
 import json
+import matplotlib.pyplot as plt
 import numpy as np
+import os
 import random
 import utils
 
@@ -17,6 +20,7 @@ validation_fraction = 0.15
 tolerance = 0.1
 height, width = 128, 128
 nodata_value = -9999
+splits = ['train', 'val', 'random_test', 'geographic_test']
 data_dir_path = '/n/davies_lab/Users/luciagordon/mmearth-bench'
 random.seed(42) # for reproducibility
 
@@ -48,12 +52,11 @@ def get_africa_boundaries():
                 africa_polygons.append(Polygon(polygon_coordinates[0])) # saves the polygon's coordinates
 
     africa_boundaries = MultiPolygon(africa_polygons).buffer(tolerance).buffer(-tolerance) # boundaries of all the African countries
-    africa_gdf = gpd.GeoDataFrame(geometry=[africa_boundaries], crs='EPSG:4326')
-    africa_gdf.to_file(f'{data_dir_path}/{task}/{task}_africa.geojson', driver='GeoJSON')
+    gpd.GeoDataFrame(geometry=[africa_boundaries], crs='EPSG:4326').to_file(f'{data_dir_path}/africa.geojson', driver='GeoJSON') # saves the Africa boundaries as a GeoJSON file
 
     return africa_boundaries
 
-def get_split_data(task):
+def get_split_data_for_task(task, africa_boundaries):
     with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
         sentinel2 = h5_file['Sentinel2'][:]
         task_data = h5_file[task][:]
@@ -62,12 +65,11 @@ def get_split_data(task):
         tile_count = len(sentinel2) # number of tiles for the task
 
     boxes = {i: get_box_wgs_84(transform=transforms[i], width=width, height=height, crs=crs[i]) for i in range(tile_count)} # dictionary of boxes for each tile
-    africa_boundaries = get_africa_boundaries()
     africa_boxes = {tile_index: box for tile_index, box in boxes.items() if box.intersects(africa_boundaries)} # dictionary of boxes for each tile within the Africa boundaries
     non_africa_boxes = {tile_index: box for tile_index, box in boxes.items() if tile_index not in africa_boxes.keys()} # dictionary of boxes for each tile outside the Africa boundaries
 
     # training, validation, and testing tile indices
-    non_africa_tile_indices = sorted(list(map(int, non_africa_boxes.keys())))
+    non_africa_tile_indices = sorted(list(map(int, non_africa_boxes.keys()))) # indices for tiles outside Africa
     random.shuffle(non_africa_tile_indices) # randomly reorders the non-Africa-tile indices
     end_train_indices = int(training_fraction * len(non_africa_tile_indices)) # 70% of the non-Africa tiles for training
     end_val_indices = int((training_fraction+validation_fraction) * len(non_africa_tile_indices)) # 15% of the non-Africa tiles for validation
@@ -80,25 +82,51 @@ def get_split_data(task):
     split_data['random_test_indices'] = sorted(non_africa_tile_indices[end_val_indices:]) # remaining 15% of the non-Africa tiles for testing
     split_data['geographic_test_indices'] = sorted(list(map(int, africa_boxes.keys()))) # Africa tiles for testing
 
+    # save split data
     with open(f'{data_dir_path}/{task}/{task}_split_data.json', 'w') as file:
         json.dump(split_data, file, indent=4)
 
-    split_boxes = {split: [boxes[i] for i in split_data[f'{split}_indices']] for split in ['train', 'val', 'random_test', 'geographic_test']}
+    # save tiles for each split
+    split_boxes = {split: [boxes[i] for i in split_data[f'{split}_indices']] for split in splits}
+    os.makedirs(f'{data_dir_path}/{task}/split_tiles', exist_ok=True)
 
-    for split in ['train', 'val', 'random_test', 'geographic_test']:
-        gpd.GeoDataFrame(geometry=split_boxes[split], crs='EPSG:4326').to_file(f'{data_dir_path}/{task}/{task}_{split}_tiles.geojson', driver='GeoJSON')
+    for split in splits:
+        gpd.GeoDataFrame(geometry=split_boxes[split], crs='EPSG:4326').to_file(f'{data_dir_path}/{task}/split_tiles/{task}_{split}_tiles.geojson', driver='GeoJSON')
 
     if task != 'species':
-        split_task_values = {split: task_data.squeeze()[split_data[f'{split}_indices']].ravel() for split in ['train', 'val', 'random_test', 'geographic_test']}
+        # calculate RMSE using the train mean as the prediction
+        split_task_values = {split: task_data.squeeze()[split_data[f'{split}_indices']].ravel() for split in splits}
 
         if task == 'biomass':
-            split_task_values = {split: [value for value in split_task_values[split] if value != nodata_value] for split in ['train', 'val', 'random_test', 'geographic_test']}
+            split_task_values = {split: [value for value in split_task_values[split] if value != nodata_value] for split in splits}
 
         train_mean = np.mean(split_task_values['train'])
         val_rmse = np.sqrt(np.mean((np.array(split_task_values['val']) - train_mean) ** 2))
         random_test_rmse = np.sqrt(np.mean((np.array(split_task_values['random_test']) - train_mean) ** 2))
         geographic_test_rmse = np.sqrt(np.mean((np.array(split_task_values['geographic_test']) - train_mean) ** 2))
 
+        # plot task distribution
+        fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(8, 16), sharex=True) # 4 rows, 1 column, shared x-axis
+        max_value = max([np.max(split_task_values[split]) for split in splits])
+        step = np.ceil(max_value / 10)
+        bins = np.arange(0, max_value + step, step)
+
+        for i, split in enumerate(splits):
+            counts, bin_edges = np.histogram(split_task_values[split], bins=bins)
+            percentages = counts / counts.sum() * 100
+
+            axes[i].bar(bin_edges[:-1], percentages, width=np.diff(bin_edges), align='edge', edgecolor='black')
+            axes[i].set_xticks(bin_edges)
+            axes[i].set_ylabel('Percentage (%)')
+            axes[i].set_title(split.replace('_', ' ').capitalize())
+
+        fig.suptitle(task.replace('_', ' ').capitalize(), fontweight='bold')
+        axes[-1].set_xlabel(f'{task.replace("_", " ").capitalize()} value') # sets common x-label
+        plt.tight_layout(rect=[0, 0, 1, 0.99])
+        plt.savefig(f'{data_dir_path}/{task}/{task}_distributions.png', dpi=300, bbox_inches='tight')
+        plt.close()
+
+    # save summary for task
     with open(f'{data_dir_path}/{task}/{task}_summary.txt', 'w') as txt_file:
         txt_file.write(f'Task: {task}\n')
         txt_file.write(f'{task} tile count: {tile_count}\n')
@@ -117,6 +145,11 @@ def get_split_data(task):
             txt_file.write(f'Random test RMSE using the train mean as the prediction: {round(float(random_test_rmse), 2)}\n')
             txt_file.write(f'Geographic test RMSE using the train mean as the prediction: {round(float(geographic_test_rmse), 2)}\n')
 
+def get_split_data():
+    africa_boundaries = get_africa_boundaries()
+
+    for task in tqdm(['biomass', 'species', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH'], desc='Generating splits for tasks', unit='task'):
+        get_split_data_for_task(task, africa_boundaries)
+
 if __name__ == '__main__':
-    for task in ['biomass', 'species', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH']:
-        get_split_data(task)
+    get_split_data()
