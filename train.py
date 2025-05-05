@@ -22,9 +22,7 @@ def train(cfg):
     print(f'Task: {cfg.task}')
     print(f'Split type: {cfg.split_type}')
     print(f'Model type: {cfg.model_type}')
-    # print('Copying h5 file to scratch')
-    # subprocess.run(['rsync', '-ahP', f'{cfg.project_dir_path}/{cfg.task}/{cfg.task}_h5.hdf5', '/scratch'])
-    # print('Copied h5 file to scratch')
+    print(f'Adaptation mode: {cfg.adaptation_mode}')
 
     torch.set_float32_matmul_precision('high')
     seed_everything(cfg.seed, workers=True)
@@ -50,7 +48,7 @@ def train(cfg):
     model = hydra.utils.instantiate(cfg.model)
 
     trainer.fit(model, datamodule=datamodule)
-    trainer.test(datamodule=datamodule)
+    trainer.test(ckpt_path='best', datamodule=datamodule)
 
 if __name__ == '__main__':
     train()

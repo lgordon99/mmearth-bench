@@ -22,6 +22,10 @@ def monitor_sweep(entity, project, sweep_id):
             all_run_data = []
 
             for run in runs:
+                if run.state != 'finished':
+                    print('Not all runs are finished')
+                    exit()
+
                 run_data = {'name': run.name,
                             'state': run.state,
                             'Val RMSE': round(run.history(keys=['Val RMSE'])['Val RMSE'].min(), 5),
