@@ -157,6 +157,15 @@ def load_custom_checkpoint(model, checkpoint_path):
 
     return model
 
+def center_crop(array, crop_size=112):
+    height, width = array.shape[-2:]
+    top = (height - crop_size) // 2
+    left = (width - crop_size) // 2
+    bottom = top + crop_size
+    right = left + crop_size
+
+    return array[..., top:bottom, left:right]
+
 # ============================================== CLASSES ============================================== #
 
 class ResNet50(nn.Module):
@@ -210,9 +219,6 @@ class ConvNextV2(nn.Module):
             checkpoint_path = '/n/davies_lab/Users/luciagordon/mmearth-bench/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
             self.model = load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
 
-        for parameter in self.model.parameters():
-            parameter.requires_grad = True
-
     def forward(self, images):
         return self.model(images)
 
@@ -233,19 +239,15 @@ class ConvnextV2Unet(nn.Module):
         return self.model(images)
 
 class Dinov2(nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes):
         super(Dinov2, self).__init__()
 
-        self.backbone = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg')
-        self.head = torch.load('/n/davies_lab/Users/luciagordon/mmearth-bench/dinov2_vits14_ade20k_ms_head.pth')
+        self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg')
+        self.model.head = nn.Linear(in_features=384, out_features=num_classes)
+        # self.head = torch.load('/n/davies_lab/Users/luciagordon/mmearth-bench/dinov2_vits14_ade20k_ms_head.pth')
 
     def forward(self, images):
-        images = images[:, [3,2,1], :, :] # convert Sentinel-2 to RGB
-        print(images.shape)
-        representations = self.backbone(images)
-        print(type(representations))
-        print(representations.shape)
-        return self.head(representations)
+        return self.model(images[:, [3,2,1], :, :])
 
 class Model(LightningModule):
     def __init__(self, task, model, adaptation_mode, decay_factor, max_lr, weight_decay, epochs, min_lr, warmup_epochs, num_train_batches):
@@ -283,7 +285,7 @@ class Model(LightningModule):
         elif self.hparams.model == 'mpmae_pixel_reg':
             self.model = ConvnextV2Unet(mmearth=False)
         elif self.hparams.model == 'dinov2':
-            self.model = Dinov2()
+            self.model = Dinov2(num_classes)
         elif self.hparams.model == 'anysat':
             self.model = torch.hub.load('gastruc/anysat', 'anysat', pretrained=True, flash_attn=False)
 
@@ -349,7 +351,10 @@ class Model(LightningModule):
                 children_to_unfreeze = ['norm', 'head', 'upsample_layers', 'initial_conv_upsample'] # decoder parts
                 parameters_to_unfreeze = [p for name, module in self.model.named_modules() for child_name in children_to_unfreeze if child_name in name for p in module.parameters()]
             elif 'mpmae' in self.hparams.model:
+                parameters_to_unfreeze = self.model.model.head.parameters() # final layer
+            elif 'dino' in self.hparams.model:
                 parameters_to_unfreeze = self.model.head.parameters() # final layer
+                pdb.set_trace()
 
             for param in parameters_to_unfreeze:
                 param.requires_grad = True
