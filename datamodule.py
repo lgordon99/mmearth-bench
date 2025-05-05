@@ -25,34 +25,49 @@ class DataModule(LightningDataModule):
         self.data_dir_path = data_dir_path
         self.num_workers = num_workers
         self.seed = seed
+        self.dataset = MMEarthBenchDataset(task=task, data_dir_path=data_dir_path)
 
-        self.setup(None)
+        self.setup('init')
 
     def setup(self, stage):
-        self.dataset = MMEarthBenchDataset(task=self.task, data_dir_path=self.data_dir_path)
-        split_data = self.dataset.split_data
+        # self.dataset = MMEarthBenchDataset(task=self.task, data_dir_path=self.data_dir_path)
+        # split_data = self.dataset.split_data
 
-        self.train_dataset = Subset(dataset=self.dataset, indices=split_data['train_indices']) # TODO: MODIFY TRAIN INDICES TO GET A SUBSET
-        self.val_dataset = Subset(dataset=self.dataset, indices=split_data['val_indices'])
-        self.test_dataset = Subset(dataset=self.dataset, indices=split_data[f'{self.split_type}_test_indices'])
+        # for split in ['train', 'val', 'random_test', 'geographic_test']:
+        #     setattr(self, f'{split}_dataset', Subset(dataset=self.dataset, indices=split_data[f'{split}_indices']))
 
-        if self.task != 'species' and stage is not None:
+        if stage == 'init':
+            splits = ['train']
+        if stage == 'fit':
+            splits = ['val']
+        elif stage == 'test':
+            splits = ['random_test', 'geographic_test']
+
+        for split in splits:
+            setattr(self, f'{split}_dataset', Subset(dataset=self.dataset, indices=self.dataset.split_data[f'{split}_indices']))
+
+        if self.task != 'species' and stage == 'test':
             self._calculate_test_rmse_with_train_mean()
 
-            if not os.path.exists(f'{self.data_dir_path}/{self.task}/{self.split_type}/{self.task}_{self.split_type}_distributions.png'):
-                self._plot_task_distribution()
+        # self.train_dataset = Subset(dataset=self.dataset, indices=split_data['train_indices']) # TODO: MODIFY TRAIN INDICES TO GET A SUBSET
+        # self.val_dataset = Subset(dataset=self.dataset, indices=split_data['val_indices'])
+        # self.random_test_dataset = Subset(dataset=self.dataset, indices=split_data['random_test_indices'])
+        # self.geographic_test_dataset = Subset(dataset=self.dataset, indices=split_data['geographic_test_indices'])
+
+        # if self.task != 'species' and stage == 'fit':
+        #     self._calculate_test_rmse_with_train_mean()
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, generator=torch.Generator().manual_seed(self.seed), pin_memory=True)
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True, shuffle=True, generator=torch.Generator().manual_seed(self.seed))
 
     def val_dataloader(self):
         return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True)
 
     def test_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True)
+        random_test_dataloader = DataLoader(self.random_test_dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True)
+        geographic_test_dataloader = DataLoader(self.geographic_test_dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True)
 
-    def predict_dataloader(self):
-        return DataLoader(self.dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True)
+        return [random_test_dataloader, geographic_test_dataloader]
 
     def _calculate_test_rmse_with_train_mean(self):
         train_values = np.array([task_value.squeeze() for _, task_value in self.train_dataset]).ravel()
@@ -73,34 +88,20 @@ class DataModule(LightningDataModule):
 
         print(f'Val RMSE using the train mean as the prediction: {round(float(val_rmse), 2)}')
 
-        test_values = np.array([task_value.squeeze() for _, task_value in self.test_dataset]).ravel()
+        random_test_values = np.array([task_value.squeeze() for _, task_value in self.random_test_dataset]).ravel()
 
         if self.task == 'biomass':
-            test_values = [value for value in test_values if value != -9999]
+            random_test_values = [value for value in random_test_values if value != -9999]
 
-        test_rmse = np.sqrt(np.mean((np.array(test_values) - train_mean) ** 2))
+        random_test_rmse = np.sqrt(np.mean((np.array(random_test_values) - train_mean) ** 2))
 
-        print(f'Test RMSE using the train mean as the prediction: {round(float(test_rmse), 2)}')
+        print(f'Random test RMSE using the train mean as the prediction: {round(float(random_test_rmse), 2)}')
 
-    def _plot_task_distribution(self):
-        fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(8, 12), sharex=True) # 3 rows, 1 column, shared x-axis
-        max_value = max([np.max([task_value.squeeze() for _, task_value in dataset]) for dataset in [self.train_dataset, self.val_dataset, self.test_dataset]])
-        step = np.ceil(max_value / 10)
-        bins = np.arange(0, max_value + step, step)
+        geographic_test_values = np.array([task_value.squeeze() for _, task_value in self.geographic_test_dataset]).ravel()
 
-        for i, stage in enumerate(['train', 'val', 'test']):
-            dataset = getattr(self, f'{stage}_dataset')
-            task_values = [task_value.squeeze() for _, task_value in dataset]
-            counts, bin_edges = np.histogram(task_values, bins=bins)
-            percentages = counts / counts.sum() * 100
+        if self.task == 'biomass':
+            geographic_test_values = [value for value in geographic_test_values if value != -9999]
 
-            axes[i].bar(bin_edges[:-1], percentages, width=np.diff(bin_edges), align='edge', edgecolor='black')
-            axes[i].set_xticks(bin_edges)
-            axes[i].set_ylabel('Percentage (%)')
-            axes[i].set_title(stage.capitalize())
+        geographic_test_rmse = np.sqrt(np.mean((np.array(geographic_test_values) - train_mean) ** 2))
 
-        fig.suptitle(self.task.replace("_", " ").capitalize(), fontweight='bold')
-        axes[-1].set_xlabel(f'{self.task.replace("_", " ").capitalize()} value') # sets common x-label
-        plt.tight_layout()
-        plt.savefig(f'{self.data_dir_path}/{self.task}/{self.split_type}/{self.task}_{self.split_type}_distributions.png', dpi=300)
-        plt.close()
+        print(f'Geographic test RMSE using the train mean as the prediction: {round(float(geographic_test_rmse), 2)}')
