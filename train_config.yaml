@@ -12,7 +12,7 @@ logger:
   _target_: lightning.pytorch.loggers.wandb.WandbLogger
   entity: luciagordon-harvard-university
   project: mmearth-bench
-  name: ${task}_${split_type}_${model_type}_${env:JOB_ID}
+  name: ${task}_${split_type}_${model_type}_${adaptation_mode}_${env:JOB_ID}
   log_model: true
 
 trainer:
@@ -36,13 +36,15 @@ datamodule:
   split_type: ${split_type}
   batch_size: 64
   data_dir_path: ${project_dir_path}
-  num_workers: 0
+  num_workers: 1
+  seed: ${seed}
 
 model:
   _target_: model.Model
   task: ${task}
   model: ${model_type}
   adaptation_mode: ${adaptation_mode}
+  decay_factor: 0.9
   max_lr: 0.0001
   weight_decay: 0.01
   warmup_epochs: 20
