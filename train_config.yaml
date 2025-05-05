@@ -1,6 +1,7 @@
 seed: 42
 project_dir_path: /n/davies_lab/Users/luciagordon/mmearth-bench
 epochs: 200
+nodata_value: -9999
 
 hydra:
   job:
@@ -51,3 +52,4 @@ model:
   num_train_batches: null
   min_lr: 1e-6
   epochs: ${epochs}
+  nodata_value: ${nodata_value}

@@ -250,7 +250,7 @@ class Dinov2(nn.Module):
         return self.model(images[:, [3,2,1], :, :])
 
 class Model(LightningModule):
-    def __init__(self, task, model, adaptation_mode, decay_factor, max_lr, weight_decay, epochs, min_lr, warmup_epochs, num_train_batches):
+    def __init__(self, task, model, adaptation_mode, decay_factor, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, nodata_value):
         super().__init__()
 
         self.save_hyperparameters()
@@ -296,10 +296,6 @@ class Model(LightningModule):
                                         'MAP': MultilabelAveragePrecision(num_labels)})
         else:
             metrics = MetricCollection({'RMSE': MeanSquaredError(squared=False)})
-
-        # self.train_metrics = metrics.clone(prefix='Train ')
-        # self.val_metrics = metrics.clone(prefix='Val ')
-        # self.test_metrics = metrics.clone(prefix='Test ')
 
         for split in ['train', 'val', 'random_test', 'geographic_test']:
             setattr(self, f'{split}_metrics', metrics.clone(prefix=f'{split.replace("_", " ").capitalize()} '))
@@ -384,7 +380,7 @@ class Model(LightningModule):
         batch_size = images.shape[0]
 
         if self.hparams.task == 'biomass':
-            valid_mask = target != -9999
+            valid_mask = target != self.hparams.nodata_value
             prediction = prediction[valid_mask]
             target = target[valid_mask]
 
@@ -418,83 +414,14 @@ class Model(LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self.general_step(batch=batch, batch_idx=batch_idx, mode='train')
-        # images, target = batch
-        # prediction = self(images)
-        # batch_size = images.shape[0]
-
-        # if self.hparams.task == 'biomass':
-        #     valid_mask = target != -9999
-        #     prediction = prediction[valid_mask]
-        #     target = target[valid_mask]
-
-        # loss = self.criterion(prediction, target)
-
-        # self.log('Train loss', loss, batch_size=batch_size)
-
-        # if self.hparams.task == 'species':
-        #     prediction = torch.sigmoid(prediction) # converts logits to probabilities
-        #     target = target.long()
-
-        # self.train_metrics(prediction, target)
-        # self.log_dict(self.train_metrics, batch_size=batch_size)
-
-        # if batch_idx == 0: # if we are on the first batch
-        #     self._log_images(images.cpu().numpy()[:, [3,2,1]].astype(float), 'training')
-        #     wandb.log({'Training': wandb.Image('figures/training.png')})
 
         return loss
 
     def validation_step(self, batch, batch_idx):
         self.general_step(batch=batch, batch_idx=batch_idx, mode='val')
-        # images, target = batch
-        # prediction = self(images)
-        # batch_size = images.shape[0]
-
-        # if self.hparams.task == 'biomass':
-        #     valid_mask = target != -9999
-        #     prediction = prediction[valid_mask]
-        #     target = target[valid_mask]
-
-        # loss = self.criterion(prediction, target)
-
-        # self.log('Val loss', loss, batch_size=batch_size)
-
-        # if self.hparams.task == 'species':
-        #     prediction = torch.sigmoid(prediction) # converts logits to probabilities
-        #     target = target.long()
-
-        # self.val_metrics(prediction, target)
-        # self.log_dict(self.val_metrics, batch_size=batch_size)
-
-        # if batch_idx == 0: # if we are on the first batch
-        #     self._log_images(images.cpu().numpy()[:, [3,2,1]].astype(float), 'validation')
-        #     wandb.log({'Validation': wandb.Image('figures/validation.png')})
 
     def test_step(self, batch, batch_idx, dataloader_idx):
         self.general_step(batch=batch, batch_idx=batch_idx, mode='test', dataloader_idx=dataloader_idx)
-        # images, target = batch
-        # prediction = self(images)
-        # batch_size = images.shape[0]
-
-        # if self.hparams.task == 'biomass':
-        #     valid_mask = target != -9999
-        #     prediction = prediction[valid_mask]
-        #     target = target[valid_mask]
-        # elif self.hparams.task == 'species':
-        #     prediction = torch.sigmoid(prediction) # converts logits to probabilities
-        #     target = target.long()
-
-        # split = 'random_test' if dataloader_idx == 0 else 'geographic_test'
-        # metrics = getattr(self, f'{split}_metrics')
-        # metrics(prediction, target)
-        # self.log_dict(metrics, batch_size=batch_size)
-
-        # self.test_metrics(prediction, target)
-        # self.log_dict(self.test_metrics, batch_size=batch_size)
-
-        # if batch_idx == 0: # if we are on the first batch
-        #     self._log_images(images.cpu().numpy()[:, [3,2,1]].astype(float), split)
-        #     wandb.log({split.replace('_', ' ').capitalize(): wandb.Image(f'figures/{split}.png')})
 
     def on_train_epoch_start(self):
         if self.current_epoch == 50 and self.hparams.adaptation_mode == 'two_stage':
