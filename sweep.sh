@@ -1,10 +1,11 @@
 task=${1}
-split_type=${2}
-model_type=${3}
-adaptation_mode=${4}
+model_type=${2}
+adaptation_mode=${3}
 
-max_lr=(1e-2 1e-1 1e-0)
-weight_decay=(0 1e-3 1e-2 1e-1)
+max_lr=($(jq -r ".[\"${adaptation_mode}\"].max_lr | .[]" sweep_hyperparameters.json))
+weight_decay=($(jq -r ".[\"${adaptation_mode}\"].weight_decay | .[]" sweep_hyperparameters.json))
+echo "max_lr: ${max_lr[@]}"
+echo "weight_decay: ${weight_decay[@]}"
 
 num_runs=$(( ${#max_lr[@]} * ${#weight_decay[@]} ))
 
@@ -27,11 +28,20 @@ function format_array_to_string() {
 max_lr_string=$(format_array_to_string max_lr)
 weight_decay_string=$(format_array_to_string weight_decay)
 
+SWEEP_LOG_FILE="sweeps.log"
+
+if [ ! -f "$SWEEP_LOG_FILE" ]; then
+    echo "# Sweep History Log - Format: [DATE] [NAME] [SWEEP_ID]" > "$SWEEP_LOG_FILE"
+    echo "# ------------------------------------" >> "$SWEEP_LOG_FILE"
+fi
+
+sweep_name="${task}_${model_type}_${adaptation_mode}"
+
 touch sweep_2.yaml
 cat >sweep_2.yaml <<EOF
 project: mmearth-bench
 entity: luciagordon-harvard-university
-name: ${task}_${split_type}_${model_type}_${adaptation_mode}
+name: ${task}_${model_type}_${adaptation_mode}
 program: train.py
 method: grid
 metric:
@@ -46,7 +56,6 @@ command:
   - python
   - train.py
   - +task=${task}
-  - +split_type=$([ "$split_type" == "r" ] && echo "random" || echo "geographic")
   - +model_type=${model_type}
   - +adaptation_mode=${adaptation_mode}
 EOF
@@ -58,6 +67,14 @@ rm sweep_output.txt
 
 echo "Sweep ID: $sweep_id"
 echo "Number of runs: $num_runs"
+
+if [ -n "$sweep_id" ]; then
+    # Get current date
+    current_date=$(date "+%Y-%m-%d %H:%M:%S")
+    # Add entry to log file
+    echo "$current_date | $sweep_name | $sweep_id" >> "$SWEEP_LOG_FILE"
+    echo "Sweep information saved to $SWEEP_LOG_FILE"
+fi
 
 if [ "$task" == "biomass" ]; then
     MEM="60G"
