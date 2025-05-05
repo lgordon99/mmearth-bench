@@ -88,15 +88,16 @@ def get_split_data(task):
     for split in ['train', 'val', 'random_test', 'geographic_test']:
         gpd.GeoDataFrame(geometry=split_boxes[split], crs='EPSG:4326').to_file(f'{data_dir_path}/{task}/{task}_{split}_tiles.geojson', driver='GeoJSON')
 
-    split_task_values = {split: task_data.squeeze()[split_data[f'{split}_indices']].ravel() for split in ['train', 'val', 'random_test', 'geographic_test']}
+    if task != 'species':
+        split_task_values = {split: task_data.squeeze()[split_data[f'{split}_indices']].ravel() for split in ['train', 'val', 'random_test', 'geographic_test']}
 
-    if task == 'biomass':
-        split_task_values = {split: [value for value in split_task_values[split] if value != nodata_value] for split in ['train', 'val', 'random_test', 'geographic_test']}
+        if task == 'biomass':
+            split_task_values = {split: [value for value in split_task_values[split] if value != nodata_value] for split in ['train', 'val', 'random_test', 'geographic_test']}
 
-    train_mean = np.mean(split_task_values['train'])
-    val_rmse = np.sqrt(np.mean((np.array(split_task_values['val']) - train_mean) ** 2))
-    random_test_rmse = np.sqrt(np.mean((np.array(split_task_values['random_test']) - train_mean) ** 2))
-    geographic_test_rmse = np.sqrt(np.mean((np.array(split_task_values['geographic_test']) - train_mean) ** 2))
+        train_mean = np.mean(split_task_values['train'])
+        val_rmse = np.sqrt(np.mean((np.array(split_task_values['val']) - train_mean) ** 2))
+        random_test_rmse = np.sqrt(np.mean((np.array(split_task_values['random_test']) - train_mean) ** 2))
+        geographic_test_rmse = np.sqrt(np.mean((np.array(split_task_values['geographic_test']) - train_mean) ** 2))
 
     with open(f'{data_dir_path}/{task}/{task}_summary.txt', 'w') as txt_file:
         txt_file.write(f'Task: {task}\n')
@@ -109,10 +110,12 @@ def get_split_data(task):
         txt_file.write(f'{len(split_data["val_indices"])} validation tiles\n')
         txt_file.write(f'{len(split_data["random_test_indices"])} random test tiles\n')
         txt_file.write(f'{len(split_data["geographic_test_indices"])} geographic test tiles\n')
-        txt_file.write(f'Mean of train values: {round(float(train_mean), 2)}\n')
-        txt_file.write(f'Val RMSE using the train mean as the prediction: {round(float(val_rmse), 2)}\n')
-        txt_file.write(f'Random test RMSE using the train mean as the prediction: {round(float(random_test_rmse), 2)}\n')
-        txt_file.write(f'Geographic test RMSE using the train mean as the prediction: {round(float(geographic_test_rmse), 2)}\n')
+
+        if task != 'species':
+            txt_file.write(f'Mean of train values: {round(float(train_mean), 2)}\n')
+            txt_file.write(f'Val RMSE using the train mean as the prediction: {round(float(val_rmse), 2)}\n')
+            txt_file.write(f'Random test RMSE using the train mean as the prediction: {round(float(random_test_rmse), 2)}\n')
+            txt_file.write(f'Geographic test RMSE using the train mean as the prediction: {round(float(geographic_test_rmse), 2)}\n')
 
 if __name__ == '__main__':
     for task in ['biomass', 'species', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH']:
