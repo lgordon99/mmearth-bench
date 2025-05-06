@@ -3,11 +3,21 @@ model_type=${2}
 adaptation_mode=${3}
 
 max_lr=($(jq -r ".[\"${adaptation_mode}\"].max_lr | .[]" sweep_hyperparameters.json))
-weight_decay=($(jq -r ".[\"${adaptation_mode}\"].weight_decay | .[]" sweep_hyperparameters.json))
 echo "max_lr: ${max_lr[@]}"
+
+weight_decay=($(jq -r ".[\"${adaptation_mode}\"].weight_decay | .[]" sweep_hyperparameters.json))
 echo "weight_decay: ${weight_decay[@]}"
 
-num_runs=$(( ${#max_lr[@]} * ${#weight_decay[@]} ))
+if [ "$adaptation_mode" == "llrd" ]; then
+  decay_factor=($(jq -r ".[\"${adaptation_mode}\"].decay_factor | .[]" sweep_hyperparameters.json))
+  echo "decay_factor: ${decay_factor[@]}"
+fi
+
+if [ "$adaptation_mode" == "llrd" ]; then
+  num_runs=$(( ${#max_lr[@]} * ${#weight_decay[@]} * ${#decay_factor[@]} ))
+else
+  num_runs=$(( ${#max_lr[@]} * ${#weight_decay[@]} ))
+fi
 
 function format_array_to_string() {
     local -n array=$1
@@ -28,6 +38,10 @@ function format_array_to_string() {
 max_lr_string=$(format_array_to_string max_lr)
 weight_decay_string=$(format_array_to_string weight_decay)
 
+if [ "$adaptation_mode" == "llrd" ]; then
+    decay_factor_string=$(format_array_to_string decay_factor)
+fi
+
 sweep_log_file="sweep_log.csv"
 
 if [ ! -f "$sweep_log_file" ]; then
@@ -37,27 +51,58 @@ fi
 sweep_name="${task}_${model_type}_${adaptation_mode}"
 
 touch sweep_2.yaml
-cat >sweep_2.yaml <<EOF
-project: mmearth-bench
+
+yaml_content="project: mmearth-bench
 entity: luciagordon-harvard-university
 name: ${sweep_name}
 program: train.py
 method: grid
 metric:
-  name: "Val RMSE"
+  name: \"Val RMSE\"
   goal: minimize
 parameters:
   model.max_lr:
     values: ${max_lr_string}
   model.weight_decay:
-    values: ${weight_decay_string}
+    values: ${weight_decay_string}"
+
+if [ "$adaptation_mode" == "llrd" ]; then
+  yaml_content="${yaml_content}
+  model.decay_factor:
+    values: ${decay_factor_string}"
+fi
+
+yaml_content="${yaml_content}
 command:
   - python
   - train.py
   - +task=${task}
   - +model_type=${model_type}
-  - +adaptation_mode=${adaptation_mode}
-EOF
+  - +adaptation_mode=${adaptation_mode}"
+
+echo "$yaml_content" > sweep_2.yaml
+
+# cat >sweep_2.yaml <<EOF
+# project: mmearth-bench
+# entity: luciagordon-harvard-university
+# name: ${sweep_name}
+# program: train.py
+# method: grid
+# metric:
+#   name: "Val RMSE"
+#   goal: minimize
+# parameters:
+#   model.max_lr:
+#     values: ${max_lr_string}
+#   model.weight_decay:
+#     values: ${weight_decay_string}
+# command:
+#   - python
+#   - train.py
+#   - +task=${task}
+#   - +model_type=${model_type}
+#   - +adaptation_mode=${adaptation_mode}
+# EOF
 
 wandb sweep sweep_2.yaml &> sweep_output.txt
 rm sweep_2.yaml
