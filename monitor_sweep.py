@@ -28,8 +28,9 @@ def monitor_sweep(entity, project, sweep_id):
 
                 run_data = {'name': run.name,
                             'state': run.state,
-                            'Val RMSE': round(run.history(keys=['Val RMSE'])['Val RMSE'].min(), 5),
-                            'Test RMSE': round(run.summary_metrics['Test RMSE'], 5)}
+                            'Val RMSE': round(run.history(keys=['Val RMSE'])['Val RMSE'].min(), 2),
+                            'Random test RMSE': round(run.summary_metrics['Random test RMSE/dataloader_idx_0'], 2),
+                            'Geographic test RMSE': round(run.summary_metrics['Geographic test RMSE/dataloader_idx_1'], 2),}
                 run_config = run.config
                 run_hyperparameter_data = {hyperparameter: run_config[hyperparameter] for hyperparameter in hyperparameters}
                 run_data = {**run_data, **run_hyperparameter_data}
