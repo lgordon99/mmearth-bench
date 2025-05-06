@@ -4,6 +4,7 @@ from lightning.pytorch import seed_everything
 from omegaconf import DictConfig, OmegaConf
 import hydra
 import os
+import shutil
 import subprocess
 import time
 import torch
@@ -48,6 +49,8 @@ def train(cfg):
 
     trainer.fit(model, datamodule=datamodule)
     trainer.test(ckpt_path='best', datamodule=datamodule)
+    wandb.finish()
+    shutil.rmtree(os.getcwd())
 
 if __name__ == '__main__':
     train()
