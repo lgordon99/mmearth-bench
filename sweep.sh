@@ -28,11 +28,10 @@ function format_array_to_string() {
 max_lr_string=$(format_array_to_string max_lr)
 weight_decay_string=$(format_array_to_string weight_decay)
 
-SWEEP_LOG_FILE="sweeps.log"
+sweep_log_file="sweep_log.csv"
 
-if [ ! -f "$SWEEP_LOG_FILE" ]; then
-    echo "# Sweep History Log - Format: [DATE] [NAME] [SWEEP_ID]" > "$SWEEP_LOG_FILE"
-    echo "# ------------------------------------" >> "$SWEEP_LOG_FILE"
+if [ ! -f "$sweep_log_file" ]; then
+    echo "date,name,sweep_ID" > "$sweep_log_file"
 fi
 
 sweep_name="${task}_${model_type}_${adaptation_mode}"
@@ -41,7 +40,7 @@ touch sweep_2.yaml
 cat >sweep_2.yaml <<EOF
 project: mmearth-bench
 entity: luciagordon-harvard-university
-name: ${task}_${model_type}_${adaptation_mode}
+name: ${sweep_name}
 program: train.py
 method: grid
 metric:
@@ -69,11 +68,8 @@ echo "Sweep ID: $sweep_id"
 echo "Number of runs: $num_runs"
 
 if [ -n "$sweep_id" ]; then
-    # Get current date
     current_date=$(date "+%Y-%m-%d %H:%M:%S")
-    # Add entry to log file
-    echo "$current_date | $sweep_name | $sweep_id" >> "$SWEEP_LOG_FILE"
-    echo "Sweep information saved to $SWEEP_LOG_FILE"
+    echo "$current_date,$sweep_name,$sweep_id" >> "$sweep_log_file"
 fi
 
 if [ "$task" == "biomass" ]; then
