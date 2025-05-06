@@ -320,6 +320,11 @@ class Model(LightningModule):
                         layer_name = f'{parts[0]}.{parts[1]}'
                     elif num_digits == 2:
                         layer_name = f'{parts[0]}.{parts[1]}.{parts[2]}'
+                elif 'dino' in self.hparams.model:
+                    if num_digits == 0:
+                        layer_name = parts[0]
+                    elif len(parts) == 4:
+                        layer_name = f'{parts[0]}.{parts[1]}'
 
                 if layer_name not in layer_names:
                     layer_names.append(layer_name)
@@ -332,9 +337,11 @@ class Model(LightningModule):
             for i, name in enumerate(layer_names):
                 learning_rate = max_lr * self.hparams.decay_factor ** i
                 print(f'{name}: {learning_rate}')
-                parameters += [{'params': [p for n, p in self.model.model.named_parameters() if n.startswith(name)],
+                parameters += [{'params': [p for n, p in self.model.model.named_parameters() if n == name or (len(n.split(name)) > 1 and n.startswith(name) and n.split(name)[1][0] == '.')],
                                 'lr': learning_rate,
                                 'name': name}]
+
+            assert sum(p.numel() for p in self.model.parameters()) == sum(p.numel() for group in parameters for p in group['params'])
 
             return parameters
 
@@ -349,11 +356,8 @@ class Model(LightningModule):
             elif 'pixelwise_regression' in self.hparams.model:
                 children_to_unfreeze = ['norm', 'head', 'upsample_layers', 'initial_conv_upsample'] # decoder parts
                 parameters_to_unfreeze = [p for name, module in self.model.named_modules() for child_name in children_to_unfreeze if child_name in name for p in module.parameters()]
-            elif 'mpmae' in self.hparams.model:
+            elif 'mpmae' in self.hparams.model or 'dino' in self.hparams.model:
                 parameters_to_unfreeze = self.model.model.head.parameters() # final layer
-            elif 'dino' in self.hparams.model:
-                parameters_to_unfreeze = self.model.head.parameters() # final layer
-                pdb.set_trace()
 
             for param in parameters_to_unfreeze:
                 param.requires_grad = True
@@ -376,6 +380,10 @@ class Model(LightningModule):
 
     def general_step(self, batch, batch_idx, mode, dataloader_idx=0):
         images, target = batch
+
+        if self.hparams.model == 'dinov2':
+            images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant', value=self.hparams.nodata_value)
+
         prediction = self(images)
         batch_size = images.shape[0]
 
