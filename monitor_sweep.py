@@ -1,59 +1,54 @@
 # ============================================== IMPORTS ============================================== #
 
+from concurrent.futures import ThreadPoolExecutor
 from sys import argv
 import pandas as pd
 import wandb
 
 # ============================================== FUNCTIONS ============================================== #
 
-def monitor_sweep(entity, project, sweep_id):
-    wandb_api = wandb.Api()
-    project = wandb_api.project(project, entity=entity)
-    sweeps = project.sweeps()
+def get_run_data(run, hyperparameters):
+    if run.state != 'finished':
+        print(f'Not all runs are finished for {sweep.name}')
+        exit()
 
-    for sweep in sweeps:
-        if sweep.id == sweep_id:
-            print(sweep.name)
-            runs = sweep.runs
-            sweep_config = sweep.config
-            hyperparameter_data = {key: {'max': max([float(num) for num in value['values'] if num != 0]), 'min': min([float(num) for num in value['values'] if num != 0])} for key, value in sweep_config['parameters'].items()}
-            print(hyperparameter_data)
-            hyperparameters = hyperparameter_data.keys()
-            all_run_data = []
+    run_data = {'name': run.name,
+                'Val RMSE': round(run.history(keys=['Val RMSE'])['Val RMSE'].min(), 2),
+                'Random test RMSE': round(run.summary_metrics['Random test RMSE/dataloader_idx_0'], 2),
+                'Geographic test RMSE': round(run.summary_metrics['Geographic test RMSE/dataloader_idx_1'], 2),}
+    run_hyperparameter_data = {hyperparameter: run.config[hyperparameter] for hyperparameter in hyperparameters}
+    run_data = {**run_data, **run_hyperparameter_data}
 
-            for run in runs:
-                if run.state != 'finished':
-                    print('Not all runs are finished')
-                    exit()
+    return run_data
 
-                run_data = {'name': run.name,
-                            'state': run.state,
-                            'Val RMSE': round(run.history(keys=['Val RMSE'])['Val RMSE'].min(), 2),
-                            'Random test RMSE': round(run.summary_metrics['Random test RMSE/dataloader_idx_0'], 2),
-                            'Geographic test RMSE': round(run.summary_metrics['Geographic test RMSE/dataloader_idx_1'], 2),}
-                run_config = run.config
-                run_hyperparameter_data = {hyperparameter: run_config[hyperparameter] for hyperparameter in hyperparameters}
-                run_data = {**run_data, **run_hyperparameter_data}
-                all_run_data.append(run_data)
+def monitor_sweep(name):
+    sweep_log_df = pd.read_csv('sweep_log.csv')
+    sweep_ID = sweep_log_df[sweep_log_df['name'] == name]['sweep_ID'].values[0]
+    sweep = wandb.Api().sweep(sweep_ID)
+    hyperparameters = sweep.config['parameters'].keys()
+    all_run_data = []
 
-            df = pd.DataFrame(all_run_data).sort_values(by='Val RMSE')
-            best_run_hyperpameter_data = {hyperparameter: df.iloc[0][hyperparameter] for hyperparameter in hyperparameters}
-            print(df.iloc[0])
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(get_run_data, run, hyperparameters) for run in sweep.runs]
+        all_run_data = [future.result() for future in futures if future.result() is not None]
 
-            for hyperparameter in hyperparameters:
-                hyperparameter_fine = True
+    # for run in sweep.runs:
+    #     if run.state != 'finished':
+    #         print(f'Not all runs are finished for {sweep.name}')
+    #         exit()
 
-                if best_run_hyperpameter_data[hyperparameter] == hyperparameter_data[hyperparameter]['max']:
-                    print(f'{hyperparameter} is at max value')
-                    hyperparameter_fine = False
-                elif best_run_hyperpameter_data[hyperparameter] == hyperparameter_data[hyperparameter]['min']:
-                    print(f'{hyperparameter} is at min value')
-                    hyperparameter_fine = False
+    #     run_data = {'name': run.name,
+    #                 'Val RMSE': round(run.history(keys=['Val RMSE'])['Val RMSE'].min(), 2),
+    #                 'Random test RMSE': round(run.summary_metrics['Random test RMSE/dataloader_idx_0'], 2),
+    #                 'Geographic test RMSE': round(run.summary_metrics['Geographic test RMSE/dataloader_idx_1'], 2),}
+    #     run_hyperparameter_data = {hyperparameter: run.config[hyperparameter] for hyperparameter in hyperparameters}
+    #     run_data = {**run_data, **run_hyperparameter_data}
+    #     all_run_data.append(run_data)
 
-                if not hyperparameter_fine:
-                    print(f'Use range {[float(best_run_hyperpameter_data[hyperparameter] * i) for i in [0.1, 1, 10]]}')
+    df = pd.DataFrame(all_run_data).sort_values(by='Val RMSE')
+    best_run = df.iloc[0]
 
-            break
+    return best_run['Random test RMSE'], best_run['Geographic test RMSE']
 
 if __name__ == '__main__':
-    monitor_sweep(*argv[1].split('/'))
+    monitor_sweep(name=argv[1])
