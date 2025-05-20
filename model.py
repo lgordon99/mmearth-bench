@@ -157,15 +157,6 @@ def load_custom_checkpoint(model, checkpoint_path):
 
     return model
 
-def center_crop(array, crop_size=112):
-    height, width = array.shape[-2:]
-    top = (height - crop_size) // 2
-    left = (width - crop_size) // 2
-    bottom = top + crop_size
-    right = left + crop_size
-
-    return array[..., top:bottom, left:right]
-
 # ============================================== CLASSES ============================================== #
 
 class MeanError(Metric):
@@ -261,6 +252,15 @@ class Dinov2(nn.Module):
 
     def forward(self, images):
         return self.model(images[:, [3,2,1], :, :])
+
+class LinearDecoder(nn.Module):
+    def __init__(self, feature_dim):
+        super(LinearDecoder, self).__init__()
+
+        self.model = nn.Sequential(nn.Upsample(size=128, mode='bilinear'), nn.Conv2d(in_channels=feature_dim, out_channels=1, kernel_size=1))
+
+    def forward(self, images):
+        return self.model(images)
 
 class Model(LightningModule):
     def __init__(self, task, model, adaptation_mode, decay_factor, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, nodata_value):
@@ -394,22 +394,22 @@ class Model(LightningModule):
         return self.model(images)
 
     def general_step(self, batch, batch_idx, mode, dataloader_idx=0):
-        images, target = batch
+        images, target = batch # extracts the images and targets for the batch
 
         if self.hparams.model == 'dinov2':
-            images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant', value=self.hparams.nodata_value)
+            images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant', value=self.hparams.nodata_value) # DinoV2 requires the image size to be divisible by 14
 
-        prediction = self(images)
-        batch_size = images.shape[0]
+        prediction = self(images) # forward pass
+        batch_size = images.shape[0] # number of items in batch
 
         if self.hparams.task == 'biomass':
-            valid_mask = target != self.hparams.nodata_value
+            valid_mask = target != self.hparams.nodata_value # mask for the NaN pixels in the target
             prediction = prediction[valid_mask]
             target = target[valid_mask]
 
         if mode == 'train' or mode == 'val':
-            loss = self.criterion(prediction, target)
-            self.log(f'{mode.capitalize()} loss', loss, batch_size=batch_size)
+            loss = self.criterion(prediction, target) # computes the loss
+            self.log(f'{mode.capitalize()} loss', loss, batch_size=batch_size) # logs the loss
 
         if self.hparams.task == 'species':
             prediction = torch.sigmoid(prediction) # converts logits to probabilities
@@ -417,20 +417,25 @@ class Model(LightningModule):
 
         if mode == 'train' or mode == 'val':
             metrics = getattr(self, f'{mode}_metrics')
-        else:
+        else: # test mode
             split = 'random_test' if dataloader_idx == 0 else 'geographic_test'
             metrics = getattr(self, f'{split}_metrics')
 
-        metrics(prediction, target)
-        self.log_dict(metrics, batch_size=batch_size)
+            if not hasattr(self, f'{split}_predictions'):
+                setattr(self, f'{split}_predictions', [])
+                setattr(self, f'{split}_targets', [])
+
+            getattr(self, f'{split}_predictions').append(prediction.detach().cpu())
+            getattr(self, f'{split}_targets').append(target.detach().cpu())
+
+        metrics(prediction, target) # calculates the metrics
+        self.log_dict(metrics, batch_size=batch_size) # logs the metrics
 
         if batch_idx == 0: # if we are on the first batch
             if mode == 'train' or mode == 'val':
                 self._log_images(images.cpu().numpy()[:, [3,2,1]].astype(float), mode)
-                wandb.log({mode.capitalize(): wandb.Image(f'figures/{mode}.png')})
             else:
                 self._log_images(images.cpu().numpy()[:, [3,2,1]].astype(float), split)
-                wandb.log({split.replace('_', ' ').capitalize(): wandb.Image(f'figures/{split}.png')})
 
         if mode == 'train':
             return loss
@@ -446,8 +451,13 @@ class Model(LightningModule):
     def test_step(self, batch, batch_idx, dataloader_idx):
         self.general_step(batch=batch, batch_idx=batch_idx, mode='test', dataloader_idx=dataloader_idx)
 
+    def on_test_end(self):
+        self._plot_predictions_vs_targets('random_test')
+        self._plot_predictions_vs_targets('geographic_test')
+
     def _log_images(self, images, mode):
         images = np.array([np.stack(utils.normalize(image), axis=-1) for image in images])
+        images = np.ma.masked_equal(images, self.hparams.nodata_value)
         num_images = min(len(images), num_logged_images)
         fig, axes = plt.subplots(1, num_images, figsize=(num_images*4, 4))
 
@@ -455,10 +465,49 @@ class Model(LightningModule):
             axes[i].imshow(images[i])
             axes[i].axis('off')
 
-            if i == int(num_images / 2):
-                axes[i].set_title('RGB Images', fontsize=fontsize, pad=pad)
-
         plt.tight_layout()
         os.makedirs('figures', exist_ok=True)
         plt.savefig(f'figures/{mode}.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
+        wandb.log({f'{mode.replace("_", " ").capitalize()} images (RGB)': wandb.Image(f'figures/{mode}.png')})
+
+    def _plot_predictions_vs_targets(self, split):
+        # concatenate all batches
+        predictions = torch.cat(getattr(self, f'{split}_predictions')).numpy().flatten()
+        targets = torch.cat(getattr(self, f'{split}_targets')).numpy().flatten()
+
+        fig, ax = plt.subplots(figsize=(10, 10))
+        ax.scatter(targets, predictions, alpha=0.5, s=5) # plots predictions vs. targets
+
+        # Add 1:1 line
+        min_val = min(np.min(predictions), np.min(targets))
+        max_val = max(np.max(predictions), np.max(targets))
+        ax.plot([min_val, max_val], [min_val, max_val], 'r--', label='1:1 line')
+
+        # Get metrics
+        metrics = getattr(self, f'{split}_metrics').compute()
+        r2 = metrics[f'{split.replace("_", " ").capitalize()} R2'].item()
+        rmse = metrics[f'{split.replace("_", " ").capitalize()} RMSE'].item()
+        mae = metrics[f'{split.replace("_", " ").capitalize()} MAE'].item()
+        me = metrics[f'{split.replace("_", " ").capitalize()} ME'].item()
+        metrics_text = f'R²: {r2:.4f}\nRMSE: {rmse:.4f}\nMAE: {mae:.4f}\nME: {me:.4f}'
+        ax.text(0.05, 0.95, metrics_text, transform=ax.transAxes, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+        # Fit a regression line
+        z = np.polyfit(targets, predictions, 1)
+        p = np.poly1d(z)
+        ax.plot(np.sort(targets), p(np.sort(targets)), 'b-', label=f'Fit: y={z[0]:.4f}x+{z[1]:.4f}')
+
+        # Set labels and title
+        ax.set_xlabel('Target', fontsize=14)
+        ax.set_ylabel('Prediction', fontsize=14)
+        ax.set_title(f'{self.hparams.task.replace("_", " ").capitalize()} {self.hparams.model.capitalize()} {self.hparams.adaptation_mode.upper()} {split.replace("_", " ")} set', fontsize=16)
+        ax.legend()
+        ax.set_xlim([min_val, max_val])
+        ax.set_ylim([min_val, max_val])
+        ax.set_aspect('equal')
+        ax.grid(True, linestyle='--', alpha=0.7)
+        fig.tight_layout()
+        fig.savefig(f'figures/{split}_scatter_plot.png', dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        wandb.log({f'{split.replace("_", " ").capitalize()} scatter plot': wandb.Image(f'figures/{split}_scatter_plot.png')})
