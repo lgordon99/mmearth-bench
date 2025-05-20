@@ -5,9 +5,9 @@ from convnextv2 import convnextv2_atto
 from convnextv2_unet import convnextv2_unet_atto
 from lightning.pytorch import LightningModule
 from timm.models.layers import trunc_normal_
-from torchmetrics import MetricCollection, Recall
+from torchmetrics import Metric, MetricCollection, Recall
 from torchmetrics.classification import MultilabelRecall, MultilabelAveragePrecision
-from torchmetrics.regression import MeanSquaredError
+from torchmetrics.regression import MeanAbsoluteError, MeanSquaredError, R2Score
 from torchvision.models import resnet50
 import math
 import matplotlib.pyplot as plt
@@ -168,6 +168,20 @@ def center_crop(array, crop_size=112):
 
 # ============================================== CLASSES ============================================== #
 
+class MeanError(Metric):
+    def __init__(self):
+        super().__init__()
+
+        self.add_state('error_sum', default=torch.tensor(0.0), dist_reduce_fx='sum')
+        self.add_state('total', default=torch.tensor(0), dist_reduce_fx='sum')
+
+    def update(self, preds, target):
+        self.error_sum += torch.sum(preds - target)
+        self.total += target.numel()
+
+    def compute(self):
+        return self.error_sum / self.total
+
 class ResNet50(nn.Module):
     def __init__(self, num_classes, weights):
         super(ResNet50, self).__init__()
@@ -244,7 +258,6 @@ class Dinov2(nn.Module):
 
         self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg')
         self.model.head = nn.Linear(in_features=384, out_features=num_classes)
-        # self.head = torch.load('/n/davies_lab/Users/luciagordon/mmearth-bench/dinov2_vits14_ade20k_ms_head.pth')
 
     def forward(self, images):
         return self.model(images[:, [3,2,1], :, :])
@@ -277,7 +290,6 @@ class Model(LightningModule):
                                   in_channels=12)
         elif self.hparams.model == 'mpmae_mmearth':
             self.model = ConvNextV2(num_classes=num_classes, mmearth=True)
-            # self.model = torch.hub.load('vishalned/mmearth-train', 'MPMAE', trust_repo=True, num_classes=num_classes)
         elif self.hparams.model == 'mpmae':
             self.model = ConvNextV2(num_classes=num_classes, mmearth=False)
         elif self.hparams.model == 'mpmae_pixel_reg_mmearth':
@@ -295,7 +307,10 @@ class Model(LightningModule):
             metrics = MetricCollection({'Recall': MultilabelRecall(num_labels),
                                         'MAP': MultilabelAveragePrecision(num_labels)})
         else:
-            metrics = MetricCollection({'RMSE': MeanSquaredError(squared=False)})
+            metrics = MetricCollection({'RMSE': MeanSquaredError(squared=False),
+                                        'MAE': MeanAbsoluteError(),
+                                        'ME': MeanError(),
+                                        'R2': R2Score()})
 
         for split in ['train', 'val', 'random_test', 'geographic_test']:
             setattr(self, f'{split}_metrics', metrics.clone(prefix=f'{split.replace("_", " ").capitalize()} '))
@@ -345,7 +360,7 @@ class Model(LightningModule):
 
             return parameters
 
-        if self.hparams.adaptation_mode != 'ft':
+        if self.hparams.adaptation_mode == 'lp':
             # freeze all parameters
             for param in self.model.parameters():
                 param.requires_grad = False
@@ -353,7 +368,7 @@ class Model(LightningModule):
             # unfreeze the final or decoder layers
             if 'resnet' in self.hparams.model:
                 parameters_to_unfreeze = self.model.model.fc.parameters() # final layer
-            elif 'pixelwise_regression' in self.hparams.model:
+            elif 'pixel_reg' in self.hparams.model:
                 children_to_unfreeze = ['norm', 'head', 'upsample_layers', 'initial_conv_upsample'] # decoder parts
                 parameters_to_unfreeze = [p for name, module in self.model.named_modules() for child_name in children_to_unfreeze if child_name in name for p in module.parameters()]
             elif 'mpmae' in self.hparams.model or 'dino' in self.hparams.model:
@@ -362,7 +377,7 @@ class Model(LightningModule):
             for param in parameters_to_unfreeze:
                 param.requires_grad = True
 
-        return self.model.parameters()
+        return self.model.parameters() # fine-tuning
 
     def configure_optimizers(self):
         parameters = self.configure_parameters(max_lr=self.hparams.max_lr)
@@ -430,29 +445,6 @@ class Model(LightningModule):
 
     def test_step(self, batch, batch_idx, dataloader_idx):
         self.general_step(batch=batch, batch_idx=batch_idx, mode='test', dataloader_idx=dataloader_idx)
-
-    def on_train_epoch_start(self):
-        if self.current_epoch == 50 and self.hparams.adaptation_mode == 'two_stage':
-            optimizer = self.trainer.optimizers[0]
-
-            num_params_in_optimizer = sum(p.numel() for group in optimizer.param_groups for p in group['params'])
-            print("Total number of parameters in optimizer:", num_params_in_optimizer)
-            num_params = sum(p.numel() for p in self.model.parameters())
-            print("Total number of parameters:", num_params)
-            print(num_params_in_optimizer == num_params)
-            num_trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-            print("Total number of trainable parameters:", num_trainable_params)
-
-            for param in self.model.parameters():
-                param.requires_grad = True
-
-            num_params_in_optimizer = sum(p.numel() for group in optimizer.param_groups for p in group['params'])
-            print("Total number of parameters in optimizer:", num_params)
-            num_params = sum(p.numel() for p in self.model.parameters())
-            print("Total number of parameters:", num_params)
-            print(num_params_in_optimizer == num_params)
-            num_trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-            print("Total number of trainable parameters:", num_trainable_params)
 
     def _log_images(self, images, mode):
         images = np.array([np.stack(utils.normalize(image), axis=-1) for image in images])
