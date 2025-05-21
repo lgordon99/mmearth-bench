@@ -82,28 +82,6 @@ command:
 
 echo "$yaml_content" > sweep_2.yaml
 
-# cat >sweep_2.yaml <<EOF
-# project: mmearth-bench
-# entity: luciagordon-harvard-university
-# name: ${sweep_name}
-# program: train.py
-# method: grid
-# metric:
-#   name: "Val RMSE"
-#   goal: minimize
-# parameters:
-#   model.max_lr:
-#     values: ${max_lr_string}
-#   model.weight_decay:
-#     values: ${weight_decay_string}
-# command:
-#   - python
-#   - train.py
-#   - +task=${task}
-#   - +model_type=${model_type}
-#   - +adaptation_mode=${adaptation_mode}
-# EOF
-
 wandb sweep sweep_2.yaml &> sweep_output.txt
 rm sweep_2.yaml
 sweep_id=$(cat sweep_output.txt | grep "agent" | tail -1 | awk '{print $NF}')
@@ -130,7 +108,7 @@ touch spawn_agent.sh
 cat > spawn_agent.sh <<EOF
 #!/bin/bash
 #SBATCH --job-name sweep
-#SBATCH --time 0-2:00
+#SBATCH --time 0-3:00
 #SBATCH --partition gpu,seas_gpu
 #SBATCH --mem $MEM
 #SBATCH --gres gpu:nvidia_a100-sxm4-80gb:1
