@@ -21,7 +21,8 @@ no_data_values = {'Sentinel1': float('-inf'),
                   'longitude': float('-inf'),
                   'month': float('-inf'),
                   'biome': 255,
-                  'ecoregion': 65535}
+                  'ecoregion': 65535,
+                  'biomass': -9999}
 
 # ============================================== FUNCTIONS ============================================== #
 
@@ -51,6 +52,23 @@ def convert_tiffs_to_h5(task):
                 band_names = {band_number: tiff.tags(band_number+1)['BAND_NAME'] for band_number in range(tiff.count)}
                 tags = tiff.tags()
 
+                # task data
+                if task == 'biomass':
+                    biomass = array[[band_number for band_number, band_name in band_names.items() if 'biomass' in band_name][0]]
+                    biomass[biomass > 2000] = no_data_values['biomass']
+
+                    if np.any(biomass != no_data_values['biomass']):
+                        data[task].append(biomass)
+                    else:
+                        continue
+                elif task == 'species':
+                    species = [int(value) for value in get_tag_value(tags, task).split(',')]
+                    species_vector = np.zeros(100)
+                    species_vector[species] = 1
+                    data[task].append(species_vector)
+                elif 'soil' in task:
+                    data[task].append(np.array([tags[task]]).astype('float32'))
+
                 # pixel-level modalities
                 for modality in pixel_level_modalities:
                     modality_band_numbers = [band_number for band_number, band_name in band_names.items() if modality in band_name]
@@ -66,18 +84,6 @@ def convert_tiffs_to_h5(task):
                 # image-level modalities
                 for modality in image_level_modalities:
                     data[modality].append(np.array([value for key, value in ((key, get_tag_value(tags, key)) for key in tags.keys()) if modality in key.split('_')[0] and check_is_number(value)]).astype('float32'))
-
-                # task data
-                if task == 'biomass':
-                    biomass = array[[band_number for band_number, band_name in band_names.items() if 'biomass' in band_name][0]]
-                    data[task].append(biomass)
-                elif task == 'species':
-                    species = [int(value) for value in get_tag_value(tags, task).split(',')]
-                    species_vector = np.zeros(100)
-                    species_vector[species] = 1
-                    data[task].append(species_vector)
-                elif 'soil' in task:
-                    data[task].append(np.array([tags[task]]).astype('float32'))
 
                 # geographic data
                 data['crs'].append(np.array(tiff.crs.to_string(), dtype='S'))
