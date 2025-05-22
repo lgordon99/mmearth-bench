@@ -7,7 +7,7 @@ hydra:
   job:
     chdir: true
   run:
-    dir: ${project_dir_path}/experiments/${task}/${model_type}/${env:JOB_ID}
+    dir: /tmp/${task}_${model_type}_${env:JOB_ID}
 
 logger:
   _target_: lightning.pytorch.loggers.wandb.WandbLogger
