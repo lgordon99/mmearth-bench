@@ -1,8 +1,7 @@
 # ============================================== IMPORTS ============================================== #
 
 from collections import OrderedDict
-from convnextv2 import convnextv2_atto
-from convnextv2_unet import convnextv2_unet_atto
+from convnextv2 import ConvNeXtV2
 from lightning.pytorch import LightningModule
 from timm.models.layers import trunc_normal_
 from torchmetrics import Metric, MetricCollection, Recall
@@ -107,23 +106,11 @@ def load_state_dict(model, state_dict, ignore_missing="relative_position_index",
     missing_keys = warn_missing_keys
 
     if len(missing_keys) > 0:
-        print(
-            "Weights of {} not initialized from pretrained model: {}".format(
-                model.__class__.__name__, missing_keys
-            )
-        )
+        print("Weights of {} not initialized from pretrained model: {}".format(model.__class__.__name__, missing_keys))
     if len(unexpected_keys) > 0:
-        print(
-            "Weights from pretrained model not used in {}: {}".format(
-                model.__class__.__name__, unexpected_keys
-            )
-        )
+        print("Weights from pretrained model not used in {}: {}".format(model.__class__.__name__, unexpected_keys))
     if len(ignore_missing_keys) > 0:
-        print(
-            "Ignored weights of {} not initialized from pretrained model: {}".format(
-                model.__class__.__name__, ignore_missing_keys
-            )
-        )
+        print("Ignored weights of {} not initialized from pretrained model: {}".format(model.__class__.__name__, ignore_missing_keys))
     if len(error_msgs) > 0:
         print("\n".join(error_msgs))
 
@@ -174,93 +161,145 @@ class MeanError(Metric):
         return self.error_sum / self.total
 
 class ResNet50(nn.Module):
-    def __init__(self, num_classes, weights):
+    def __init__(self, num_classes, pixelwise, pretrained):
         super(ResNet50, self).__init__()
-        self.model = resnet50(weights=weights)
-        num_features = self.model.fc.in_features # input to final layer
-        self.model.fc = nn.Linear(in_features=num_features, out_features=num_classes)
+
+        self.model = resnet50(weights='DEFAULT' if pretrained else None)
+
+        if pixelwise:
+            self.model = nn.Sequential(*list(self.model.children())[:-2]) # remove the pooling and classifier layers
+        else:
+            self.model.fc = nn.Linear(in_features=self.model.fc.in_features, out_features=num_classes)
 
     def forward(self, images):
         return self.model(images[:, [3,2,1], :, :])
 
-class ResNet50Sentinel2(nn.Module):
-    def __init__(self, num_classes):
-        super(ResNet50Sentinel2, self).__init__()
-        self.model = resnet50(weights='DEFAULT')
-        num_bands = 12
-        original_weights = self.model.conv1.weight.clone()
-        self.model.conv1 = nn.Conv2d(in_channels=num_bands,
-                                     out_channels=self.model.conv1.out_channels,
-                                     kernel_size=self.model.conv1.kernel_size,
-                                     stride=self.model.conv1.stride,
-                                     padding=self.model.conv1.padding,
-                                     bias=self.model.conv1.bias)
+class MPMAE(nn.Module):
+    def __init__(self, num_classes, pixelwise, pretrained):
+        super(MPMAE, self).__init__()
 
-        with torch.no_grad():
-            self.model.conv1.weight[:, 3] = original_weights[:, 0] # R
-            self.model.conv1.weight[:, 2] = original_weights[:, 1] # G
-            self.model.conv1.weight[:, 1] = original_weights[:, 2] # B
-            mean_original_weights = torch.mean(original_weights, dim=1)
-            self.model.conv1.weight[:, 0] = mean_original_weights
-            self.model.conv1.weight[:, 4:] = mean_original_weights.unsqueeze(1).expand(-1, self.model.conv1.weight.shape[1]-4, -1, -1)
-            self.model.conv1.weight *= 3/num_bands
+        self.pixelwise = pixelwise
+        self.model = ConvNeXtV2(num_classes=num_classes)
 
-        num_features = self.model.fc.in_features # input to final layer
-        self.model.fc = nn.Linear(in_features=num_features, out_features=num_classes)
+        if pixelwise:
+            self.model.head = nn.Identity() # removes the classifier layer
 
-    def forward(self, images):
-        return self.model(images)
-
-class ConvNextV2(nn.Module):
-    def __init__(self, num_classes, mmearth):
-        super(ConvNextV2, self).__init__()
-
-        self.model = convnextv2_atto(patch_size=8, # patch size used during pretraining
-                                     img_size=56, # patch size used during pretraining
-                                     in_chans=12, # number of Sentinel-2 bands
-                                     num_classes=num_classes)
-
-        if mmearth:
+        if pretrained:
             checkpoint_path = '/n/davies_lab/Users/luciagordon/mmearth-bench/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
-            self.model = load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
+            load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
+
+    def _forward_features(self, x):
+        if self.model.use_orig_stem:
+            x = self.model.stem_orig(x)
+        else:
+            x = self.model.initial_conv(x)
+            x = self.model.stem(x)
+
+        x = self.model.stages[0](x)
+
+        for i in range(3):
+            x = self.model.downsample_layers[i](x)
+            x = self.model.stages[i + 1](x)
+
+        return self.model.norm(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
 
     def forward(self, images):
-        return self.model(images)
+        if self.pixelwise:
+            return self._forward_features(images)
+        else:
+            return self.model(images)
 
-class ConvnextV2Unet(nn.Module):
-    def __init__(self, mmearth):
-        super(ConvnextV2Unet, self).__init__()
+class DINOv2(nn.Module):
+    def __init__(self, num_classes, pixelwise, pretrained):
+        super(DINOv2, self).__init__()
 
-        self.model = convnextv2_unet_atto(patch_size=8, # patch size used during pretraining
-                                          img_size=56, # patch size used during pretraining
-                                          in_chans=12, # number of Sentinel-2 bands
-                                          num_classes=1) # regression
-
-        if mmearth:
-            checkpoint_path = '/n/davies_lab/Users/luciagordon/mmearth-bench/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
-            self.model = load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
-
-    def forward(self, images):
-        return self.model(images)
-
-class Dinov2(nn.Module):
-    def __init__(self, num_classes):
-        super(Dinov2, self).__init__()
-
+        self.pixelwise = pixelwise
         self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg')
-        self.model.head = nn.Linear(in_features=384, out_features=num_classes)
+        self.model.interpolate_pos_encoding = self._deterministic_interpolate_pos_encoding
+
+        if not pixelwise:
+            self.model.head = nn.Linear(in_features=384, out_features=num_classes)
+
+    def _deterministic_interpolate_pos_encoding(self, x, w, h):
+        '''Deterministic version using CPU for bicubic interpolation'''
+
+        previous_dtype = x.dtype
+        npatch = x.shape[1] - 1
+        N = self.model.pos_embed.shape[1] - 1
+
+        if npatch == N and w == h:
+            return self.model.pos_embed
+
+        pos_embed = self.model.pos_embed.float()
+        class_pos_embed = pos_embed[:, 0]
+        patch_pos_embed = pos_embed[:, 1:]
+        dim = x.shape[-1]
+        w0 = w // self.model.patch_size
+        h0 = h // self.model.patch_size
+        M = int(math.sqrt(N))  # Recover the number of patches in each dimension
+        assert N == M * M
+
+        kwargs = {}
+
+        if self.model.interpolate_offset:
+            sx = float(w0 + self.model.interpolate_offset) / M
+            sy = float(h0 + self.model.interpolate_offset) / M
+            kwargs['scale_factor'] = (sx, sy)
+        else:
+            kwargs['size'] = (w0, h0) # specifies an output size instead of a scale factor
+
+        patch_pos_embed = nn.functional.interpolate(patch_pos_embed.cpu().reshape(1, M, M, dim).permute(0, 3, 1, 2),
+                                                    mode='bicubic',
+                                                    antialias=self.model.interpolate_antialias,
+                                                    **kwargs)
+        patch_pos_embed = patch_pos_embed.to(x.device)
+        assert (w0, h0) == patch_pos_embed.shape[-2:]
+        patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
+
+        return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
 
     def forward(self, images):
-        return self.model(images[:, [3,2,1], :, :])
+        images = images[:, [3,2,1], :, :]
+
+        if self.pixelwise:
+            features = self.model.forward_features(images)['x_norm_patchtokens'].permute(0, 2, 1)
+
+            return features.reshape(features.shape[0], features.shape[1], int(np.sqrt(features.shape[2])), int(np.sqrt(features.shape[2])))
+        else:
+            return self.model(images)
 
 class LinearDecoder(nn.Module):
     def __init__(self, feature_dim):
         super(LinearDecoder, self).__init__()
 
-        self.model = nn.Sequential(nn.Upsample(size=128, mode='bilinear'), nn.Conv2d(in_channels=feature_dim, out_channels=1, kernel_size=1))
+        self.model = nn.Sequential(nn.Upsample(size=128, mode='bilinear'),
+                                   nn.Conv2d(in_channels=feature_dim, out_channels=1, kernel_size=1))
 
     def forward(self, images):
         return self.model(images)
+
+class EncoderDecoder(nn.Module):
+    def __init__(self, model_class_name, pixelwise, num_classes, pretrained):
+        super(EncoderDecoder, self).__init__()
+
+        self.pixelwise = pixelwise
+        self.model = globals()[model_class_name](num_classes, pixelwise, pretrained)
+
+        if pixelwise:
+            if model_class_name == 'ResNet50':
+                feature_dim = 2048
+            elif model_class_name == 'DINOv2':
+                feature_dim = 384
+            elif model_class_name == 'MPMAE':
+                feature_dim = 320
+
+            self.decoder = LinearDecoder(feature_dim) # creates the decoder with the number of features
+
+    def forward(self, images):
+        if self.pixelwise:
+            return self.decoder(self.model(images)) # applies the decoder to the features
+        else:
+            return self.model(images)
 
 class Model(LightningModule):
     def __init__(self, task, model, adaptation_mode, decay_factor, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, nodata_value):
@@ -276,30 +315,19 @@ class Model(LightningModule):
             self.criterion = nn.MSELoss()
 
     def configure_models(self):
+        pixelwise = True if self.hparams.task == 'biomass' else False
         num_classes = 100 if self.hparams.task == 'species' else 1
 
         if self.hparams.model == 'resnet50':
-            self.model = ResNet50(num_classes=num_classes, weights=None)
+            self.model = EncoderDecoder(model_class_name='ResNet50', pixelwise=pixelwise, num_classes=num_classes, pretrained=False)
         elif self.hparams.model == 'resnet50_imagenet':
-            self.model = ResNet50(num_classes=num_classes, weights='DEFAULT')
-        elif self.hparams.model == 'resnet_sentinel2':
-            self.model = ResNet50Sentinel2(num_classes)
-        elif self.hparams.model == 'unet':
-            self.model = smp.Unet(encoder_name='resnet50',
-                                  encoder_weights='imagenet',
-                                  in_channels=12)
-        elif self.hparams.model == 'mpmae_mmearth':
-            self.model = ConvNextV2(num_classes=num_classes, mmearth=True)
-        elif self.hparams.model == 'mpmae':
-            self.model = ConvNextV2(num_classes=num_classes, mmearth=False)
-        elif self.hparams.model == 'mpmae_pixel_reg_mmearth':
-            self.model = ConvnextV2Unet(mmearth=True)
-        elif self.hparams.model == 'mpmae_pixel_reg':
-            self.model = ConvnextV2Unet(mmearth=False)
+            self.model = EncoderDecoder(model_class_name='ResNet50', pixelwise=pixelwise, num_classes=num_classes, pretrained=True)
         elif self.hparams.model == 'dinov2':
-            self.model = Dinov2(num_classes)
-        elif self.hparams.model == 'anysat':
-            self.model = torch.hub.load('gastruc/anysat', 'anysat', pretrained=True, flash_attn=False)
+            self.model = EncoderDecoder(model_class_name='DINOv2', pixelwise=pixelwise, num_classes=num_classes, pretrained=None)
+        elif self.hparams.model == 'mpmae':
+            self.model = EncoderDecoder(model_class_name='MPMAE', pixelwise=pixelwise, num_classes=num_classes, pretrained=False)
+        elif self.hparams.model == 'mpmae_mmearth':
+            self.model = EncoderDecoder(model_class_name='MPMAE', pixelwise=pixelwise, num_classes=num_classes, pretrained=True)
 
     def configure_metrics(self):
         if self.hparams.task == 'species':
@@ -316,10 +344,27 @@ class Model(LightningModule):
             setattr(self, f'{split}_metrics', metrics.clone(prefix=f'{split.replace("_", " ").capitalize()} '))
 
     def configure_parameters(self, max_lr):
+        if self.hparams.adaptation_mode == 'lp':
+            # freeze all parameters
+            for param in self.model.parameters():
+                param.requires_grad = False
+
+            # unfreeze the final or decoder layers
+            if 'resnet' in self.hparams.model:
+                parameters_to_unfreeze = self.model.model.model.fc.parameters() # final layer
+            # elif 'pixel_reg' in self.hparams.model:
+            #     children_to_unfreeze = ['norm', 'head', 'upsample_layers', 'initial_conv_upsample'] # decoder parts
+            #     parameters_to_unfreeze = [p for name, module in self.model.named_modules() for child_name in children_to_unfreeze if child_name in name for p in module.parameters()]
+            elif 'dino' in self.hparams.model or 'mpmae' in self.hparams.model:
+                parameters_to_unfreeze = self.model.model.model.head.parameters() # final layer
+
+            for param in parameters_to_unfreeze:
+                param.requires_grad = True
+
         if self.hparams.adaptation_mode == 'llrd':
             layer_names = []
 
-            for name, _ in self.model.model.named_parameters():
+            for name, _ in self.model.model.model.named_parameters():
                 parts = name.split('.')
                 num_digits = sum(1 for char in name if char.isdigit())
 
@@ -336,7 +381,9 @@ class Model(LightningModule):
                     elif num_digits == 2:
                         layer_name = f'{parts[0]}.{parts[1]}.{parts[2]}'
                 elif 'dino' in self.hparams.model:
-                    if num_digits == 0:
+                    if len(parts) == 1:
+                        layer_name = 'embedding_tokens'
+                    elif num_digits == 0:
                         layer_name = parts[0]
                     elif len(parts) == 4:
                         layer_name = f'{parts[0]}.{parts[1]}'
@@ -352,30 +399,13 @@ class Model(LightningModule):
             for i, name in enumerate(layer_names):
                 learning_rate = max_lr * self.hparams.decay_factor ** i
                 print(f'{name}: {learning_rate}')
-                parameters += [{'params': [p for n, p in self.model.model.named_parameters() if n == name or (len(n.split(name)) > 1 and n.startswith(name) and n.split(name)[1][0] == '.')],
+                parameters += [{'params': [p for n, p in self.model.model.model.named_parameters() if n == name or (len(n.split(name)) > 1 and n.startswith(name) and n.split(name)[1][0] == '.') or (name == 'embedding_tokens' and (n == 'cls_token' or n == 'pos_embed' or n == 'register_tokens' or n == 'mask_token'))],
                                 'lr': learning_rate,
                                 'name': name}]
 
             assert sum(p.numel() for p in self.model.parameters()) == sum(p.numel() for group in parameters for p in group['params'])
 
             return parameters
-
-        if self.hparams.adaptation_mode == 'lp':
-            # freeze all parameters
-            for param in self.model.parameters():
-                param.requires_grad = False
-
-            # unfreeze the final or decoder layers
-            if 'resnet' in self.hparams.model:
-                parameters_to_unfreeze = self.model.model.fc.parameters() # final layer
-            elif 'pixel_reg' in self.hparams.model:
-                children_to_unfreeze = ['norm', 'head', 'upsample_layers', 'initial_conv_upsample'] # decoder parts
-                parameters_to_unfreeze = [p for name, module in self.model.named_modules() for child_name in children_to_unfreeze if child_name in name for p in module.parameters()]
-            elif 'mpmae' in self.hparams.model or 'dino' in self.hparams.model:
-                parameters_to_unfreeze = self.model.model.head.parameters() # final layer
-
-            for param in parameters_to_unfreeze:
-                param.requires_grad = True
 
         return self.model.parameters() # fine-tuning
 
@@ -469,7 +499,9 @@ class Model(LightningModule):
         os.makedirs('figures', exist_ok=True)
         plt.savefig(f'figures/{mode}.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
-        wandb.log({f'{mode.replace("_", " ").capitalize()} images (RGB)': wandb.Image(f'figures/{mode}.png')})
+
+        if wandb.run is not None:
+            wandb.log({f'{mode.replace("_", " ").capitalize()} images (RGB)': wandb.Image(f'figures/{mode}.png')})
 
     def _plot_predictions_vs_targets(self, split):
         # concatenate all batches
@@ -494,14 +526,14 @@ class Model(LightningModule):
         ax.text(0.05, 0.95, metrics_text, transform=ax.transAxes, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
         # Fit a regression line
-        z = np.polyfit(targets, predictions, 1)
-        p = np.poly1d(z)
+        z = np.polyfit(x=targets, y=predictions, deg=1) # linear regression (least squares polynomial fit)
+        p = np.poly1d(z) # polynomial function
         ax.plot(np.sort(targets), p(np.sort(targets)), 'b-', label=f'Fit: y={z[0]:.4f}x+{z[1]:.4f}')
 
         # Set labels and title
         ax.set_xlabel('Target', fontsize=14)
         ax.set_ylabel('Prediction', fontsize=14)
-        ax.set_title(f'{self.hparams.task.replace("_", " ").capitalize()} {self.hparams.model.capitalize()} {self.hparams.adaptation_mode.upper()} {split.replace("_", " ")} set', fontsize=16)
+        ax.set_title(f'{self.hparams.task.replace("_", " ").capitalize().replace("ph", "pH")} {self.hparams.model.capitalize().replace("Mpmae", "MPMAE").replace("_", "-").replace("mme", "MME").replace("imagenet", "ImageNet").replace("Resnet", "ResNet")} {self.hparams.adaptation_mode.upper()} {split.replace("_", " ")} set', fontsize=16)
         ax.legend()
         ax.set_xlim([min_val, max_val])
         ax.set_ylim([min_val, max_val])
@@ -510,4 +542,6 @@ class Model(LightningModule):
         fig.tight_layout()
         fig.savefig(f'figures/{split}_scatter_plot.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
-        wandb.log({f'{split.replace("_", " ").capitalize()} scatter plot': wandb.Image(f'figures/{split}_scatter_plot.png')})
+
+        if wandb.run is not None:
+            wandb.log({f'{split.replace("_", " ").capitalize()} scatter plot': wandb.Image(f'figures/{split}_scatter_plot.png')})
