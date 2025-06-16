@@ -3,17 +3,55 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from timm.models.layers import trunc_normal_, DropPath
 from torch import Tensor
 
 # from .norm_layers import LayerNorm, GRN
-from convnextv2_unet import LayerNorm, GRN
+# from convnextv2_unet import LayerNorm, GRN
 
 
 # All rights reserved.
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+class LayerNorm(nn.Module):
+    """ LayerNorm supports two data formats: channels_last (default) or channels_first.
+    channels_last corresponds to inputs with shape (batch_size, height, width, channels) while channels_first corresponds to inputs
+    with shape (batch_size, channels, height, width).
+    """
+    def __init__(self, normalized_shape, eps=1e-6, data_format='channels_last'):
+        super().__init__()
+
+        self.weight = nn.Parameter(torch.ones(normalized_shape))
+        self.bias = nn.Parameter(torch.zeros(normalized_shape))
+        self.eps = eps # small constant to prevent division by 0
+        self.data_format = data_format
+        self.normalized_shape = (normalized_shape, ) # converts to tuple
+
+    def forward(self, x):
+        if self.data_format == "channels_last":
+            return F.layer_norm(x, self.normalized_shape, self.weight, self.bias, self.eps) # normalizes along each channel dimension
+        elif self.data_format == "channels_first":
+            u = x.mean(1, keepdim=True) # calculates the mean of the channel dimension
+            s = (x - u).pow(2).mean(1, keepdim=True) # calculates the variance of each channel
+            x = (x - u) / torch.sqrt(s + self.eps) # normalizes by subtracting the mean and dividing by the STD
+            x = self.weight[:, None, None] * x + self.bias[:, None, None] # applies learnable per-channel scaling and shifting parameters
+
+            return x
+
+class GRN(nn.Module):
+    """ GRN (Global Response Normalization) layer enhances channels with stronger activations. """
+    def __init__(self, dim):
+        super().__init__()
+
+        self.gamma = nn.Parameter(torch.zeros(1, 1, 1, dim))
+        self.beta = nn.Parameter(torch.zeros(1, 1, 1, dim))
+
+    def forward(self, x):
+        Gx = torch.norm(x, p=2, dim=(1,2), keepdim=True) # computes the L2 norm across the width and height dimensions
+        Nx = Gx / (Gx.mean(dim=-1, keepdim=True) + 1e-4) # divides each channel's norm by the mean norm across all the channels
+        return self.gamma * (x * Nx) + self.beta + x # scales the input by the normalized L2 norm, applies learnable scaling and shifting parameters, and adds the input as a skip connection
 
 class Block(nn.Module):
     """ConvNeXtV2 Block.
@@ -69,29 +107,23 @@ class ConvNeXtV2(nn.Module):
 
     def __init__(
         self,
-        patch_size: int = 8,
-        img_size: int = 56,
-        in_chans: int = 12,
+        patch_size: int = 8, # patch size used during pretraining
+        img_size: int = 56, # image size used during pretraining
+        in_chans: int = 12, # number of Sentinel-2 bands
         num_classes: int = 1000,
-        depths: list[int] = None,
-        dims: list[int] = None,
+        depths: list[int] = [2, 2, 6, 2],
+        dims: list[int] = [40, 80, 160, 320],
         drop_path_rate: float = 0.0,
         head_init_scale: float = 1.0,
         use_orig_stem: bool = False,
     ):
         super().__init__()
         self.depths = depths
-        if self.depths is None:  # set default value
-            self.depths = [3, 3, 9, 3]
         self.img_size = img_size
         self.use_orig_stem = use_orig_stem
         self.num_stage = len(depths)
-        self.downsample_layers = (
-            nn.ModuleList()
-        )  # stem and 3 intermediate downsampling conv layer
+        self.downsample_layers = nn.ModuleList() # stem and 3 intermediate downsampling conv layer
         self.patch_size = patch_size
-        if dims is None:
-            dims = [96, 192, 384, 768]
 
         if self.use_orig_stem:
             self.stem_orig = nn.Sequential(
@@ -168,9 +200,7 @@ class ConvNeXtV2(nn.Module):
             x = self.downsample_layers[i](x)
             x = self.stages[i + 1](x)
 
-        return self.norm(
-            x.mean([-2, -1])
-        )  # global average pooling, (N, C, H, W) -> (N, C)
+        return self.norm(x.mean([-2, -1]))  # global average pooling, (N, C, H, W) -> (N, C)
 
     def upsample_mask(self, mask, scale):
         assert len(mask.shape) == 2
@@ -204,15 +234,3 @@ class ConvNeXtV2(nn.Module):
         x = self.forward_features(x)
         x = self.head(x)
         return x
-
-# ============================================== FUNCTIONS ============================================== #
-
-def convnextv2_atto(patch_size, img_size, in_chans, num_classes):
-    model = ConvNeXtV2(patch_size=patch_size,
-                       img_size=img_size,
-                       in_chans=in_chans,
-                       num_classes=num_classes,
-                       depths=[2, 2, 6, 2],
-                       dims=[40, 80, 160, 320])
-
-    return model
