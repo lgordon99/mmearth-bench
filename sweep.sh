@@ -88,6 +88,12 @@ sweep_id=$(cat sweep_output.txt | grep "agent" | tail -1 | awk '{print $NF}')
 rm sweep_output.txt
 
 echo "Sweep ID: $sweep_id"
+
+if [ -z "$sweep_id" ]; then
+    echo "Error: sweep_id is empty. Exiting."
+    exit 1
+fi
+
 echo "Number of runs: $num_runs"
 
 if [ -n "$sweep_id" ]; then
@@ -108,7 +114,7 @@ touch spawn_agent.sh
 cat > spawn_agent.sh <<EOF
 #!/bin/bash
 #SBATCH --job-name sweep
-#SBATCH --time 0-3:00
+#SBATCH --time 0-5:00
 #SBATCH --partition gpu,seas_gpu
 #SBATCH --mem $MEM
 #SBATCH --gres gpu:nvidia_a100-sxm4-80gb:1
