@@ -217,7 +217,9 @@ class DINOv2(nn.Module):
         self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg')
         self.model.interpolate_pos_encoding = self._deterministic_interpolate_pos_encoding
 
-        if not pixelwise:
+        if pixelwise:
+            self.model.head = nn.Identity()
+        else:
             self.model.head = nn.Linear(in_features=384, out_features=num_classes)
 
     def _deterministic_interpolate_pos_encoding(self, x, w, h):
@@ -269,14 +271,22 @@ class DINOv2(nn.Module):
             return self.model(images)
 
 class LinearDecoder(nn.Module):
-    def __init__(self, feature_dim):
+    def __init__(self, num_input_channels, image_size, feature_dim):
         super(LinearDecoder, self).__init__()
 
-        self.model = nn.Sequential(nn.Upsample(size=128, mode='bilinear'),
-                                   nn.Conv2d(in_channels=feature_dim, out_channels=1, kernel_size=1))
+        self.num_input_channels = num_input_channels
+        self.upsample =  nn.Upsample(size=image_size, mode='bilinear') # upsamples bilinearly to the image size
+        self.convolution = nn.Conv2d(in_channels=num_input_channels+feature_dim, out_channels=1, kernel_size=1) # applies a linear layer to each pixel
 
-    def forward(self, images):
-        return self.model(images)
+    def forward(self, images, features):
+        if self.num_input_channels != 12:
+            images = images[:, [3,2,1], :, :]
+
+        upsampled_features = self.upsample(features)
+        concatenated = torch.cat((images, upsampled_features), dim=1)  # concatenate along the channel dimension
+        convolved = self.convolution(concatenated)  # apply the convolution to the concatenated tensor
+
+        return convolved
 
 class EncoderDecoder(nn.Module):
     def __init__(self, model_class_name, pixelwise, num_classes, pretrained):
@@ -286,6 +296,9 @@ class EncoderDecoder(nn.Module):
         self.model = globals()[model_class_name](num_classes, pixelwise, pretrained)
 
         if pixelwise:
+            num_input_channels = 12 if model_class_name == 'MPMAE' else 3
+            image_size = 140 if model_class_name == 'DINOv2' else 128
+
             if model_class_name == 'ResNet50':
                 feature_dim = 2048
             elif model_class_name == 'DINOv2':
@@ -293,11 +306,11 @@ class EncoderDecoder(nn.Module):
             elif model_class_name == 'MPMAE':
                 feature_dim = 320
 
-            self.decoder = LinearDecoder(feature_dim) # creates the decoder with the number of features
+            self.decoder = LinearDecoder(num_input_channels, image_size, feature_dim) # creates the decoder with the number of features
 
     def forward(self, images):
         if self.pixelwise:
-            return self.decoder(self.model(images)) # applies the decoder to the features
+            return self.decoder(images=images, features=self.model(images)) # applies the decoder to the features
         else:
             return self.model(images)
 
@@ -350,13 +363,13 @@ class Model(LightningModule):
                 param.requires_grad = False
 
             # unfreeze the final or decoder layers
-            if 'resnet' in self.hparams.model:
-                parameters_to_unfreeze = self.model.model.model.fc.parameters() # final layer
-            # elif 'pixel_reg' in self.hparams.model:
-            #     children_to_unfreeze = ['norm', 'head', 'upsample_layers', 'initial_conv_upsample'] # decoder parts
-            #     parameters_to_unfreeze = [p for name, module in self.model.named_modules() for child_name in children_to_unfreeze if child_name in name for p in module.parameters()]
-            elif 'dino' in self.hparams.model or 'mpmae' in self.hparams.model:
-                parameters_to_unfreeze = self.model.model.model.head.parameters() # final layer
+            if self.hparams.task == 'biomass':
+                parameters_to_unfreeze = self.model.decoder.parameters()
+            else:
+                if 'resnet' in self.hparams.model:
+                    parameters_to_unfreeze = self.model.model.model.fc.parameters() # final layer
+                elif 'dino' in self.hparams.model or 'mpmae' in self.hparams.model:
+                    parameters_to_unfreeze = self.model.model.model.head.parameters() # final layer
 
             for param in parameters_to_unfreeze:
                 param.requires_grad = True
@@ -434,6 +447,10 @@ class Model(LightningModule):
 
         if self.hparams.task == 'biomass':
             valid_mask = target != self.hparams.nodata_value # mask for the NaN pixels in the target
+
+            if self.hparams.model == 'dinov2':
+                prediction = prediction[:, :, 6:-6, 6:-6] # removes the padding added for DINOv2
+
             prediction = prediction[valid_mask]
             target = target[valid_mask]
 
