@@ -139,8 +139,9 @@ def load_custom_checkpoint(model, checkpoint_path):
     load_state_dict(model, checkpoint_model)
 
     # manually initialize fc layer
-    trunc_normal_(model.head.weight, std=2e-5)
-    torch.nn.init.constant_(model.head.bias, 0.)
+    if isinstance(model.head, nn.Linear):
+        trunc_normal_(model.head.weight, std=2e-5)
+        torch.nn.init.constant_(model.head.bias, 0.)
 
     return model
 
@@ -167,9 +168,23 @@ class ResNet50(nn.Module):
         self.model = resnet50(weights='DEFAULT' if pretrained else None)
 
         if pixelwise:
-            self.model = nn.Sequential(*list(self.model.children())[:-2]) # remove the pooling and classifier layers
+            self.model.avgpool = nn.Identity() # removes the average pooling layer
+            self.model.fc = nn.Identity() # removes the classifier layer
+            self.model._forward_impl = self._pixelwise_forward_impl
         else:
             self.model.fc = nn.Linear(in_features=self.model.fc.in_features, out_features=num_classes)
+
+    def _pixelwise_forward_impl(self, x):
+        x = self.model.conv1(x)
+        x = self.model.bn1(x)
+        x = self.model.relu(x)
+        x = self.model.maxpool(x)
+        x = self.model.layer1(x)
+        x = self.model.layer2(x)
+        x = self.model.layer3(x)
+        x = self.model.layer4(x)
+
+        return x
 
     def forward(self, images):
         return self.model(images[:, [3,2,1], :, :])
@@ -183,12 +198,13 @@ class MPMAE(nn.Module):
 
         if pixelwise:
             self.model.head = nn.Identity() # removes the classifier layer
+            self.model.forward_features = self._pixelwise_forward_features # replaces the forward_features method with a pixelwise version
 
         if pretrained:
             checkpoint_path = '/n/davies_lab/Users/luciagordon/mmearth-bench/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
             load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
 
-    def _forward_features(self, x):
+    def _pixelwise_forward_features(self, x):
         if self.model.use_orig_stem:
             x = self.model.stem_orig(x)
         else:
@@ -204,10 +220,7 @@ class MPMAE(nn.Module):
         return self.model.norm(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
 
     def forward(self, images):
-        if self.pixelwise:
-            return self._forward_features(images)
-        else:
-            return self.model(images)
+        return self.model(images)
 
 class DINOv2(nn.Module):
     def __init__(self, num_classes, pixelwise, pretrained):
@@ -374,6 +387,9 @@ class Model(LightningModule):
             for param in parameters_to_unfreeze:
                 param.requires_grad = True
 
+            if self.hparams.task == 'biomass':
+                assert sum(p.numel() for p in self.model.decoder.parameters()) == sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+
         if self.hparams.adaptation_mode == 'llrd':
             layer_names = []
 
@@ -404,6 +420,9 @@ class Model(LightningModule):
                 if layer_name not in layer_names:
                     layer_names.append(layer_name)
 
+            if self.hparams.task == 'biomass':
+                layer_names.append('decoder.convolution')
+
             layer_names.reverse()
             print(f'{len(layer_names)} layer groups')
             print(layer_names)
@@ -412,9 +431,15 @@ class Model(LightningModule):
             for i, name in enumerate(layer_names):
                 learning_rate = max_lr * self.hparams.decay_factor ** i
                 print(f'{name}: {learning_rate}')
-                parameters += [{'params': [p for n, p in self.model.model.model.named_parameters() if n == name or (len(n.split(name)) > 1 and n.startswith(name) and n.split(name)[1][0] == '.') or (name == 'embedding_tokens' and (n == 'cls_token' or n == 'pos_embed' or n == 'register_tokens' or n == 'mask_token'))],
-                                'lr': learning_rate,
-                                'name': name}]
+
+                if name == 'decoder.convolution':
+                    parameters += [{'params': self.model.decoder.convolution.parameters(),
+                                    'lr': learning_rate,
+                                    'name': name}]
+                else:
+                    parameters += [{'params': [p for n, p in self.model.model.model.named_parameters() if n == name or (len(n.split(name)) > 1 and n.startswith(name) and n.split(name)[1][0] == '.') or (name == 'embedding_tokens' and (n == 'cls_token' or n == 'pos_embed' or n == 'register_tokens' or n == 'mask_token'))],
+                                    'lr': learning_rate,
+                                    'name': name}]
 
             assert sum(p.numel() for p in self.model.parameters()) == sum(p.numel() for group in parameters for p in group['params'])
 
