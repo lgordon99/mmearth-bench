@@ -7,16 +7,12 @@ import torch.nn.functional as F
 from timm.models.layers import trunc_normal_, DropPath
 from torch import Tensor
 
-# from .norm_layers import LayerNorm, GRN
-# from convnextv2_unet import LayerNorm, GRN
-
-
 # All rights reserved.
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
 class LayerNorm(nn.Module):
-    """ LayerNorm supports two data formats: channels_last (default) or channels_first.
+    """LayerNorm supports two data formats: channels_last (default) or channels_first.
     channels_last corresponds to inputs with shape (batch_size, height, width, channels) while channels_first corresponds to inputs
     with shape (batch_size, channels, height, width).
     """
@@ -63,35 +59,27 @@ class Block(nn.Module):
 
     def __init__(self, dim, drop_path=0.0):
         super().__init__()
-        self.dwconv: nn.Module = nn.Conv2d(
-            dim, dim, kernel_size=7, padding=3, groups=dim
-        )  # depth-wise conv
+        self.dwconv: nn.Module = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim) # depth-wise conv
         self.norm: nn.Module = LayerNorm(dim, eps=1e-6)
-        self.pwconv1: nn.Module = nn.Linear(
-            dim, 4 * dim
-        )  # point-wise/1x1 convs, implemented with linear layers
+        self.pwconv1: nn.Module = nn.Linear(dim, 4 * dim) # point-wise/1x1 convs, implemented with linear layers
         self.act: nn.Module = nn.GELU()
         self.grn: nn.Module = GRN(4 * dim)
         self.pwconv2: nn.Module = nn.Linear(4 * dim, dim)
-        self.drop_path: nn.Module = (
-            DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        )
+        self.drop_path: nn.Module = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, x: Tensor) -> Tensor:
         input = x
         x = self.dwconv(x)
         x = x.permute(0, 2, 3, 1)  # (N, C, H, W) -> (N, H, W, C)
         x = self.norm(x)
-
         x = self.pwconv1(x)
         x = self.act(x)
         x = self.grn(x)
         x = self.pwconv2(x)
         x = x.permute(0, 3, 1, 2)  # (N, H, W, C) -> (N, C, H, W)
-
         x = input + self.drop_path(x)
-        return x
 
+        return x
 
 class ConvNeXtV2(nn.Module):
     """ConvNeXt V2
@@ -161,11 +149,10 @@ class ConvNeXtV2(nn.Module):
             )
             self.downsample_layers.append(downsample_layer)
 
-        self.stages = (
-            nn.ModuleList()
-        )  # 4 feature resolution stages, each consisting of multiple residual blocks
+        self.stages = nn.ModuleList()  # 4 feature resolution stages, each consisting of multiple residual blocks
         dp_rates = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
         cur = 0
+
         for i in range(self.num_stage):
             stage = nn.Sequential(
                 *[
@@ -196,11 +183,12 @@ class ConvNeXtV2(nn.Module):
             x = self.stem(x)
 
         x = self.stages[0](x)
+
         for i in range(3):
             x = self.downsample_layers[i](x)
             x = self.stages[i + 1](x)
 
-        return self.norm(x.mean([-2, -1]))  # global average pooling, (N, C, H, W) -> (N, C)
+        return self.norm(x.mean([-2, -1])) # global average pooling, (N, C, H, W) -> (N, C)
 
     def upsample_mask(self, mask, scale):
         assert len(mask.shape) == 2
@@ -216,9 +204,9 @@ class ConvNeXtV2(nn.Module):
             num_patches = mask.shape[1]
             scale = int(self.img_size // (num_patches**0.5))
             mask = self.upsample_mask(mask, scale)
-
             mask = mask.unsqueeze(1).type_as(x)
             x *= 1.0 - mask
+
             if self.use_orig_stem:
                 x = self.stem_orig(x)
             else:
@@ -233,4 +221,5 @@ class ConvNeXtV2(nn.Module):
 
         x = self.forward_features(x)
         x = self.head(x)
+
         return x
