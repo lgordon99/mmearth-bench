@@ -162,7 +162,7 @@ class MeanError(Metric):
         return self.error_sum / self.total
 
 class ResNet50(nn.Module):
-    def __init__(self, num_classes, pixelwise, pretrained):
+    def __init__(self, num_classes, pixelwise, pretrained, nodata_value, project_dir_path):
         super(ResNet50, self).__init__()
 
         self.model = resnet50(weights='DEFAULT' if pretrained else None)
@@ -187,10 +187,10 @@ class ResNet50(nn.Module):
         return x
 
     def forward(self, images):
-        return self.model(images[:, [3,2,1], :, :])
+        return self.model(images['sentinel2'][:, [3,2,1], :, :])
 
 class MPMAE(nn.Module):
-    def __init__(self, num_classes, pixelwise, pretrained):
+    def __init__(self, num_classes, pixelwise, pretrained, nodata_value, project_dir_path):
         super(MPMAE, self).__init__()
 
         self.pixelwise = pixelwise
@@ -201,7 +201,7 @@ class MPMAE(nn.Module):
             self.model.forward_features = self._pixelwise_forward_features # replaces the forward_features method with a pixelwise version
 
         if pretrained:
-            checkpoint_path = '/n/davies_lab/Users/luciagordon/mmearth-bench/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
+            checkpoint_path = f'{project_dir_path}/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
             load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
 
     def _pixelwise_forward_features(self, x):
@@ -220,13 +220,14 @@ class MPMAE(nn.Module):
         return self.model.norm(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
 
     def forward(self, images):
-        return self.model(images)
+        return self.model(images['sentinel2'])
 
 class DINOv2(nn.Module):
-    def __init__(self, num_classes, pixelwise, pretrained):
+    def __init__(self, num_classes, pixelwise, pretrained, nodata_value, project_dir_path):
         super(DINOv2, self).__init__()
 
         self.pixelwise = pixelwise
+        self.nodata_value = nodata_value
         self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg')
         self.model.interpolate_pos_encoding = self._deterministic_interpolate_pos_encoding
 
@@ -274,7 +275,8 @@ class DINOv2(nn.Module):
         return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
 
     def forward(self, images):
-        images = images[:, [3,2,1], :, :]
+        images = images['sentinel2'][:, [3,2,1], :, :]
+        images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant', value=self.nodata_value) # DinoV2 requires the image size to be divisible by 14
 
         if self.pixelwise:
             features = self.model.forward_features(images)['x_norm_patchtokens'].permute(0, 2, 1)
@@ -283,11 +285,70 @@ class DINOv2(nn.Module):
         else:
             return self.model(images)
 
+class ModalityReconstructionNetwork(nn.Module):
+    def __init__(self, masked_modality=None):
+        super(ModalityReconstructionNetwork, self).__init__()
+
+        num_pixel_bands = 26
+        num_tile_bands = 20
+        total_bands = num_pixel_bands + num_tile_bands
+
+        self.unet = smp.Unet(encoder_name='resnet50', encoder_weights='imagenet', in_channels=total_bands, classes=total_bands)
+
+    def forward(self, images):
+        pixel_level_modalities = torch.cat([images[modality] for modality in ['sentinel2', 'sentinel1', 'asterdem', 'ethgch', 'dynamicworld', 'esaworldcover']], dim=1)
+        tile_level_modalities = torch.cat([images[modality] for modality in ['precipitation', 'temperature', 'geolocation', 'month', 'biome', 'ecoregion']], dim=1)
+        tile_level_modalities_spatial = tile_level_modalities.view(*tile_level_modalities.shape, 1, 1).expand(*tile_level_modalities.shape[:2], *pixel_level_modalities.shape[2:]) # expands the tile-level modalities to match the shape of the pixel-level modalities
+        modalities = torch.cat([pixel_level_modalities, tile_level_modalities_spatial], dim=1) # combines the pixel-level and tile-level modalities
+        output = self.unet(modalities) # extracts the features from the UNet encoder
+
+        exit()
+
+class ModalityReconstructionNetworkSeparateEncoders(nn.Module):
+    def __init__(self, masked_modality=None):
+        super(ModalityReconstructionNetworkSeparateEncoders, self).__init__()
+
+        num_pixel_bands = 26
+        num_tile_bands = 20
+
+        self.unet = smp.Unet(encoder_name='resnet50', encoder_weights='imagenet', in_channels=num_pixel_bands, classes=num_pixel_bands)
+        embedding_dim = self.unet.encoder.out_channels[-1] # the deepest embedding dimension of the UNet encoder
+        self.tile_modality_encoder = nn.Sequential(nn.Linear(num_tile_bands, embedding_dim),
+                                                   nn.ReLU(),
+                                                   nn.Linear(embedding_dim, embedding_dim))
+        original_conv = self.unet.decoder.blocks[0].conv1[0]
+        self.unet.decoder.blocks[0].conv1[0] = nn.Conv2d(in_channels=5120, out_channels=original_conv.out_channels, kernel_size=original_conv.kernel_size, stride=original_conv.stride, padding=original_conv.padding, bias=original_conv.bias)
+        self.tile_modality_decoder = nn.Sequential(nn.Linear(embedding_dim + embedding_dim, embedding_dim),
+                                                   nn.ReLU(),
+                                                   nn.Linear(embedding_dim, num_tile_bands))
+
+    def forward(self, images):
+        pixel_level_modalities = torch.cat([images[modality] for modality in ['sentinel2', 'sentinel1', 'asterdem', 'ethgch', 'dynamicworld', 'esaworldcover']], dim=1)
+        tile_level_modalities = torch.cat([images[modality] for modality in ['precipitation', 'temperature', 'geolocation', 'month', 'biome', 'ecoregion']], dim=1)
+        pixel_level_features = self.unet.encoder(pixel_level_modalities) # extracts the pixel-level features from the UNet encoder
+        tile_level_features = self.tile_modality_encoder(tile_level_modalities)
+        pixel_tile_level_features_spatial = torch.cat([pixel_level_features[-1], tile_level_features.view(*tile_level_features.shape, 1, 1).expand(*pixel_level_features[-1].shape)], dim=1) # combines the tile-level features with the deepest pixel-level features
+        decoder_input = pixel_level_features[:-1] + [pixel_tile_level_features_spatial]
+        decoder_output = self.unet.decoder(*decoder_input) # decodes the features back to the pixel level
+        pixel_level_modality_reconstructions = self.unet.segmentation_head(decoder_output) # applies the segmentation head to the decoded features
+        averaged_pixel_level_features = pixel_level_features[-1].mean(dim=(2,3))
+        pixel_tile_level_features = torch.cat([averaged_pixel_level_features, tile_level_features], dim=1) # combines the averaged pixel-level features with the tile-level features
+        tile_level_modality_reconstructions = self.tile_modality_decoder(pixel_tile_level_features)
+
+        print(pixel_tile_level_features_spatial.shape)
+        print(averaged_pixel_level_features.shape)
+        print(pixel_tile_level_features.shape)
+        print(pixel_level_modality_reconstructions.shape)
+        print(tile_level_modality_reconstructions.shape)
+        exit()
+
 class LinearDecoder(nn.Module):
-    def __init__(self, num_input_channels, image_size, feature_dim):
+    def __init__(self, num_input_channels, image_size, feature_dim, nodata_value):
         super(LinearDecoder, self).__init__()
 
         self.num_input_channels = num_input_channels
+        self.image_size = image_size
+        self.nodata_value = nodata_value
         self.upsample =  nn.Upsample(size=image_size, mode='bilinear') # upsamples bilinearly to the image size
         self.convolution = nn.Conv2d(in_channels=num_input_channels+feature_dim, out_channels=1, kernel_size=1) # applies a linear layer to each pixel
 
@@ -295,18 +356,21 @@ class LinearDecoder(nn.Module):
         if self.num_input_channels != 12:
             images = images[:, [3,2,1], :, :]
 
+        if self.image_size != 128:
+            images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant', value=self.nodata_value) # DinoV2 requires the image size to be divisible by 14
+
         upsampled_features = self.upsample(features)
-        concatenated = torch.cat((images, upsampled_features), dim=1)  # concatenate along the channel dimension
-        convolved = self.convolution(concatenated)  # apply the convolution to the concatenated tensor
+        concatenated = torch.cat((images, upsampled_features), dim=1) # concatenates along the channel dimension
+        convolved = self.convolution(concatenated) # applies the convolution to the concatenated tensor
 
         return convolved
 
 class EncoderDecoder(nn.Module):
-    def __init__(self, model_class_name, pixelwise, num_classes, pretrained):
+    def __init__(self, model_class_name, pixelwise, num_classes, pretrained=None, nodata_value=None, project_dir_path=None):
         super(EncoderDecoder, self).__init__()
 
         self.pixelwise = pixelwise
-        self.model = globals()[model_class_name](num_classes, pixelwise, pretrained)
+        self.model = globals()[model_class_name](num_classes, pixelwise, pretrained, nodata_value, project_dir_path)
 
         if pixelwise:
             num_input_channels = 12 if model_class_name == 'MPMAE' else 3
@@ -319,16 +383,16 @@ class EncoderDecoder(nn.Module):
             elif model_class_name == 'MPMAE':
                 feature_dim = 320
 
-            self.decoder = LinearDecoder(num_input_channels, image_size, feature_dim) # creates the decoder with the number of features
+            self.decoder = LinearDecoder(num_input_channels, image_size, feature_dim, nodata_value) # creates the decoder with the number of features
 
     def forward(self, images):
         if self.pixelwise:
-            return self.decoder(images=images, features=self.model(images)) # applies the decoder to the features
+            return self.decoder(images=images['sentinel2'], features=self.model(images)) # applies the decoder to the features
         else:
             return self.model(images)
 
 class Model(LightningModule):
-    def __init__(self, task, model, adaptation_mode, decay_factor, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, nodata_value):
+    def __init__(self, task, model, adaptation_mode, decay_factor, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, nodata_value, project_dir_path):
         super().__init__()
 
         self.save_hyperparameters()
@@ -349,11 +413,13 @@ class Model(LightningModule):
         elif self.hparams.model == 'resnet50_imagenet':
             self.model = EncoderDecoder(model_class_name='ResNet50', pixelwise=pixelwise, num_classes=num_classes, pretrained=True)
         elif self.hparams.model == 'dinov2':
-            self.model = EncoderDecoder(model_class_name='DINOv2', pixelwise=pixelwise, num_classes=num_classes, pretrained=None)
+            self.model = EncoderDecoder(model_class_name='DINOv2', pixelwise=pixelwise, num_classes=num_classes, nodata_value=self.hparams.nodata_value)
         elif self.hparams.model == 'mpmae':
             self.model = EncoderDecoder(model_class_name='MPMAE', pixelwise=pixelwise, num_classes=num_classes, pretrained=False)
         elif self.hparams.model == 'mpmae_mmearth':
-            self.model = EncoderDecoder(model_class_name='MPMAE', pixelwise=pixelwise, num_classes=num_classes, pretrained=True)
+            self.model = EncoderDecoder(model_class_name='MPMAE', pixelwise=pixelwise, num_classes=num_classes, pretrained=True, project_dir_path=self.hparams.project_dir_path)
+        elif self.hparams.model == 'modalityreconstruction':
+            self.model = ModalityReconstructionNetwork()
 
     def configure_metrics(self):
         if self.hparams.task == 'species':
@@ -464,11 +530,11 @@ class Model(LightningModule):
     def general_step(self, batch, batch_idx, mode, dataloader_idx=0):
         images, target = batch # extracts the images and targets for the batch
 
-        if self.hparams.model == 'dinov2':
-            images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant', value=self.hparams.nodata_value) # DinoV2 requires the image size to be divisible by 14
+        # if self.hparams.model == 'dinov2':
+        #     images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant', value=self.hparams.nodata_value) # DinoV2 requires the image size to be divisible by 14
 
         prediction = self(images) # forward pass
-        batch_size = images.shape[0] # number of items in batch
+        batch_size = images['sentinel2'].shape[0] # number of items in batch
 
         if self.hparams.task == 'biomass':
             valid_mask = target != self.hparams.nodata_value # mask for the NaN pixels in the target
@@ -505,9 +571,9 @@ class Model(LightningModule):
 
         if batch_idx == 0: # if we are on the first batch
             if mode == 'train' or mode == 'val':
-                self._log_images(images.cpu().numpy()[:, [3,2,1]].astype(float), mode)
+                self._log_images(images['sentinel2'].cpu().numpy()[:, [3,2,1]].astype(float), mode)
             else:
-                self._log_images(images.cpu().numpy()[:, [3,2,1]].astype(float), split)
+                self._log_images(images['sentinel2'].cpu().numpy()[:, [3,2,1]].astype(float), split)
 
         if mode == 'train':
             return loss
