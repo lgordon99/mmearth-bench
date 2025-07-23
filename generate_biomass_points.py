@@ -4,8 +4,6 @@ A script to create a GeoJSON with biomass points balanced across biomes
 '''
 
 # imports
-from matplotlib.lines import Line2D
-# from shapely.geometry import mapping
 from sys import argv
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -26,7 +24,7 @@ env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda enviro
 partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
 
 def get_ecoregions_in_gedi_collection():
-    ecoregions_collection = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017')
+    ecoregions_collection = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017') # dataset with the extents of the 846 terrestrial ecoregions
     gedi_latitude_range = [-51.6, 51.6] # GEDI covers the latitude band between 51.6 degees N and S
     gedi_range_polygon = ee.Geometry.Polygon(coords=[[-180, gedi_latitude_range[0]],
                                                     [180, gedi_latitude_range[0]],
@@ -35,7 +33,7 @@ def get_ecoregions_in_gedi_collection():
                                              proj=None,
                                              geodesic=False) # polygon covering GEDI range
     ecoregions_in_gedi_collection = (ecoregions_collection
-                                     .filterBounds(gedi_range_polygon) # exclude ecoregions outside of the GEDI range
+                                     .filterBounds(gedi_range_polygon) # excludes ecoregions outside of the GEDI range, leaving 776
                                      .map(lambda feature: feature.setGeometry(feature.geometry().intersection(gedi_range_polygon, maxError=1)))) # crop ecoregions to the GEDI range
 
     return ecoregions_in_gedi_collection
@@ -47,7 +45,7 @@ def get_biomass_tile_counts():
     biomes = sorted([biome for biome in list(set(ecoregions_in_gedi_collection.aggregate_array('BIOME_NAME').getInfo())) if biome != 'N/A']) # list of biomes
     biomes_ecoregions = {biome: {} for biome in biomes}
     NUM_TILES = 20000 # total number of biomass tiles
-    num_tiles_per_biome = math.ceil(NUM_TILES / len(biomes)) # total number of tiles per biome
+    num_tiles_per_biome = math.ceil(NUM_TILES / len(biomes)) # total number of tiles per biome = 1,429
 
     for i, biome in enumerate(biomes):
         print(f'Biome {i+1}/{len(biomes)}: {biome}')
@@ -72,22 +70,9 @@ def get_biomass_tile_counts():
             biomes_ecoregions[biome]['ecoregions'][ecoregion]['num_tiles'] = math.ceil(num_tiles_per_biome * biomes_ecoregions[biome]['ecoregions'][ecoregion]['area'] / biomes_ecoregions[biome]['area']) # number of tiles per ecoregion is proportional to the size of the ecoregion
 
     with open('biomes_ecoregions_data/biomes_ecoregions_biomass.json', 'w') as file:
-        json.dump(biomes_ecoregions, file, indent=4)
+        json.dump(biomes_ecoregions, file, indent=4) # only 774 ecoregions included because two of them had biome='N/A'
 
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
-
-# def get_asset_if_valid(asset):
-#     try:
-#         asset.getInfo()
-
-#         return asset
-#     except ee.ee_exception.EEException as e:
-#         if 'not found' in str(e):
-#             print(e)
-
-#             return None
-#         else: # for any other kind of error
-#             return asset
 
 def get_gedi_points(ecoregion):
     year = '2020'
@@ -101,7 +86,6 @@ def get_gedi_points(ecoregion):
                              .getInfo()) # list of names of the feature collections
     quality_filter = 'degrade_flag == 0 && l2_quality_flag == 1 && l4_quality_flag == 1 && leaf_off_flag == 0 && region_class > 0'
     gedi_points = (ee.FeatureCollection([result for _, result in ((collection_name, utils.get_asset_if_valid(ee.FeatureCollection(collection_name))) for collection_name in gedi_collection_names) if result is not None]) # all GEDI feature collections with points in the ecoregion
-    # gedi_points = (ee.FeatureCollection([ee.FeatureCollection(collection_name) for collection_name in gedi_collection_names]) # all GEDI feature collections with points in the ecoregion
                     .flatten() # merges all the feature collections into one
                     .filterBounds(ecoregion_collection) # collection of the GEDI points that are within the ecoregion
                     .filter(quality_filter) # filters for quality, growing season, and land
@@ -124,7 +108,7 @@ def generate_ecoregion_points(biome, ecoregion, num_ecoregion_tiles, tiles_from_
         point_collection = (gedi_points.map(lambda point: ee.Feature(point.geometry())) # only keeps geometry information
                                        .randomColumn('random') # adds a new property to each feature containing a random number
                                        .sort('random') # sorts the features by the random numbers
-                                       .limit(num_ecoregion_tiles - len(points)) # selects the first points
+                                       .limit(num_ecoregion_tiles) # selects the first points
                                        .map(lambda point: point.set('outer_tile', point.buffer(OUTER_TILE_SIZE_M / 2).bounds().geometry())) # creates outer tiles around the points
                                        .getInfo())
         points += [{**{key: value for key, value in point.items() if key != 'id'}, 'properties': {'outer_tile': point['properties']['outer_tile'], 'biome': biome, 'ecoregion': ecoregion}} for point in point_collection['features']]
@@ -153,7 +137,7 @@ def generate_ecoregion_points(biome, ecoregion, num_ecoregion_tiles, tiles_from_
                                                     .getInfo())
                 candidate_points = [candidate_point for candidate_point in candidate_points['features'] if gedi_points.filterBounds(candidate_point['properties']['inner_tile']).size().getInfo() > 0] # saves the points with at least one GEDI point in their inner tile
                 # print(f'{len(candidate_points)} candidate tile(s) after filtering for emptiness')
-                points += [{**{key: value for key, value in candidate_point.items() if key != 'id'}, 'properties': {'outer_tile': candidate_point['properties']['outer_tile'], 'biome': biome, 'ecoregion': ecoregion}} for candidate_point in candidate_points] 
+                points += [{**{key: value for key, value in candidate_point.items() if key != 'id'}, 'properties': {'outer_tile': candidate_point['properties']['outer_tile'], 'biome': biome, 'ecoregion': ecoregion}} for candidate_point in candidate_points]
                 print(f'{len(points)} points made so far')
 
     utils.save_geojson(points, path=f'biomass/points/ecoregion_points/biome_{biome.replace("/", "_")}_ecoregion_{ecoregion.replace("/", "_")}_biomass_points.geojson')
@@ -179,9 +163,9 @@ def generate_biomass_points():
                 tiles_from_points = True
 
                 if os.path.exists(points_path): # if there is a points file saved
-                    run_ecoregion = False
+                    run_ecoregion = False # ecoregion has already been run
                 else: # if there is no points file saved
-                    complete = False
+                    complete = False # at least one ecoregion is missing data
                     error_path = f'bash-errors/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.err'
 
                     if os.path.exists(error_path): # if there is an error file
@@ -192,9 +176,9 @@ def generate_biomass_points():
                                 print('\nError = {}'.format(error.split("\n")[-2]))
 
                                 if 'Computation timed out' in error: # if the error is "computation timed out"
-                                    tiles_from_points = False
+                                    tiles_from_points = False # falls back to the other method
                             else: # if there is no error
-                                run_ecoregion = False
+                                run_ecoregion = False # ecoregion is currently being run
 
                 if run_ecoregion:
                     while utils.count_running_jobs() > 40: # if more than 40 jobs are running
@@ -234,7 +218,6 @@ def merge_ecoregion_points():
 
     utils.save_geojson(features=points, path='biomass/points/biomass_points.geojson') # saves the points
     utils.save_geojson(features=[{'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': point['properties']['outer_tile']['coordinates']}} for point in points], path='biomass/points/biomass_outer_tiles.geojson')
-    # utils.make_global_map(tiles=tiles, color='g', path='biomass/figures/biomass_map', title='Biomass') # plots the points on a global map
 
 def check_biomass_points():
     biomes_ecoregions = utils.read_json('biomes_ecoregions_data/biomes_ecoregions_biomass.json')
@@ -268,11 +251,7 @@ def check_biomass_points():
 
             elif len(utils.read_geojson(path)['features']) < num_ecoregion_tiles:
                 num_ecoregions_missing_tiles += 1
-
-                if len(utils.read_geojson(path)['features']) == 0:
-                    missing_ecoregions.append(ecoregion)
-                else:
-                    ecoregions_missing_tiles.append(ecoregion)
+                ecoregions_missing_tiles.append(ecoregion)
 
                 # _, gedi_points = get_gedi_points(ecoregion)
 
@@ -282,8 +261,8 @@ def check_biomass_points():
                     # if len(content) > 0:
                     #     print(content.split('\n')[-2])
 
-                # print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion} is missing tiles ({len(utils.read_geojson(path)['features'])}/{num_ecoregion_tiles} tile(s) made, {gedi_points.size().getInfo()} GEDI points)')
-                # print(f'\nEcoregion {j+1}/{len(ecoregions)}: {ecoregion} is missing tiles ({len(utils.read_geojson(path)['features'])}')
+                # print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion} is missing tiles ({len(utils.read_geojson(path)["features"])}/{num_ecoregion_tiles} tile(s) made, {gedi_points.size().getInfo()} GEDI points)')
+                # print(f'\nEcoregion {j+1}/{len(ecoregions)}: {ecoregion} is missing tiles ({len(utils.read_geojson(path)["features"])}')
 
     print(f'\n{num_missing_ecoregions}/{num_ecoregions} ecoregions are missing')
     print(f'{num_ecoregions_missing_tiles}/{num_ecoregions} ecoregions are missing tiles')
@@ -295,10 +274,10 @@ def check_biomass_points():
     ax.add_feature(cfeature.BORDERS, linestyle='-', linewidth=0.3)
     ax.add_feature(cfeature.COASTLINE, linestyle='-', linewidth=0.3)
 
-    for ecoregion in missing_ecoregions:
-        ecoregion_collection = ecoregions_in_gedi_collection.filter(ee.Filter.eq('ECO_NAME', ecoregion))
-        ecoregion_gdf = gpd.GeoDataFrame.from_features(geemap.ee_to_geojson(ecoregion_collection))
-        ecoregion_gdf.plot(ax=ax, edgecolor='blue', facecolor='blue', transform=ccrs.PlateCarree())
+    # for ecoregion in missing_ecoregions:
+    #     ecoregion_collection = ecoregions_in_gedi_collection.filter(ee.Filter.eq('ECO_NAME', ecoregion))
+    #     ecoregion_gdf = gpd.GeoDataFrame.from_features(geemap.ee_to_geojson(ecoregion_collection))
+    #     ecoregion_gdf.plot(ax=ax, edgecolor='blue', facecolor='blue', transform=ccrs.PlateCarree())
 
     for ecoregion in ecoregions_missing_tiles:
         ecoregion_collection = ecoregions_in_gedi_collection.filter(ee.Filter.eq('ECO_NAME', ecoregion))
@@ -306,10 +285,10 @@ def check_biomass_points():
         ecoregion_gdf.plot(ax=ax, edgecolor='red', facecolor='red', transform=ccrs.PlateCarree())
 
     ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
-    legend_elements = [Line2D([0], [0], color='blue', lw=2, label='Missing ecoregions'),
-                       Line2D([0], [0], color='red', lw=2, label='Ecoregions missing tiles')]
+    # legend_elements = [Line2D([0], [0], color='blue', lw=2, label='Missing ecoregions'),
+    #                    Line2D([0], [0], color='red', lw=2, label='Ecoregions missing tiles')]
 
-    ax.legend(handles=legend_elements, fontsize=6)
+    # ax.legend(handles=legend_elements, fontsize=6)
     plt.savefig('biomass/figures/ecoregions_missing_tiles.png', bbox_inches='tight')
 
 if __name__ == '__main__':
