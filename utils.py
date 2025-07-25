@@ -51,6 +51,23 @@ def get_asset_if_valid(asset):
         else: # for any other kind of error
             return asset
 
+def get_gedi_points(region):
+    year = '2020'
+    gedi_collection_names = (ee.FeatureCollection('LARSE/GEDI/GEDI04_A_002_INDEX') # table index
+                               .filter(f'time_start >= "{year}-01-01" && time_end <= "{year}-12-31"') # feature collections with features in the selected year
+                               .filterBounds(region) # GEDI feature collections that have points within the region
+                               .aggregate_array('table_id') # extracts the IDs of the feature collections
+                               .getInfo()) # list of names of the feature collections
+    gedi_points = (ee.FeatureCollection([collection for collection in (get_asset_if_valid(ee.FeatureCollection(name)) for name in gedi_collection_names) if collection is not None]) # extracts the feature collections that are valid assets
+                     .flatten() # merges all the feature collections into one
+                     .filterBounds(region) # collection of the GEDI points that are within the region
+                     .filter('degrade_flag == 0 && l2_quality_flag == 1 && l4_quality_flag == 1 && leaf_off_flag == 0 && region_class > 0') # filters for quality, growing season, and land
+                     .map(lambda point: point.set('leaf_off_day_minus_leaf_on_day', ee.Number(point.get('leaf_off_doy')).subtract(ee.Number(point.get('leaf_on_doy'))))) # adds property for difference between leaf off and on days
+                     .filter(ee.Filter.gt('leaf_off_day_minus_leaf_on_day', 0)) # only keeps points whose leaf off day is after their leaf on day
+                     .filter(ee.Filter.lte('agbd', 2000))) # filters by GEDI points with biomass value <= 2000
+
+    return gedi_points
+
 def get_rectangle_center(coords):
     x_coords = [coord[0] for coord in coords]
     y_coords = [coord[1] for coord in coords]
@@ -79,10 +96,12 @@ def make_global_map(tiles, color, path, title):
 
 def normalize(array):
     for i in range(array.shape[0]):
-        if array[i].max() != array[i].min(): # check to avoid division by zero
-            array[i] = (array[i] - array[i].min()) / (array[i].max() - array[i].min())
+        valid_mask = array[i] != -9999
+
+        if array[i][valid_mask].max() != array[i][valid_mask].min(): # check to avoid division by zero
+            array[i][valid_mask] = (array[i][valid_mask] - array[i][valid_mask].min()) / (array[i][valid_mask].max() - array[i][valid_mask].min())
         else:
-            array[i] = np.zeros_like(array[i]) # assigns a default value when all elements in the band are the same
+            array[i][valid_mask] = 0 # assigns a default value when all elements in the band are the same
 
     return array
 
