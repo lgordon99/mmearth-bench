@@ -30,7 +30,7 @@ def generate_property_points(property_):
 
     dataframe = properties[property_]['dataframe']
     dataframe = dataframe[(dataframe['upper_depth'] >= upper_depth) & (dataframe['lower_depth'] <= lower_depth) & (dataframe['positional_uncertainty'] == 'Circa 100 m')] # filters for measurements in selected depth range and with the lowest positional uncertainty
-    points = np.concatenate([ee.FeatureCollection([ee.Feature(ee.Geometry.Point([measurement.longitude, measurement.latitude])).set({'value': measurement.value_avg}) for measurement in dataframe[i: i+5000].itertuples()]).map(lambda point: point.set('outer_tile', point.buffer(OUTER_TILE_SIZE_M / 2).bounds().geometry())).getInfo()['features'] for i in range(0, len(dataframe), 5000)])
+    points = np.concatenate([ee.FeatureCollection([ee.Feature(ee.Geometry.Point([measurement.longitude, measurement.latitude])).set({property_: measurement.value_avg}) for measurement in dataframe[i: i+5000].itertuples()]).map(lambda point: point.set('outer_tile', point.buffer(OUTER_TILE_SIZE_M / 2).bounds().geometry())).getInfo()['features'] for i in range(0, len(dataframe), 5000)])
     points = [{**{key: value for key, value in point.items() if key != 'id'}} for point in points] # removes ID property
     print(f'{len(points)} points before removing overlaps')
 
@@ -38,8 +38,8 @@ def generate_property_points(property_):
     print(f'{len(points)} points after removing overlaps')
 
     random.shuffle(points) # shuffles the points list
-    points = [{**point, 'id': i} for i, point in enumerate(points)] # assigns each point an ID
-    utils.save_geojson(features=points, path=f'{data_dir_path}/{property_}/{property_}_points_2.geojson') # saves the points as a GeoJSON
+    points = [{**{key: value for key, value in point.items() if key != 'properties'}, 'properties': {key: value for key, value in point['properties'].items() if key != 'outer_tile'}, 'id': i} for i, point in enumerate(points)] # assigns each point an ID and removes the outer tile
+    utils.save_geojson(features=points, path=f'{data_dir_path}/{property_}/{property_}_points.geojson') # saves the points as a GeoJSON
 
 for property_ in properties.keys():
     generate_property_points(property_)
