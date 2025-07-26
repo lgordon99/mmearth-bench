@@ -1,9 +1,9 @@
 '''
 ee_data.py
-A general class to collect the data from GEE. Each function in the class will be a different dataset, and they share common variables like the start and end date, the projection etc.
 '''
 
-# imports
+# ============================================== IMPORTS ============================================== #
+
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import certifi
@@ -16,16 +16,21 @@ import requests
 import time
 import utils
 
+# ============================================== GLOBAL VARIABLES ============================================== #
+
 TILE_SIZE_M = utils.read_yaml('config.yml')['TILE_SIZE_M']
 TILE_SIZE = int(TILE_SIZE_M / 10)
 OUTER_TILE_SIZE_M = utils.read_yaml('config.yml')['OUTER_TILE_SIZE_M']
 year = '2020'
-nodata_value = -9999
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
 no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
 
+# ============================================== FUNCTIONS ============================================== #
+
 def get_last_day_of_month(month):
     return (datetime(int(year), month, 1) + relativedelta(months=1, days=-1)).day
+
+# ============================================== CLASSES ============================================== #
 
 class EEData:
     def __init__(self, point, task):
@@ -166,11 +171,9 @@ class EEData:
                                                           np.sin(np.deg2rad(self.tile_level_data['longitude'])),
                                                           np.cos(np.deg2rad(self.tile_level_data['latitude'])),
                                                           np.sin(np.deg2rad(self.tile_level_data['latitude']))])
-        # scl_mask = s2_image.select('SCL').mask() # mask of SCL band
-        # s2_image = s2_image.updateMask(scl_mask) # applies the SCL mask to all bands in the image
         continuous_valued_bands = s2_image.select([band for band in bands if band != 'SCL']).resample('bilinear').reproject(self.proj).unmask(no_data_values['Sentinel-2'])
-        categorical_valued_bands = s2_image.select('SCL').reproject(self.proj).unmask() # unmasks SCL to 0
-        s2_image = continuous_valued_bands.addBands(categorical_valued_bands) # combine continuous and categorical bands
+        scl = s2_image.select('SCL').reproject(self.proj).unmask() # unmasks SCL to 0
+        s2_image = continuous_valued_bands.addBands(scl) # combine continuous and categorical bands
         self.tile_level_data['MSK_CLDPRB_CLOUDY_PIXEL_FRACTION'] = s2_image.get('MSK_CLDPRB_CLOUDY_PIXEL_FRACTION').getInfo()
         self.tile_level_data['S2CLOUDLESS_CLOUDY_PIXEL_FRACTION'] = s2_image.get('S2CLOUDLESS_CLOUDY_PIXEL_FRACTION').getInfo()
         self.pixel_level_data['sentinel2'] = s2_image.rename([f'Sentinel2_{band}' if band not in ['MSK_CLDPRB', 'S2CLOUDLESS', 'SCL'] else band for band in bands])
@@ -217,9 +220,11 @@ class EEData:
     def aster(self):
         elevation = ee.Image('projects/sat-io/open-datasets/ASTER/GDEM').select('b1').float() # elevation band
         slope = ee.Terrain.slope(elevation) # calculates slope from elevation data
-        self.pixel_level_data['aster'] = ee.Image.cat([elevation, slope]).resample('bilinear').reproject(self.proj).unmask(nodata_value).rename(['AsterDEM_elevation', 'AsterDEM_slope']) # combine the elevation and slope into a single image
+        elevation = elevation.where(elevation.eq(0), no_data_values['AsterDEM']) # sets 0 in elevation band to the no data value
+        slope = slope.where(elevation.eq(no_data_values['AsterDEM']), no_data_values['AsterDEM']) # sets slope to no data value where elevation is no data
+        self.pixel_level_data['aster'] = ee.Image.cat([elevation, slope]).resample('bilinear').reproject(self.proj).unmask(no_data_values['AsterDEM']).rename(['AsterDEM_elevation', 'AsterDEM_slope']) # combine the elevation and slope into a single image
 
-        if self.pixel_level_data['aster'].eq(nodata_value).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=10).get('AsterDEM_elevation').getInfo() == 1: # if all pixels in the tile are no data
+        if self.pixel_level_data['aster'].eq(no_data_values['AsterDEM']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=10).get('AsterDEM_elevation').getInfo() == 1: # if all pixels in the tile are no data
             return False # if all pixels are no data, return False
 
     def eth_gch(self):
@@ -261,7 +266,7 @@ class EEData:
                                                      .rename('ESA_WorldCover'))
 
         if self.pixel_level_data['esa_worldcover'].eq(no_data_values['ESA_WorldCover']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=10).get('ESA_WorldCover').getInfo() == 1: # if all pixels in the tile are no data
-            return False # if all pixels are no data, return False
+            return False
 
     def precipitation_temperature(self):
         collection = 'ECMWF/ERA5_LAND/MONTHLY_AGGR'
@@ -321,7 +326,7 @@ class EEData:
                                     'format': 'GeoTIFF',
                                     'bands': band_names})
         success = False
-        tiff_path = f'{data_dir_path}/{self.task}/tiffs/tile_{self.id}_data.tif'
+        tiff_path = f'{data_dir_path}/{self.task}/tiffs/tile_{self.id}.tif'
 
         while not success:
             response = requests.get(url, stream=True, verify=certifi.where())
