@@ -118,18 +118,19 @@ def read_yaml(path):
         return yaml.safe_load(yaml_file)
 
 def remove_overlapping_tiles(tiles):
-    tiles_for_gdf = [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': Polygon(tile['properties']['outer_tile']['coordinates'][0])} for tile in tiles]
-    tiles_gdf = gpd.GeoDataFrame(tiles_for_gdf, geometry='geometry').reset_index(drop=False)
-    intersections = gpd.sjoin(tiles_gdf, tiles_gdf)
-    intersecting_indices = intersections[intersections['index_left'] != intersections['index_right']][['index_left', 'index_right']].to_numpy().tolist()
+    tiles_for_gdf = [{**{key: value for key, value in tile.items() if key != 'geometry'}, 'geometry': Polygon(tile['properties']['outer_tile']['coordinates'][0])} for tile in tiles] # replaces the geometry from the point to the outer tile
+    tiles_gdf = gpd.GeoDataFrame(tiles_for_gdf, geometry='geometry').reset_index(drop=False) # creates a GeoDataFrame with an index column for tracking
+    intersections = gpd.sjoin(tiles_gdf, tiles_gdf) # all pairs of tiles that intersect
+    intersecting_indices = np.array(intersections[intersections['index_left'] != intersections['index_right']][['index_left', 'index_right']].to_numpy().tolist()) # filters out self-intersections
     indices_to_remove = []
 
-    while len(intersecting_indices) > 0:
-        index_to_remove = intersecting_indices[0][0]
+    while len(intersecting_indices) > 0: # while there are intersecting tiles
+        conflicting_indices, num_conflicts = np.unique(intersecting_indices, return_counts=True)
+        index_to_remove = conflicting_indices[np.argmax(num_conflicts)]
         indices_to_remove.append(index_to_remove)
-        intersecting_indices = [pair for pair in intersecting_indices if index_to_remove not in pair]
+        intersecting_indices = intersecting_indices[~((intersecting_indices == index_to_remove).any(axis=1))]
 
-    indices_to_keep = [i for i in range(len(tiles)) if i not in indices_to_remove]
+    indices_to_keep = [i for i in range(len(tiles)) if i not in indices_to_remove] # indices of non-overlapping tiles
     tiles = [tiles[i] for i in indices_to_keep]
 
     return tiles
