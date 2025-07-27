@@ -18,36 +18,36 @@ import yaml
 # ============================================== GLOBAL VARIABLES ============================================== #
 
 ee.Initialize(project='mmearth-bench') # initializes EE with our project
-year = '2020'
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
 
 # ============================================== FUNCTIONS ============================================== #
 
 def get_modalities(task):
     start_time = time.time()
-    os.makedirs(f'{data_dir_path}/{task}/data', exist_ok=True)
-    points = utils.read_geojson(f'{task}/points/{task}_points.geojson') # reading the GeoJSON file
-    end_point = len(points['features'])
+    os.makedirs(f'{data_dir_path}/{task}/tiffs', exist_ok=True)
+    points = utils.read_geojson(f'{data_dir_path}/{task}/{task}_points.geojson') # reading the GeoJSON file
+    end_id = len(points['features'])
     tiles_made = 0
-    tile_missing_modalities_yml_path = f'{task}/{task}_missing_modalities.yml'
+    tile_missing_modalities_yml_path = f'{data_dir_path}/{task}/{task}_missing_modalities.yml'
 
     if os.path.exists(tile_missing_modalities_yml_path): # if there is some data saved
-        tile_missing_modalities = utils.read_yaml(tile_missing_modalities_yml_path)
-        start_point = next(reversed(tile_missing_modalities)) + 1
+        tile_missing_modalities = utils.read_yaml(tile_missing_modalities_yml_path) # reads the existing missing modality data
+        start_id = next(reversed(tile_missing_modalities)) + 1 # sets the start ID to the next one
     else:
-        tile_missing_modalities = {}
-        start_point = 0
+        tile_missing_modalities = {} # initializes an empty dictionary
+        start_id = 0 # starts from the first point
 
-    for point_id in range(start_point, end_point):
-        print(f'Processing tile {point_id}/{end_point-1}')
+    for point_id in range(start_id, end_id):
+        print(f'Processing tile {point_id}/{end_id-1}')
+
         point = points['features'][point_id]
-        ee_data = EEData(point, task, data_dir_path)
+        ee_data = EEData(point, task)
         tile_missing_modalities[point_id] = ee_data.missing_modalities
 
         with open(tile_missing_modalities_yml_path, 'w') as file:
             yaml.dump(tile_missing_modalities, file, default_flow_style=False)
 
-        if not ee_data.no_data:
+        if 'sentinel2' not in tile_missing_modalities[point_id]:
             tiles_made += 1
 
     print(f'{tiles_made} tiles made')
@@ -109,8 +109,9 @@ if __name__ == '__main__':
     elif 'for' not in argv[1]: # python get_tile_data.py TASK
         partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
         env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
-        subprocess.run(['sbatch', '-t', '5-00:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'{argv[1]}_mmearth_modalities', '-o', f'bash-outputs/{argv[1]}_mmearth_modalities.out', '-e', f'bash-errors/{argv[1]}_mmearth_modalities.err', 'job.sh', env_path, 'get_tile_data.py', f'get_modalities_for_{argv[1]}'])
-    elif 'for' in argv[1]: # python get_tile_data.py get_modalities_for_TASK
+        task = argv[1]
+        subprocess.run(['sbatch', '-t', '5-00:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'{task}_mmearth_modalities', '-o', f'{data_dir_path}/{task}/output-files/{task}_mmearth_modalities.out', 'job.sh', env_path, 'get_tile_data.py', f'for_{task}'])
+    elif 'for' in argv[1]: # python get_tile_data.py for_TASK
         task = argv[1].split('for_')[1]
         print(f'Task = {task}')
         get_modalities(task)
