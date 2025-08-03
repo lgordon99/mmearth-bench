@@ -3,13 +3,16 @@ generate_biomass_points.py by Lucia Gordon
 A script to create a GeoJSON with biomass points balanced across biomes
 '''
 
-# imports
+# ============================================== IMPORTS ============================================== #
+
 from google.cloud import storage
 from shapely import bounds
 from sys import argv
+import builtins
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import ee
+import functools
 import geemap
 import geopandas as gpd
 import json
@@ -22,7 +25,10 @@ import sys
 import time
 import utils
 
+# ============================================== GLOBAL VARIABLES ============================================== #
+
 random.seed(42)
+print = functools.partial(builtins.print, flush=True)
 ee.Initialize(project='mmearth-bench') # initializes EE with our project
 env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
 partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
@@ -30,6 +36,8 @@ data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
 client = storage.Client()
 bucket = client.bucket('biomass_ecoregion_data')
 OUTER_TILE_SIZE_M = utils.read_yaml('config.yml')['OUTER_TILE_SIZE_M']
+
+# ============================================== FUNCTIONS ============================================== #
 
 def get_ecoregion_collection():
     return ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filter(ee.Filter.neq('BIOME_NAME', 'N/A')) # dataset with the extents of the 846 terrestrial ecoregions
@@ -101,55 +109,55 @@ def get_biomass_tile_counts():
     print(f'Total number of tiles = {intended_num_tiles}') # 20,421 tiles
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}') # ~13 minutes
 
-def get_specific_ecoregion_collection(ecoregion):
-    return get_ecoregions_in_gedi_collection().filter(ee.Filter.eq('ECO_NAME', ecoregion)) # extracts the collection for the ecoregion
-
 def generate_ecoregion_points(biome, ecoregion, num_ecoregion_tiles):
     start_time = time.time()
     print(f'{num_ecoregion_tiles} tile(s) in ecoregion')
-    # os.makedirs(f'{data_dir_path}/biomass/points/{biome.replace("/", "_")}', exist_ok=True) # TEMPORARILY HERE
 
     biome_labels = utils.read_json(f'{data_dir_path}/biome_labels.json') # reads the biome labels
     ecoregion_labels = utils.read_json(f'{data_dir_path}/ecoregion_labels.json') # reads the ecoregion labels
-    ecoregion_collection = get_specific_ecoregion_collection(ecoregion) # extracts the collection for the ecoregion
+    ecoregion_collection = get_ecoregions_in_gedi_collection().filter(ee.Filter.eq('ECO_NAME', ecoregion)) # extracts the collection for the ecoregion
     gedi_points_in_ecoregion = (utils.get_gedi_points(ecoregion_collection).map(lambda point: ee.Feature(point.geometry())) # only keeps geometry information
+                                                                           .map(lambda point: point.set('outer_tile', point.buffer(OUTER_TILE_SIZE_M / 2).bounds().geometry())) # creates outer tiles around the points
+                                                                           .filter(ee.Filter.contains(leftValue=ecoregion_collection.geometry(), rightField='outer_tile')) # filters out points whose outer tiles are not contained in the ecoregion
                                                                            .randomColumn(seed=42) # adds a new property to each feature containing a random number
-                                                                           .sort('random') # sorts the features by the random numbers
-                                                                           .limit(2*num_ecoregion_tiles) # selects twice as many points as needed, possibly fewer than the desired amount depending on how many points are available
-                                                                           .map(lambda point: point.set('outer_tile', point.buffer(OUTER_TILE_SIZE_M / 2).bounds().geometry()))) # creates outer tiles around the points
+                                                                           .sort('random')) # sorts the features by the random numbers
+    enough_points = False
+    i = 0
     geojson_prefix = f'{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}_biomass_points'
-    task = ee.batch.Export.table.toCloudStorage(collection=gedi_points_in_ecoregion,
-                                                bucket='biomass_ecoregion_data',
-                                                fileNamePrefix=geojson_prefix,
-                                                fileFormat='GeoJSON')
-    task.start()
-    blob = bucket.blob(f'{geojson_prefix}.geojson')
-
-    while not blob.exists():
-        time.sleep(10) # waits 10 seconds
-
     geojson_path = f'{data_dir_path}/biomass/points/{geojson_prefix}.geojson'
-    blob.download_to_filename(geojson_path)
-    points = utils.read_geojson(geojson_path)['features']
 
-    if len(points) < num_ecoregion_tiles:
-        print(f'The ecoregion had only {len(points)} valid GEDI points')
-        print(f'This is less than the desired number of tiles')
+    while not enough_points:
+        i += 1
+        print(f'Sampling {i}x the number of needed points')
+        task = ee.batch.Export.table.toCloudStorage(collection=gedi_points_in_ecoregion.limit(i*num_ecoregion_tiles), # selects points, possibly fewer than requested depending on how many points are available
+                                                    # description=f'{biome.replace("/", "_").replace("&", "and")}_{ecoregion.replace("/", "_")}_{i}x_biomass_points',
+                                                    bucket='biomass_ecoregion_data',
+                                                    fileNamePrefix=geojson_prefix,
+                                                    fileFormat='GeoJSON')
+        task.start()
+        blob = bucket.blob(f'{geojson_prefix}.geojson')
 
-    if len(points) < 2 * num_ecoregion_tiles:
-        print(f'The ecoregion had only {len(points)} valid GEDI points')
-        print(f'This is less than twice the desired number of tiles')
+        while not blob.exists():
+            time.sleep(10) # waits 10 seconds
 
-    print(f'{len(points)} points before removing overlaps')
+        blob.download_to_filename(geojson_path) # downloads the GeoJSON file from the bucket to the local path
+        points = utils.read_geojson(geojson_path)['features']
 
-    points = utils.remove_overlapping_tiles(points) # removes points with overlapping tiles
-    print(f'{len(points)} points after removing overlaps')
+        print(f'{len(points)} points before removing overlaps')
 
-    random.shuffle(points) # shuffles the points list
-    points = points[:num_ecoregion_tiles] # selects the first num_ecoregion_tiles points
+        if len(points) > 0:
+            points = utils.remove_overlapping_tiles(points) # removes points with overlapping tiles
+            print(f'{len(points)} points after removing overlaps')
 
-    if len(points) < num_ecoregion_tiles:
-        print(f'Fewer points were made than desired')
+            random.shuffle(points) # shuffles the points list
+            points = points[:num_ecoregion_tiles] # selects the first num_ecoregion_tiles points
+
+            if len(points) == num_ecoregion_tiles:
+                enough_points = True
+            else:
+                blob.delete()
+        else:
+            break
 
     points = [{**{key: value for key, value in point.items() if key != 'id'}, 'properties': {**{key: value for key, value in point['properties'].items() if key != 'random'}, 'biome': biome_labels[biome], 'ecoregion': ecoregion_labels[ecoregion]}} for point in points] # removes the 'id' and 'random' properties from the points and adds biome and ecoregion labels
     utils.save_geojson(points, path=geojson_path)
@@ -195,9 +203,8 @@ def generate_biomass_points():
 
                     print(f'Biome {i+1}/{len(biomes)}: {biome}')
                     print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion}')
-                    sys.stdout.flush() # ensures that the print statements are displayed immediately
                     num_ecoregion_tiles = ecoregion_tile_counts[biome]['ecoregions'][ecoregion]['num_tiles']
-                    subprocess.run(['sbatch', '-t', f'03:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'biome_{biome.replace("/", "_")}_ecoregion_{ecoregion.replace("/", "_")}', '-o', output_file_path, '-e', error_file_path, 'job.sh', env_path, 'generate_biomass_points.py', 'generate_ecoregion_points', biome.replace(' ', '_'), ecoregion.replace(' ', '_'), str(num_ecoregion_tiles)])
+                    subprocess.run(['sbatch', '-t', '10:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'biome_{biome.replace("/", "_")}_ecoregion_{ecoregion.replace("/", "_")}', '-o', output_file_path, '-e', error_file_path, '--account', 'gajos_lab', 'job.sh', env_path, 'generate_biomass_points.py', 'generate_ecoregion_points', biome.replace(' ', '_'), ecoregion.replace(' ', '_'), str(num_ecoregion_tiles)])
                     time.sleep(50) # checks again after 50 seconds since there is a delay between the job being submitted and the job running
 
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
@@ -205,8 +212,8 @@ def generate_biomass_points():
 def merge_ecoregion_points():
     points = []
 
-    for biome in os.listdir(f'{data_dir_path}/biomass/points'):
-        for ecoregion_points_file in os.listdir(f'{data_dir_path}/biomass/points/{biome}'):
+    for biome in sorted(os.listdir(f'{data_dir_path}/biomass/points')):
+        for ecoregion_points_file in sorted(os.listdir(f'{data_dir_path}/biomass/points/{biome}')):
             points += utils.read_geojson(f'{data_dir_path}/biomass/points/{biome}/{ecoregion_points_file}')['features']
 
     print(f'{len(points)} points before removing overlaps')
@@ -221,11 +228,10 @@ def merge_ecoregion_points():
 def check_biomass_points():
     ecoregion_tile_counts = utils.read_json(f'{data_dir_path}/biomass/ecoregion_tile_counts.json')
     biomes = ecoregion_tile_counts.keys()
-    # num_missing_ecoregions = 0
-    # num_ecoregions_missing_tiles = 0
     num_ecoregions = 0
     missing_ecoregions = []
     ecoregions_missing_tiles = []
+    errors = []
 
     for i, biome in enumerate(biomes):
         ecoregions = ecoregion_tile_counts[biome]['ecoregions'].keys()
@@ -236,36 +242,42 @@ def check_biomass_points():
             error_file_path = f'{data_dir_path}/biomass/error-files/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.err'
             num_ecoregion_tiles = ecoregion_tile_counts[biome]['ecoregions'][ecoregion]['num_tiles']
             num_ecoregions += 1
+            check_error = False
 
             if not os.path.exists(points_path):
-                # num_missing_ecoregions += 1
                 missing_ecoregions.append(ecoregion)
+                check_error = True
 
                 print(f'\nEcoregion {j+1}/{len(ecoregions)}: {ecoregion} tiles do not exist ({num_ecoregion_tiles} tiles)')
-
-                with open(error_file_path, 'r') as file:
-                    content = file.read()
-
-                    if len(content) > 0:
-                        print(content.split('\n')[-2])
             elif len(utils.read_geojson(points_path)['features']) < num_ecoregion_tiles:
-                # num_ecoregions_missing_tiles += 1
                 ecoregions_missing_tiles.append(ecoregion)
+                check_error = True
 
-                # _, gedi_points = get_gedi_points(ecoregion)
+                print(f'\nEcoregion {j+1}/{len(ecoregions)}: {ecoregion} is missing tiles')
 
-                # with open(error_file_path, 'r') as file:
-                #     content = file.read()
+                with open(f'{data_dir_path}/biomass/output-files/{biome.replace("/", "_")}/{ecoregion.replace("/", "_")}.out', 'r') as file:
+                    content = file.read()
+                    num_gedi_points = content.split('\n')[2].split(' ')[4]
+                    print(f'There were {num_gedi_points} valid GEDI points, but {num_ecoregion_tiles} desired point(s)')
+                    print(f'{len(utils.read_geojson(points_path)["features"])} point(s) after removing overlaps')
 
-                    # if len(content) > 0:
-                    #     print(content.split('\n')[-2])
+            if check_error:
+                if os.path.exists(error_file_path):
+                    with open(error_file_path, 'r') as file:
+                        content = file.read()
 
-                # print(f'Ecoregion {j+1}/{len(ecoregions)}: {ecoregion} is missing tiles ({len(utils.read_geojson(path)["features"])}/{num_ecoregion_tiles} tile(s) made, {gedi_points.size().getInfo()} GEDI points)')
-                print(f'\nEcoregion {j+1}/{len(ecoregions)}: {ecoregion} is missing tiles ({len(utils.read_geojson(path)["features"])}')
+                        if len(content) > 0:
+                            error = content.split('\n')[-2]
+                            print(ecoregion, error)
+                            if error not in errors:
+                                errors.append(error)
 
     print(f'\n{len(missing_ecoregions)}/{num_ecoregions} ecoregions are missing')
     print(f'{len(ecoregions_missing_tiles)}/{num_ecoregions} ecoregions are missing tiles')
+    print('Errors:')
 
+    for error in errors:
+        print(error)
     # ecoregions_in_gedi_collection = get_ecoregions_in_gedi_collection()
     # fig = plt.figure(dpi=300)
     # ax = plt.axes(projection=ccrs.PlateCarree())
@@ -301,7 +313,7 @@ if __name__ == '__main__':
         bucket = client.create_bucket(bucket)
 
     if len(argv) == 1:
-        subprocess.run(['sbatch', '-t', '7-00:00:00', '-p', partitions, '--mem', '500M', '--job-name', 'generate_biomass_points', '-o', f'{data_dir_path}/biomass/output-files/generate_biomass_points.out', '-e', f'{data_dir_path}/biomass/error-files/generate_biomass_points.err', 'job.sh', env_path, 'generate_biomass_points.py', 'generate_biomass_points'])
+        subprocess.run(['sbatch', '-t', '7-00:00:00', '-p', partitions, '--mem', '500M', '--job-name', 'generate_biomass_points', '-o', f'{data_dir_path}/biomass/output-files/generate_biomass_points.out', '--account', 'gajos_lab', 'job.sh', env_path, 'generate_biomass_points.py', 'generate_biomass_points'])
     if len(argv) > 1:
         if argv[1] == 'generate_biomass_points':
             generate_biomass_points()
