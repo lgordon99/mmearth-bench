@@ -6,10 +6,13 @@ ee_data.py
 
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+from filelock import FileLock
+from sys import argv
 import certifi
 import ee
 import json
 import numpy as np
+import os
 import pandas as pd
 import rasterio
 import requests
@@ -19,7 +22,8 @@ import utils
 # ============================================== GLOBAL VARIABLES ============================================== #
 
 TILE_SIZE_M = utils.read_yaml('config.yml')['TILE_SIZE_M']
-TILE_SIZE = int(TILE_SIZE_M / 10)
+resolution = 10 # meters per pixel
+TILE_SIZE = int(TILE_SIZE_M / resolution)
 OUTER_TILE_SIZE_M = utils.read_yaml('config.yml')['OUTER_TILE_SIZE_M']
 year = '2020'
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
@@ -33,46 +37,25 @@ def get_last_day_of_month(month):
 # ============================================== CLASSES ============================================== #
 
 class EEData:
-    def __init__(self, point, task):
+    def __init__(self, task, point_id):
         start = time.time()
-        self.point = point
+
         self.task = task
+        self.id = point_id
+        self.point = utils.read_geojson(f'{data_dir_path}/{task}/{task}_points.geojson')['features'][point_id] # reading the GeoJSON file
         self.missing_modalities = []
-        self.point_coordinates = point['geometry']['coordinates'] # [longitude, latitude]
+        self.point_coordinates = self.point['geometry']['coordinates'] # [longitude, latitude]
 
         if task == 'biomass':
             self.gedi_points = utils.get_gedi_points(ee.Geometry.Point(self.point_coordinates).buffer(OUTER_TILE_SIZE_M / 2)) # GEDI points in the outer tile
 
         self.date_filter = ee.Filter.Or(*[ee.Filter.date(date_range[0], date_range[1]) for date_range in self.get_dates()])
-        self.id = point['id']
         self.tile = ee.Geometry.Point(self.point_coordinates).buffer(TILE_SIZE_M / 2)
-
-        if 'biome' not in list(point['properties'].keys()): # if the point does not have a biome saved
-            ecoregion_features = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile).getInfo()['features'] # data for the ecoregion containing the tile
-
-            if len(ecoregion_features) > 0: # if the tile is in an ecoregion
-                biome_name = ecoregion_features[0]['properties']['BIOME_NAME']
-                ecoregion_name = ecoregion_features[0]['properties']['ECO_NAME']
-            else:
-                biome_name = 'N/A'
-                ecoregion_name = 'N/A'
-
-        if biome_name == 'N/A':
-            biome = no_data_values['biome']
-            self.missing_modalities.append('biome')
-        else:
-            biome = utils.read_json('biomes_ecoregions_data/biome_labels.json')[biome_name]
-
-        if ecoregion_name == 'N/A':
-            ecoregion = no_data_values['ecoregion']
-            self.missing_modalities.append('ecoregion')
-        else:
-            ecoregion = utils.read_json('biomes_ecoregions_data/ecoregion_labels.json')[ecoregion_name]
-
-        self.tile_level_data = {'biome': biome, 'ecoregion': ecoregion}
-
-        datasets = ['sentinel2', 'sentinel1', 'aster', 'eth_gch', 'dynamic_world', 'esa_worldcover', 'precipitation', 'temperature']
         self.pixel_level_data = {}
+        self.tile_level_data = {}
+
+        print(f'Running tile {self.id}')
+        datasets = ['sentinel2', 'sentinel1', 'aster', 'eth_gch', 'dynamic_world', 'esa_worldcover', 'precipitation', 'temperature']
 
         for function_name in datasets: # series of function calls to get the data
             if getattr(self, function_name)() is False: # if the method returns False
@@ -82,6 +65,31 @@ class EEData:
                     break # does not collect data for the rest of the modalities
 
         if 'sentinel2' not in self.missing_modalities:
+            if 'biome' not in list(self.point['properties'].keys()): # if the point does not have a biome saved
+                ecoregion_features = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile_center).getInfo()['features'] # data for the ecoregion containing the tile
+
+                if len(ecoregion_features) > 0: # if the tile is in an ecoregion
+                    biome_name = ecoregion_features[0]['properties']['BIOME_NAME']
+                    ecoregion_name = ecoregion_features[0]['properties']['ECO_NAME']
+                else:
+                    biome_name = 'N/A'
+                    ecoregion_name = 'N/A'
+
+                if biome_name == 'N/A':
+                    biome = no_data_values['biome']
+                    ecoregion = no_data_values['ecoregion']
+
+                    self.missing_modalities.append('biome')
+                    self.missing_modalities.append('ecoregion')
+                else:
+                    biome = utils.read_json('biomes_ecoregions_data/biome_labels.json')[biome_name]
+                    ecoregion = utils.read_json('biomes_ecoregions_data/ecoregion_labels.json')[ecoregion_name]
+            else:
+                biome = self.point['properties']['biome']
+                ecoregion = self.point['properties']['ecoregion']
+
+            self.tile_level_data['biome'] = biome
+            self.tile_level_data['ecoregion'] = ecoregion
             self.tile_level_data['missing_modalities'] = json.dumps(self.missing_modalities) # saves the missing modalities as a JSON string
             self.task_data(task) # gets the task data for the tile
 
@@ -95,7 +103,17 @@ class EEData:
 
             self.save_tiff(merged_image)
 
-            print(f'Time elapsed for this tile: {round(time.time() - start, 2)}s')
+        tile_ids_run_path = f'{data_dir_path}/{task}/{task}_tile_ids_run.json'
+        lock = FileLock(f'{tile_ids_run_path}.lock')
+
+        with lock:
+            tile_ids_run = utils.read_json(tile_ids_run_path)
+            tile_ids_run[str(self.id)] = 'missing' if 'sentinel2' in self.missing_modalities else 'done'
+
+            with open(tile_ids_run_path, 'w') as file:
+                json.dump(tile_ids_run, file, indent=4)
+
+        print(f'Time elapsed for this tile: {round(time.time() - start, 2)}s')
 
     def get_dates(self):
         if self.task == 'biomass':
@@ -150,8 +168,8 @@ class EEData:
             return False
 
         scl_res = sentinel2_images.select('SCL').first().projection().nominalScale().getInfo() # resolution of SCL band
-        sentinel2_images = sentinel2_images.map(lambda image: image.set('NODATA_PIXEL_FRACTION', image.select('SCL').unmask().eq(0).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=scl_res).get('SCL'))) # calculates the fraction of invalid pixels (SCL = 0)
-        sentinel2_images = sentinel2_images.filterMetadata('NODATA_PIXEL_FRACTION', 'less_than', 0.1).sort('NODATA_PIXEL_FRACTION') # keeps images with less than 10% no data pixels and sorts them according to their fraction of no data pixels
+        sentinel2_images = sentinel2_images.map(lambda image: image.set('SCL_NO_DATA_PIXEL_FRACTION', image.select('SCL').unmask().eq(0).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=scl_res).get('SCL'))) # calculates the fraction of invalid pixels (SCL = 0)
+        sentinel2_images = sentinel2_images.filterMetadata('SCL_NO_DATA_PIXEL_FRACTION', 'less_than', 0.1).sort('SCL_NO_DATA_PIXEL_FRACTION') # keeps images with less than 10% no data pixels and sorts them according to their fraction of no data pixels
 
         if sentinel2_images.size().getInfo() == 0: # if no images passed the SCL filter
             return False
@@ -161,21 +179,23 @@ class EEData:
         month = int(self.tile_level_data['sentinel2_date'].split('-')[1]) # extracts the month of the Sentinel-2 image
         self.tile_level_data['month'] = json.dumps([np.cos(np.pi * month / 6), np.sin(np.pi * month / 6)]) # cyclic month encoding
         self.proj = s2_image.select('B4').projection() # projection of B4 band
-        self.tile_level_data['crs'] = self.proj.getInfo()['crs'] # CRS of B4 band
+        self.crs = self.proj.getInfo()['crs'] # CRS of B4 band
         projected_point_coordinates = ee.Geometry.Point(self.point_coordinates).transform(self.proj).coordinates() # projects the point onto the Sentinel-2 grid
         nearest_pixel_intersection_x = ee.Number(projected_point_coordinates.get(0)).round() # rounds the longitude to the nearest pixel intersection in the Sentinel-2 grid
         nearest_pixel_intersection_y = ee.Number(projected_point_coordinates.get(1)).round() # rounds the latitude to the nearest pixel intersection in the Sentinel-2 grid
         self.tile = ee.Geometry.Rectangle([nearest_pixel_intersection_x.subtract(TILE_SIZE/2), nearest_pixel_intersection_y.subtract(TILE_SIZE/2), nearest_pixel_intersection_x.add(TILE_SIZE/2), nearest_pixel_intersection_y.add(TILE_SIZE/2)], proj=self.proj, geodesic=False) # resets the tile to be centered at the nearest pixel intersection in the Sentinel-2 grid
-        self.tile_level_data['longitude'], self.tile_level_data['latitude'] = self.tile.centroid(maxError=1).coordinates().getInfo() # gets the lon, lat coordinates of the tile centroid
+        self.tile_center = self.tile.centroid(maxError=1)
+        self.tile_level_data['longitude'], self.tile_level_data['latitude'] = self.tile_center.coordinates().getInfo() # gets the lon, lat coordinates of the tile centroid
         self.tile_level_data['geolocation'] = json.dumps([np.cos(np.deg2rad(self.tile_level_data['longitude'])), # cyclic location encding
                                                           np.sin(np.deg2rad(self.tile_level_data['longitude'])),
                                                           np.cos(np.deg2rad(self.tile_level_data['latitude'])),
                                                           np.sin(np.deg2rad(self.tile_level_data['latitude']))])
         continuous_valued_bands = s2_image.select([band for band in bands if band != 'SCL']).resample('bilinear').reproject(self.proj).unmask(no_data_values['Sentinel-2'])
         scl = s2_image.select('SCL').reproject(self.proj).unmask() # unmasks SCL to 0
-        s2_image = continuous_valued_bands.addBands(scl) # combine continuous and categorical bands
-        self.tile_level_data['MSK_CLDPRB_CLOUDY_PIXEL_FRACTION'] = s2_image.get('MSK_CLDPRB_CLOUDY_PIXEL_FRACTION').getInfo()
-        self.tile_level_data['S2CLOUDLESS_CLOUDY_PIXEL_FRACTION'] = s2_image.get('S2CLOUDLESS_CLOUDY_PIXEL_FRACTION').getInfo()
+        s2_image = continuous_valued_bands.addBands(scl) # combines continuous and categorical bands
+        self.tile_level_data['MSK_CLDPRB_CLOUDY_PIXEL_FRACTION'] = s2_image.select('MSK_CLDPRB').gte(10).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=msk_cldprob_res).get('MSK_CLDPRB').getInfo()
+        self.tile_level_data['S2CLOUDLESS_CLOUDY_PIXEL_FRACTION'] = s2_image.select('S2CLOUDLESS').gte(10).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=s2cloudless_res).get('S2CLOUDLESS').getInfo()
+        self.tile_level_data['SCL_NO_DATA_PIXEL_FRACTION'] = s2_image.select('SCL').unmask().eq(0).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=scl_res).get('SCL').getInfo()
         self.pixel_level_data['sentinel2'] = s2_image.rename([f'Sentinel2_{band}' if band not in ['MSK_CLDPRB', 'S2CLOUDLESS', 'SCL'] else band for band in bands])
 
     def sentinel1(self):
@@ -224,7 +244,7 @@ class EEData:
         slope = slope.where(elevation.eq(no_data_values['AsterDEM']), no_data_values['AsterDEM']) # sets slope to no data value where elevation is no data
         self.pixel_level_data['aster'] = ee.Image.cat([elevation, slope]).resample('bilinear').reproject(self.proj).unmask(no_data_values['AsterDEM']).rename(['AsterDEM_elevation', 'AsterDEM_slope']) # combine the elevation and slope into a single image
 
-        if self.pixel_level_data['aster'].eq(no_data_values['AsterDEM']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=10).get('AsterDEM_elevation').getInfo() == 1: # if all pixels in the tile are no data
+        if self.pixel_level_data['aster'].eq(no_data_values['AsterDEM']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=resolution).get('AsterDEM_elevation').getInfo() == 1: # if all pixels in the tile are no data
             return False # if all pixels are no data, return False
 
     def eth_gch(self):
@@ -234,9 +254,9 @@ class EEData:
 
         height = ee.Image('users/nlang/ETH_GlobalCanopyHeight_2020_10m_v1').float()
         std = ee.Image('users/nlang/ETH_GlobalCanopyHeightSD_2020_10m_v1').float()
-        self.pixel_level_data['eth_gch'] = ee.Image.cat([height, std]).resample('bilinear').reproject(self.proj).unmask(no_data_values['ETH_GCH']).rename(['ETH_GCH_canopy_height', 'ETH_GCH_canopy_height_uncertainty'])
+        self.pixel_level_data['eth_gch'] = ee.Image.cat([height, std]).resample('bilinear').reproject(self.proj).unmask(no_data_values['ETH_GCH']).rename(['ETH_GCH_height', 'ETH_GCH_uncertainty'])
 
-        if self.pixel_level_data['eth_gch'].eq(no_data_values['ETH_GCH']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=10).get('ETH_GCH_canopy_height').getInfo() == 1: # if all pixels in the tile are no data
+        if self.pixel_level_data['eth_gch'].eq(no_data_values['ETH_GCH']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=resolution).get('ETH_GCH_height').getInfo() == 1: # if all pixels in the tile are no data
             return False # if all pixels are no data, return False
 
     def dynamic_world(self):
@@ -252,7 +272,7 @@ class EEData:
         else:
             self.pixel_level_data['dynamic_world'] = dynamic_world_image.reproject(self.proj).unmask(no_data_values['DynamicWorld']).rename('DynamicWorld')
 
-        if self.pixel_level_data['dynamic_world'].eq(no_data_values['DynamicWorld']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=10).get('DynamicWorld').getInfo() == 1: # if all pixels in the tile are no data
+        if self.pixel_level_data['dynamic_world'].eq(no_data_values['DynamicWorld']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=resolution).get('DynamicWorld').getInfo() == 1: # if all pixels in the tile are no data
             return False # if all pixels are no data, return False
 
     def esa_worldcover(self):
@@ -265,7 +285,7 @@ class EEData:
                                                      .unmask(no_data_values['ESA_WorldCover'])
                                                      .rename('ESA_WorldCover'))
 
-        if self.pixel_level_data['esa_worldcover'].eq(no_data_values['ESA_WorldCover']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=10).get('ESA_WorldCover').getInfo() == 1: # if all pixels in the tile are no data
+        if self.pixel_level_data['esa_worldcover'].eq(no_data_values['ESA_WorldCover']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=resolution).get('ESA_WorldCover').getInfo() == 1: # if all pixels in the tile are no data
             return False
 
     def precipitation_temperature(self):
@@ -278,15 +298,15 @@ class EEData:
         last_month_first_day = datetime(year, last_month, 1)
         last_month_last_day = (last_month_first_day + relativedelta(months=1, days=-1)).strftime('%Y-%m-%d')
         precipitation_temperature_month = (ee.ImageCollection(collection)
-                        .filterDate(month_first_day, month_last_day)
-                        .select(bands)
-                        .toBands()
-                        .rename(['temperature_month_mean', 'temperature_month_min', 'temperature_month_max', 'precipitation_month']))
+                                             .filterDate(month_first_day, month_last_day)
+                                             .select(bands)
+                                             .toBands()
+                                             .rename(['temperature_month_mean', 'temperature_month_min', 'temperature_month_max', 'precipitation_month']))
         precipitation_temperature_last_month = (ee.ImageCollection(collection)
-                          .filterDate(last_month_first_day, last_month_last_day)
-                          .select(bands)
-                          .toBands()
-                          .rename(['temperature_last_month_mean', 'temperature_last_month_min', 'temperature_last_month_max', 'precipitation_last_month']))
+                                                  .filterDate(last_month_first_day, last_month_last_day)
+                                                  .select(bands)
+                                                  .toBands()
+                                                  .rename(['temperature_last_month_mean', 'temperature_last_month_min', 'temperature_last_month_max', 'precipitation_last_month']))
         last_year_next_day = (datetime.strptime(month_last_day, '%Y-%m-%d') + relativedelta(years=-1, days=1)).strftime('%Y-%m-%d')
         precipitation_temperature_year = ee.ImageCollection(collection).filterDate(last_year_next_day, month_last_day)
         band_reducer = {'temperature_2m': ee.Reducer.mean(),
@@ -294,7 +314,7 @@ class EEData:
                         'temperature_2m_max': ee.Reducer.max(),
                         'total_precipitation_sum': ee.Reducer.sum()}
         precipitation_temperature_year = ee.ImageCollection([precipitation_temperature_year.select(band).reduce(band_reducer[band]) for band in bands]).toBands().rename(['temperature_year_mean', 'temperature_year_min', 'temperature_year_max', 'precipitation_year']).float()
-        self.precipitation_temperature = ee.Image.cat([precipitation_temperature_month, precipitation_temperature_last_month, precipitation_temperature_year]).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=10).getInfo()
+        self.precipitation_temperature = ee.Image.cat([precipitation_temperature_month, precipitation_temperature_last_month, precipitation_temperature_year]).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=resolution).getInfo()
 
     def precipitation(self):
         self.precipitation_temperature()
@@ -320,8 +340,8 @@ class EEData:
     def save_tiff(self, image):
         band_names = image.bandNames().getInfo()
         url = image.getDownloadUrl({'name': f'tile_{self.id}',
-                                    'scale': 10,
-                                    'crs': self.tile_level_data['crs'],
+                                    'scale': resolution,
+                                    'crs': self.crs,
                                     'region': self.tile,
                                     'format': 'GeoTIFF',
                                     'bands': band_names})
@@ -339,14 +359,15 @@ class EEData:
 
             with rasterio.open(tiff_path) as tiff: # opens the TIFF
                 array = tiff.read()
-                tags = tiff.tags()
-                tags.update(self.tile_level_data) # saves the tile-level data to the tags
 
                 with rasterio.open(tiff_path, 'w', **tiff.meta) as updated_tiff: # opens a new TIFF at the same location
                     updated_tiff.write(array)
-                    updated_tiff.update_tags(**tags) # saves the new tags
+                    updated_tiff.update_tags(**self.tile_level_data) # saves the tile-level data in the TIFF's tags
 
                     for i in range(tiff.count):
                         updated_tiff.update_tags(i+1, BAND_NAME=band_names[i]) # saves the band names
 
             success = True
+
+if __name__ == '__main__':
+    EEData(task=argv[1], point_id=int(argv[2]))
