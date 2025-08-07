@@ -6,9 +6,11 @@ get_tile_data.py
 
 from ee_data import EEData
 from sys import argv
+import builtins
 import ee
-import h5py
-import matplotlib.pyplot as plt
+import functools
+import json
+import numpy as np
 import os
 import subprocess
 import time
@@ -19,93 +21,58 @@ import yaml
 
 ee.Initialize(project='mmearth-bench') # initializes EE with our project
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
+env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
+partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
+print = functools.partial(builtins.print, flush=True) # ensures print statements show up right away
 
 # ============================================== FUNCTIONS ============================================== #
 
-def get_modalities(task):
+def get_tile_data(task):
     start_time = time.time()
     os.makedirs(f'{data_dir_path}/{task}/tiffs', exist_ok=True)
     points = utils.read_geojson(f'{data_dir_path}/{task}/{task}_points.geojson') # reading the GeoJSON file
     end_id = len(points['features'])
-    tiles_made = 0
-    tile_missing_modalities_yml_path = f'{data_dir_path}/{task}/{task}_missing_modalities.yml'
+    tile_ids_run_path = f'{data_dir_path}/{task}/{task}_tile_ids_run.json'
 
-    if os.path.exists(tile_missing_modalities_yml_path): # if there is some data saved
-        tile_missing_modalities = utils.read_yaml(tile_missing_modalities_yml_path) # reads the existing missing modality data
-        start_id = next(reversed(tile_missing_modalities)) + 1 # sets the start ID to the next one
+    if os.path.exists(tile_ids_run_path): # if there is some data saved
+        tile_ids_run = utils.read_json(tile_ids_run_path) # reads the existing missing modality data
     else:
-        tile_missing_modalities = {} # initializes an empty dictionary
-        start_id = 0 # starts from the first point
+        tile_ids_run = {i: 0 for i in range(end_id)} # initializes an empty dictionary
 
-    for point_id in range(start_id, end_id):
+        # saves the dictionary as a JSON file
+        with open(tile_ids_run_path, 'w') as file:
+            json.dump(tile_ids_run, file, indent=4)
+
+    tile_ids_to_run = [id_ for id_, status in tile_ids_run.items() if status == 0]
+
+    for point_id in tile_ids_to_run:
         print(f'Processing tile {point_id}/{end_id-1}')
 
-        point = points['features'][point_id]
-        ee_data = EEData(point, task)
-        tile_missing_modalities[point_id] = ee_data.missing_modalities
+        while utils.count_running_jobs() > 29: # if more than 29 jobs are running
+            time.sleep(1) # checks again after 1 second
 
-        with open(tile_missing_modalities_yml_path, 'w') as file:
-            yaml.dump(tile_missing_modalities, file, default_flow_style=False)
+        subprocess.run(['sbatch', '-t', '10', '-p', partitions, '--mem', '500M', '--job-name', f'{task}_get_tile_{point_id}_data', '-o', f'{data_dir_path}/{task}/output-files/get_tile_data/get_tile_{point_id}_data.out', '--account', 'gajos_lab', 'job.sh', env_path, 'ee_data.py', task, str(point_id)])
 
-        if 'sentinel2' not in tile_missing_modalities[point_id]:
-            tiles_made += 1
-
-    print(f'{tiles_made} tiles made')
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
 def check_complete(task):
-    tile_count = len(utils.read_geojson(f'{task}/points/{task}_points.geojson')['features'])
-    tile_missing_modalities = utils.read_yaml(f'{task}/{task}_missing_modalities.yml')
-    number_of_tiles_made = next(reversed(tile_missing_modalities)) + 1
-    complete = tile_count == number_of_tiles_made
+    tile_count = len(utils.read_geojson(f'{data_dir_path}/{task}/{task}_points.geojson')['features'])
+    tile_ids_run_status = np.array(list(utils.read_yaml(f'{data_dir_path}/{task}/{task}_tile_ids_run.json').values()))
+    number_of_tiles_run = np.count_nonzero(tile_ids_run_status != 0)
+    complete = tile_count == number_of_tiles_run
 
-    print(f'All tiles made for {task}: {complete} ({number_of_tiles_made}/{tile_count})')
+    print(f'All tiles run for {task}: {complete} ({number_of_tiles_run}/{tile_count})')
 
-def plot_missing_modalities(task):
-    print(task)
+    tiles_not_missing = np.count_nonzero(tile_ids_run_status == 'done')
+    print(f'{tiles_not_missing} tiles made')
 
-    tiles = utils.read_geojson(f'{task}/points/{task}_points.geojson')['features']
-    print(f'Number of tiles = {len(tiles)}')
-
-    tile_missing_modalities = utils.read_yaml(f'{task}/{task}_missing_modalities.yml')
-    modalities = ['sentinel2', 'sentinel1', 'aster', 'canopy_height_eth', 'dynamic_world', 'esa_worldcover', 'era5', 'biome/ecoregion']
-    missing_modality_counts = {modality: 0 for modality in modalities}
-
-    for tile_id in range(len(tiles)):
-        missing_modalities = tile_missing_modalities[tile_id]
-
-        if missing_modalities:
-            for modality in missing_modalities:
-                missing_modality_counts[modality] += 1
-
-    num_failed_tiles = missing_modality_counts['sentinel2']
-    tiles_made = len(tiles) - num_failed_tiles
-
-    print(f'Number of tiles after getting modalities = {tiles_made}')
-    assert tiles_made == len(os.listdir(f'{data_dir_path}/{task}/data'))
-
-    for folder in os.listdir(f'{data_dir_path}/{task}/tiles'):
-        assert tiles_made == len(os.listdir(f'{data_dir_path}/{task}/tiles/{folder}'))
-
-    with h5py.File(f'{data_dir_path}/{task}/{task}_h5.hdf5', 'r') as h5_file:
-        assert tiles_made == len(h5_file['id']) # number of tiles for the task
-
-    plt.figure(dpi=300)
-    plt.bar(missing_modality_counts.keys(), missing_modality_counts.values())
-    plt.title(f'{task}: Missing Modality Counts', fontsize=14)
-    plt.xlabel('Modalities', fontsize=12)
-    plt.ylabel('Tile count', fontsize=12)
-    plt.xticks(rotation=45, ha='right', fontsize=10)
-    plt.tight_layout()
-    plt.savefig(f'{task}/figures/{task}_missing_modality_counts.png')
+    assert len(os.listdir(f'{data_dir_path}/{task}/tiffs')) == tiles_not_missing
 
 # ============================================== RUN ============================================== #
 
 if __name__ == '__main__':
     if 'check_complete' in argv[1]: # python get_tile_data.py check_complete TASK
         check_complete(argv[2])
-    elif 'plot_missing_modalities' in argv[1]: # python get_tile_data.py plot_missing_modalities TASK
-        plot_missing_modalities(argv[2])
     elif 'for' not in argv[1]: # python get_tile_data.py TASK
         partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
         env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
@@ -114,4 +81,4 @@ if __name__ == '__main__':
     elif 'for' in argv[1]: # python get_tile_data.py for_TASK
         task = argv[1].split('for_')[1]
         print(f'Task = {task}')
-        get_modalities(task)
+        get_tile_data(task)
