@@ -1,9 +1,10 @@
 # ============================================== IMPORTS ============================================== #
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from sys import argv
 import h5py
 import json
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import rasterio
@@ -58,20 +59,95 @@ def convert_tiffs_to_h5(task):
                 data['missing_modalities'].append(tags['missing_modalities'])
 
         for key, value in data.items():
-            # print(key, np.array(value).shape)
-
-            # h5_file.create_dataset(key, data=np.array(value), compression='gzip', compression_opts=9)
             h5_file.create_dataset(key, data=value, compression='gzip', compression_opts=9)
 
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
+def check_h5(task):
+    with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
+        tile_data = {modality: h5_file[modality][:] for modality in pixel_level_modalities + tile_level_modalities}
+        aster_dem = tile_data['AsterDEM']
+        print(f'{len(aster_dem)} tiles made')
+        print(h5_file.keys())
+
+        for key in h5_file.keys():
+            value = h5_file[key][:]
+
+            print(f'{key}: {value.dtype}')
+
+            if key in pixel_level_modalities or key in tile_level_modalities or key == 'soil_nitrogen' or key == 'id':
+                print(f'Min: {np.min(value)}, Max: {np.max(value)}')
+
+                if key == 'Sentinel2':
+                    assert np.min(value) >= 0
+                    assert np.max(value) <= 65535
+                elif key == 'Sentinel1' or key == 'AsterDEM' or key == 'precipitation' or key == 'temperature' or key == 'geolocation' or key == 'month':
+                    assert np.min(value) >= -9999
+                elif key == 'ETH_GCH':
+                    assert np.max(value) <= 255
+                elif key == 'DynamicWorld':
+                    assert np.min(value) >= 0
+                    assert np.max(value) <= 9
+                elif key == 'ESA_WorldCover':
+                    assert np.min(value) >= 0
+                    assert np.max(value) <= 11
+                elif key == 'biome':
+                    assert np.min(value) >= 0
+                    assert np.max(value) <= 14
+                elif key == 'ecoregion':
+                    assert np.min(value) >= 0
+                    assert np.max(value) <= 846
+
+        print(h5_file['sentinel2_date'].asstr()[...])
+        print(h5_file['crs'].asstr()[...])
+        print(h5_file['id'][:5])
+
+        aster_dem_reshaped = aster_dem.reshape(len(aster_dem), 2, 16384)
+        assert np.count_nonzero(aster_dem_reshaped[:, 0] == 0) == 0 # should be no zeros in the elevation band
+        nan_indices = np.argwhere(aster_dem_reshaped == -9999)
+
+        for numbers in nan_indices:
+            x, y, z = numbers
+
+            if y == 0:
+                assert aster_dem_reshaped[x][1][z] == -9999 # slope band should be NaN wherever the elevation band is NaN
+
+def plot_missing_modalities(task):
+    print(task)
+    original_num_tiles = len(utils.read_geojson(f'{data_dir_path}/{task}/{task}_points.geojson')['features'])
+    print(f'Original number of tiles = {original_num_tiles}')
+
+    with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
+        missing_modalities = [json.loads(s) for s in h5_file['missing_modalities'].asstr()[...]]
+
+    print(f'Final number of tiles = {len(missing_modalities)}')
+    assert len(missing_modalities) == len(os.listdir(f'{data_dir_path}/{task}/tiffs'))
+
+    missing_modality_counts = dict(Counter(item for sublist in missing_modalities for item in sublist))
+    missing_modality_counts['sentinel2'] = original_num_tiles - len(missing_modalities)
+    modality_order = ['sentinel2', 'sentinel1', 'aster', 'eth_gch', 'dynamic_world', 'esa_worldcover', 'precipitation', 'temperature', 'biome', 'ecoregion']
+    missing_modality_counts = {modality: missing_modality_counts.get(modality, 0) for modality in modality_order}
+
+    plt.figure(dpi=300)
+    plt.bar(['Sentinel-2', 'Sentinel-1', 'AsterDEM', 'ETH GCH', 'Dynamic World', 'ESA WorldCover', 'Precipitation', 'Temperature', 'Biome', 'Ecoregion'], missing_modality_counts.values())
+    plt.title(f'{task.capitalize().replace("_", " ")} missing modality counts', fontsize=14)
+    plt.xlabel('Modality', fontsize=12)
+    plt.ylabel('Tile count', fontsize=12)
+    plt.xticks(rotation=45, ha='right', fontsize=10)
+    plt.tight_layout()
+    plt.savefig(f'{data_dir_path}/{task}/{task}_missing_modality_counts.png')
+
 if __name__ == '__main__':
-    if 'for' not in argv[1]: # python convert_to_h5.py TASK
+    if 'check_h5' in argv[1]: # python convert_to_h5.py check_h5 TASK
+        check_h5(argv[2])
+    elif 'plot_missing_modalities' in argv[1]: # python convert_to_h5.py plot_missing_modalities TASK
+        plot_missing_modalities(argv[2])
+    elif 'for' not in argv[1]: # python convert_to_h5.py TASK
         partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
         env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
         mem = 300 if argv[1] == 'biomass' else 60
         task = argv[1]
-        subprocess.run(['sbatch', '-t', '15:00:00', '-p', partitions, '--mem', f'{mem}G', '--job-name', f'{task}_convert_to_h5', '-o', f'{data_dir_path}/{task}/output-files/{task}_convert_to_h5.out', '--account', 'gajos_lab', 'job.sh', env_path, 'convert_to_h5.py', f'for_{task}'])
+        subprocess.run(['sbatch', '-t', '15:00:00', '-p', partitions, '--mem', f'{mem}G', '--job-name', f'{task}_convert_to_h5', '-o', f'{data_dir_path}/{task}/output-files/{task}_convert_to_h5.out', '--account', 'davies_lab', 'job.sh', env_path, 'convert_to_h5.py', f'for_{task}'])
     else: # python convert_to_h5.py for_TASK
         task = argv[1].split('for_')[1]
         print(f'Task = {task}')
