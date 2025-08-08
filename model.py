@@ -161,16 +161,33 @@ class MeanError(Metric):
     def compute(self):
         return self.error_sum / self.total
 
+class ModalityReconstructionNetworkLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.mse_loss = nn.MSELoss()
+        self.cross_entropy_loss = nn.CrossEntropyLoss()
+
+    def forward(self, modality_reconstructions, target):
+        losses = {}
+
+        for modality, reconstruction in modality_reconstructions.items():
+            if modality in ['dynamicworld', 'esaworldcover', 'biome', 'ecoregion']:
+                losses[modality] = self.cross_entropy_loss(reconstruction, target[modality].long())
+            else:
+                losses[modality] = self.mse_loss(reconstruction, target[modality])
+
+        return sum(losses.values())
+
 class ResNet50(nn.Module):
     def __init__(self, num_classes, pixelwise, pretrained, nodata_value, project_dir_path):
-        super(ResNet50, self).__init__()
+        super().__init__()
 
         self.model = resnet50(weights='DEFAULT' if pretrained else None)
 
         if pixelwise:
-            self.model.avgpool = nn.Identity() # removes the average pooling layer
-            self.model.fc = nn.Identity() # removes the classifier layer
-            self.model._forward_impl = self._pixelwise_forward_impl
+            # self.model.avgpool = nn.Identity() # removes the average pooling layer
+            # self.model.fc = nn.Identity() # removes the classifier layer
+            self.model._forward_impl = self._pixelwise_forward_impl # removes the avgpool, flatten, and fc layers
         else:
             self.model.fc = nn.Linear(in_features=self.model.fc.in_features, out_features=num_classes)
 
@@ -187,7 +204,7 @@ class ResNet50(nn.Module):
         return x
 
     def forward(self, images):
-        return self.model(images['sentinel2'][:, [3,2,1], :, :])
+        return self.model(images['Sentinel2'][:, [3,2,1], :, :]) # extracts the RGB bands
 
 class MPMAE(nn.Module):
     def __init__(self, num_classes, pixelwise, pretrained, nodata_value, project_dir_path):
@@ -220,7 +237,7 @@ class MPMAE(nn.Module):
         return self.model.norm(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
 
     def forward(self, images):
-        return self.model(images['sentinel2'])
+        return self.model(images['Sentinel2'])
 
 class DINOv2(nn.Module):
     def __init__(self, num_classes, pixelwise, pretrained, nodata_value, project_dir_path):
@@ -275,7 +292,7 @@ class DINOv2(nn.Module):
         return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
 
     def forward(self, images):
-        images = images['sentinel2'][:, [3,2,1], :, :]
+        images = images['Sentinel2'][:, [3,2,1], :, :]
         images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant', value=self.nodata_value) # DinoV2 requires the image size to be divisible by 14
 
         if self.pixelwise:
@@ -289,20 +306,33 @@ class ModalityReconstructionNetwork(nn.Module):
     def __init__(self, masked_modality=None):
         super(ModalityReconstructionNetwork, self).__init__()
 
-        num_pixel_bands = 26
-        num_tile_bands = 20
+        num_pixel_bands = 46
+        num_tile_bands = 880
         total_bands = num_pixel_bands + num_tile_bands
+        self.pixel_level_modality_names = ['Sentinel2', 'sentinel1', 'asterdem', 'ethgch', 'dynamicworld', 'esaworldcover']
+        self.tile_level_modality_names = ['precipitation', 'temperature', 'geolocation', 'month', 'biome', 'ecoregion']
 
         self.unet = smp.Unet(encoder_name='resnet50', encoder_weights='imagenet', in_channels=total_bands, classes=total_bands)
+        self.modality_band_indices = {'Sentinel2': [0, 12], 'sentinel1': [12, 20], 'asterdem': [20, 22], 'ethgch': [22, 24], 'dynamicworld': [24, 34], 'esaworldcover': [34, 46], 'precipitation': [46, 49], 'temperature': [49, 58], 'geolocation': [58, 62], 'month': [62, 64], 'biome': [64, 79], 'ecoregion': [79, 926]}
+        # self.dynamicworld_class_embeddings = nn.Embedding(10, 8)
+        # self.esaworld_cover_class_embeddings = nn.Embedding(12, 8)
+        # self.biome_class_embeddings = nn.Embedding(15, 8)
+        # self.ecoregion_class_embeddings = nn.Embedding(847, 32)
 
     def forward(self, images):
-        pixel_level_modalities = torch.cat([images[modality] for modality in ['sentinel2', 'sentinel1', 'asterdem', 'ethgch', 'dynamicworld', 'esaworldcover']], dim=1)
-        tile_level_modalities = torch.cat([images[modality] for modality in ['precipitation', 'temperature', 'geolocation', 'month', 'biome', 'ecoregion']], dim=1)
+        pixel_level_modalities = torch.cat([images[modality] for modality in self.pixel_level_modality_names], dim=1)
+        tile_level_modalities = torch.cat([images[modality] for modality in self.tile_level_modality_names], dim=1)
         tile_level_modalities_spatial = tile_level_modalities.view(*tile_level_modalities.shape, 1, 1).expand(*tile_level_modalities.shape[:2], *pixel_level_modalities.shape[2:]) # expands the tile-level modalities to match the shape of the pixel-level modalities
         modalities = torch.cat([pixel_level_modalities, tile_level_modalities_spatial], dim=1) # combines the pixel-level and tile-level modalities
-        output = self.unet(modalities) # extracts the features from the UNet encoder
+        reconstruction = self.unet(modalities) # extracts the features from the UNet encoder
+        modality_reconstructions_raw = {modality: reconstruction[:, indices[0]:indices[1]] for modality, indices in self.modality_band_indices.items()}
+        modality_reconstructions = {modality: reconstruction.mean(dim=(1,2,3)) if modality in ['dynamicworld', 'esaworldcover', 'biome', 'ecoregion'] else reconstruction.mean(dim=(2,3)) if modality in self.tile_level_modality_names else reconstruction for modality, reconstruction in modality_reconstructions_raw.items()}
 
-        exit()
+        return modality_reconstructions
+        # for modality, reconstruction in modality_reconstructions.items():
+        #     print(modality)
+        #     print(reconstruction.shape)
+        # exit()
 
 class ModalityReconstructionNetworkSeparateEncoders(nn.Module):
     def __init__(self, masked_modality=None):
@@ -323,7 +353,7 @@ class ModalityReconstructionNetworkSeparateEncoders(nn.Module):
                                                    nn.Linear(embedding_dim, num_tile_bands))
 
     def forward(self, images):
-        pixel_level_modalities = torch.cat([images[modality] for modality in ['sentinel2', 'sentinel1', 'asterdem', 'ethgch', 'dynamicworld', 'esaworldcover']], dim=1)
+        pixel_level_modalities = torch.cat([images[modality] for modality in ['Sentinel2', 'sentinel1', 'asterdem', 'ethgch', 'dynamicworld', 'esaworldcover']], dim=1)
         tile_level_modalities = torch.cat([images[modality] for modality in ['precipitation', 'temperature', 'geolocation', 'month', 'biome', 'ecoregion']], dim=1)
         pixel_level_features = self.unet.encoder(pixel_level_modalities) # extracts the pixel-level features from the UNet encoder
         tile_level_features = self.tile_modality_encoder(tile_level_modalities)
@@ -349,12 +379,12 @@ class LinearDecoder(nn.Module):
         self.num_input_channels = num_input_channels
         self.image_size = image_size
         self.nodata_value = nodata_value
-        self.upsample =  nn.Upsample(size=image_size, mode='bilinear') # upsamples bilinearly to the image size
+        self.upsample = nn.Upsample(size=image_size, mode='bilinear') # upsamples bilinearly to the image size
         self.convolution = nn.Conv2d(in_channels=num_input_channels+feature_dim, out_channels=1, kernel_size=1) # applies a linear layer to each pixel
 
     def forward(self, images, features):
         if self.num_input_channels != 12:
-            images = images[:, [3,2,1], :, :]
+            images = images[:, [3,2,1], :, :] # extracts the RGB bands
 
         if self.image_size != 128:
             images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant', value=self.nodata_value) # DinoV2 requires the image size to be divisible by 14
@@ -366,14 +396,14 @@ class LinearDecoder(nn.Module):
         return convolved
 
 class EncoderDecoder(nn.Module):
-    def __init__(self, model_class_name, pixelwise, num_classes, pretrained=None, nodata_value=None, project_dir_path=None):
+    def __init__(self, model_class_name, adaptation_mode, pixelwise, num_classes, pretrained=None, nodata_value=None, project_dir_path=None):
         super(EncoderDecoder, self).__init__()
 
         self.pixelwise = pixelwise
         self.model = globals()[model_class_name](num_classes, pixelwise, pretrained, nodata_value, project_dir_path)
 
         if pixelwise:
-            num_input_channels = 12 if model_class_name == 'MPMAE' else 3
+            num_input_channels = 12 if model_class_name == 'MPMAE' else 3 # all Sentinel-2 bands or just RGB
             image_size = 140 if model_class_name == 'DINOv2' else 128
 
             if model_class_name == 'ResNet50':
@@ -387,19 +417,21 @@ class EncoderDecoder(nn.Module):
 
     def forward(self, images):
         if self.pixelwise:
-            return self.decoder(images=images['sentinel2'], features=self.model(images)) # applies the decoder to the features
+            return self.decoder(images=images['Sentinel2'], features=self.model(images)) # applies the decoder to the features
         else:
             return self.model(images)
 
 class Model(LightningModule):
-    def __init__(self, task, model, adaptation_mode, decay_factor, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, nodata_value, project_dir_path):
+    def __init__(self, task, model, adaptation_mode, tuning_mode, decay_factor, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, nodata_value, project_dir_path):
         super().__init__()
 
         self.save_hyperparameters()
         self.configure_models()
         self.configure_metrics()
 
-        if task == 'species': # multi-label classification
+        if self.hparams.model == 'modalityreconstruction':
+            self.criterion = ModalityReconstructionNetworkLoss()
+        elif task == 'species': # multi-label classification
             self.criterion = nn.BCEWithLogitsLoss()
         else: # regression
             self.criterion = nn.MSELoss()
@@ -409,15 +441,15 @@ class Model(LightningModule):
         num_classes = 100 if self.hparams.task == 'species' else 1
 
         if self.hparams.model == 'resnet50':
-            self.model = EncoderDecoder(model_class_name='ResNet50', pixelwise=pixelwise, num_classes=num_classes, pretrained=False)
+            self.model = EncoderDecoder(model_class_name='ResNet50', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, pretrained=False)
         elif self.hparams.model == 'resnet50_imagenet':
-            self.model = EncoderDecoder(model_class_name='ResNet50', pixelwise=pixelwise, num_classes=num_classes, pretrained=True)
+            self.model = EncoderDecoder(model_class_name='ResNet50', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, pretrained=True)
         elif self.hparams.model == 'dinov2':
-            self.model = EncoderDecoder(model_class_name='DINOv2', pixelwise=pixelwise, num_classes=num_classes, nodata_value=self.hparams.nodata_value)
+            self.model = EncoderDecoder(model_class_name='DINOv2', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, nodata_value=self.hparams.nodata_value)
         elif self.hparams.model == 'mpmae':
-            self.model = EncoderDecoder(model_class_name='MPMAE', pixelwise=pixelwise, num_classes=num_classes, pretrained=False)
+            self.model = EncoderDecoder(model_class_name='MPMAE', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, pretrained=False)
         elif self.hparams.model == 'mpmae_mmearth':
-            self.model = EncoderDecoder(model_class_name='MPMAE', pixelwise=pixelwise, num_classes=num_classes, pretrained=True, project_dir_path=self.hparams.project_dir_path)
+            self.model = EncoderDecoder(model_class_name='MPMAE', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, pretrained=True, project_dir_path=self.hparams.project_dir_path)
         elif self.hparams.model == 'modalityreconstruction':
             self.model = ModalityReconstructionNetwork()
 
@@ -436,7 +468,7 @@ class Model(LightningModule):
             setattr(self, f'{split}_metrics', metrics.clone(prefix=f'{split.replace("_", " ").capitalize()} '))
 
     def configure_parameters(self, max_lr):
-        if self.hparams.adaptation_mode == 'lp':
+        if self.hparams.tuning_mode == 'lp':
             # freeze all parameters
             for param in self.model.parameters():
                 param.requires_grad = False
@@ -456,7 +488,7 @@ class Model(LightningModule):
             if self.hparams.task == 'biomass':
                 assert sum(p.numel() for p in self.model.decoder.parameters()) == sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
-        if self.hparams.adaptation_mode == 'llrd':
+        if self.hparams.tuning_mode == 'llrd':
             layer_names = []
 
             for name, _ in self.model.model.model.named_parameters():
@@ -529,12 +561,8 @@ class Model(LightningModule):
 
     def general_step(self, batch, batch_idx, mode, dataloader_idx=0):
         images, target = batch # extracts the images and targets for the batch
-
-        # if self.hparams.model == 'dinov2':
-        #     images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant', value=self.hparams.nodata_value) # DinoV2 requires the image size to be divisible by 14
-
         prediction = self(images) # forward pass
-        batch_size = images['sentinel2'].shape[0] # number of items in batch
+        batch_size = images['Sentinel2'].shape[0] # number of items in batch
 
         if self.hparams.task == 'biomass':
             valid_mask = target != self.hparams.nodata_value # mask for the NaN pixels in the target
@@ -571,9 +599,9 @@ class Model(LightningModule):
 
         if batch_idx == 0: # if we are on the first batch
             if mode == 'train' or mode == 'val':
-                self._log_images(images['sentinel2'].cpu().numpy()[:, [3,2,1]].astype(float), mode)
+                self._log_images(images['Sentinel2'].cpu().numpy()[:, [3,2,1]].astype(float), mode)
             else:
-                self._log_images(images['sentinel2'].cpu().numpy()[:, [3,2,1]].astype(float), split)
+                self._log_images(images['Sentinel2'].cpu().numpy()[:, [3,2,1]].astype(float), split)
 
         if mode == 'train':
             return loss
@@ -641,7 +669,7 @@ class Model(LightningModule):
         # Set labels and title
         ax.set_xlabel('Target', fontsize=14)
         ax.set_ylabel('Prediction', fontsize=14)
-        ax.set_title(f'{self.hparams.task.replace("_", " ").capitalize().replace("ph", "pH")} {self.hparams.model.capitalize().replace("Mpmae", "MPMAE").replace("_", "-").replace("mme", "MME").replace("imagenet", "ImageNet").replace("Resnet", "ResNet")} {self.hparams.adaptation_mode.upper()} {split.replace("_", " ")} set', fontsize=16)
+        ax.set_title(f'{self.hparams.task.replace("_", " ").capitalize().replace("ph", "pH")} {self.hparams.model.capitalize().replace("Mpmae", "MPMAE").replace("_", "-").replace("mme", "MME").replace("imagenet", "ImageNet").replace("Resnet", "ResNet")} {self.hparams.tuning_mode.upper()} {split.replace("_", " ")} set', fontsize=16)
         ax.legend()
         ax.set_xlim([min_val, max_val])
         ax.set_ylim([min_val, max_val])
