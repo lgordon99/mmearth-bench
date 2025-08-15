@@ -1,7 +1,7 @@
 # ============================================== IMPORTS ============================================== #
 
 from collections import OrderedDict
-from convnextv2 import ConvNeXtV2
+from convnextv2 import ConvNeXtV2, load_custom_checkpoint
 from lightning.pytorch import LightningModule
 from timm.models.layers import trunc_normal_
 from torchmetrics import Metric, MetricCollection, Recall
@@ -24,126 +24,10 @@ import wandb
 num_logged_images = 25
 fontsize = 50
 pad = 10
-
-# ============================================== FUNCTIONS ============================================== #
-
-def remap_checkpoint_keys(ckpt):
-    # function adapted from https://github.com/vishalned/MMEarth-train/blob/main/helpers.py
-
-    new_ckpt = OrderedDict()
-
-    for k, v in ckpt.items():
-        if k.startswith('encoder'):
-            k = ".".join(k.split(".")[1:])  # remove encoder in the name
-        if k.endswith('kernel'):
-            k = ".".join(k.split(".")[:-1])  # remove kernel in the name
-            new_k = k + '.weight'
-            if len(v.shape) == 3:  # resahpe standard convolution
-                kv, in_dim, out_dim = v.shape
-                ks = int(math.sqrt(kv))
-                new_ckpt[new_k] = (v.permute(2, 1, 0).reshape(out_dim, in_dim, ks, ks).transpose(3, 2))
-            elif len(v.shape) == 2:  # reshape depthwise convolution
-                kv, dim = v.shape
-                ks = int(math.sqrt(kv))
-                new_ckpt[new_k] = (v.permute(1, 0).reshape(dim, 1, ks, ks).transpose(3, 2))
-            continue
-        elif 'ln' in k or 'linear' in k:
-            k = k.split('.')
-            k.pop(-2)  # remove ln and linear in the name
-            new_k = '.'.join(k)
-        else:
-            new_k = k
-
-        new_ckpt[new_k] = v
-
-    # reshape grn affine parameters and biases
-    for k, v in new_ckpt.items():
-        if k.endswith('bias') and len(v.shape) != 1:
-            new_ckpt[k] = v.reshape(-1)
-        elif 'grn' in k:
-            new_ckpt[k] = v.unsqueeze(0).unsqueeze(1)
-
-    return new_ckpt
-
-def load_state_dict(model, state_dict, ignore_missing="relative_position_index", quit=False):
-    # function adapted from https://github.com/vishalned/MMEarth-train/blob/main/helpers.py
-
-    missing_keys = []
-    unexpected_keys = []
-    error_msgs = []
-    # copy state_dict so _load_from_state_dict can modify it
-    metadata = getattr(state_dict, "_metadata", None)
-    state_dict = state_dict.copy()
-
-    if metadata is not None:
-        state_dict._metadata = metadata
-
-    def load(module, prefix=''):
-        local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
-        module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
-
-        for name, child in module._modules.items():
-            if child is not None:
-                load(child, prefix + name + ".")
-
-    load(model)
-
-    warn_missing_keys = []
-    ignore_missing_keys = []
-
-    for key in missing_keys:
-        keep_flag = True
-
-        for ignore_key in ignore_missing.split("|"):
-            if ignore_key in key:
-                keep_flag = False
-                break
-        if keep_flag:
-            warn_missing_keys.append(key)
-        else:
-            ignore_missing_keys.append(key)
-
-    missing_keys = warn_missing_keys
-
-    if len(missing_keys) > 0:
-        print("Weights of {} not initialized from pretrained model: {}".format(model.__class__.__name__, missing_keys))
-    if len(unexpected_keys) > 0:
-        print("Weights from pretrained model not used in {}: {}".format(model.__class__.__name__, unexpected_keys))
-    if len(ignore_missing_keys) > 0:
-        print("Ignored weights of {} not initialized from pretrained model: {}".format(model.__class__.__name__, ignore_missing_keys))
-    if len(error_msgs) > 0:
-        print("\n".join(error_msgs))
-
-def load_custom_checkpoint(model, checkpoint_path):
-    # function adapted from https://github.com/vishalned/MMEarth-train/blob/main/helpers.py
-
-    checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
-    print(f'Load pre-trained checkpoint from: {checkpoint_path}')
-    checkpoint_model = checkpoint['model'] if 'model' in checkpoint else checkpoint
-    state_dict = model.state_dict()
-
-    for k in ['head.weight', 'head.bias']:
-        if (k in checkpoint_model and checkpoint_model[k].shape != state_dict[k].shape):
-            print(f'Removing key {k} from pretrained checkpoint')
-            del checkpoint_model[k]
-
-    # remove decoder weights
-    checkpoint_model_keys = list(checkpoint_model.keys())
-
-    for k in checkpoint_model_keys:
-        if 'decoder' in k or 'mask_token' in k or 'proj' in k or 'pred' in k:
-            print(f'Removing key {k} from pretrained checkpoint')
-            del checkpoint_model[k]
-
-    checkpoint_model = remap_checkpoint_keys(checkpoint_model)
-    load_state_dict(model, checkpoint_model)
-
-    # manually initialize fc layer
-    if isinstance(model.head, nn.Linear):
-        trunc_normal_(model.head.weight, std=2e-5)
-        torch.nn.init.constant_(model.head.bias, 0.)
-
-    return model
+data_dir_path = os.environ['DATA_DIR_PATH']
+no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
+biomass_no_data_value = -9999
+architecture_properties = {'ResNet50': {'num_image_channels': 3, 'embedding_dim': 2048}, 'DINOv2': {'num_image_channels': 3, 'embedding_dim': 384}, 'MPMAE': {'num_image_channels': 12, 'embedding_dim': 320}}
 
 # ============================================== CLASSES ============================================== #
 
@@ -161,53 +45,8 @@ class MeanError(Metric):
     def compute(self):
         return self.error_sum / self.total
 
-class ModalityReconstructionNetworkLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.mse_loss = nn.MSELoss()
-        self.cross_entropy_loss = nn.CrossEntropyLoss()
-
-    def forward(self, modality_reconstructions, target):
-        losses = {}
-
-        for modality, reconstruction in modality_reconstructions.items():
-            if modality in ['dynamicworld', 'esaworldcover', 'biome', 'ecoregion']:
-                losses[modality] = self.cross_entropy_loss(reconstruction, target[modality].long())
-            else:
-                losses[modality] = self.mse_loss(reconstruction, target[modality])
-
-        return sum(losses.values())
-
-class ResNet50(nn.Module):
-    def __init__(self, num_classes, pixelwise, pretrained, nodata_value, project_dir_path):
-        super().__init__()
-
-        self.model = resnet50(weights='DEFAULT' if pretrained else None)
-
-        if pixelwise:
-            # self.model.avgpool = nn.Identity() # removes the average pooling layer
-            # self.model.fc = nn.Identity() # removes the classifier layer
-            self.model._forward_impl = self._pixelwise_forward_impl # removes the avgpool, flatten, and fc layers
-        else:
-            self.model.fc = nn.Linear(in_features=self.model.fc.in_features, out_features=num_classes)
-
-    def _pixelwise_forward_impl(self, x):
-        x = self.model.conv1(x)
-        x = self.model.bn1(x)
-        x = self.model.relu(x)
-        x = self.model.maxpool(x)
-        x = self.model.layer1(x)
-        x = self.model.layer2(x)
-        x = self.model.layer3(x)
-        x = self.model.layer4(x)
-
-        return x
-
-    def forward(self, images):
-        return self.model(images['Sentinel2'][:, [3,2,1], :, :]) # extracts the RGB bands
-
 class MPMAE(nn.Module):
-    def __init__(self, num_classes, pixelwise, pretrained, nodata_value, project_dir_path):
+    def __init__(self, num_classes, pixelwise, pretrained):
         super(MPMAE, self).__init__()
 
         self.pixelwise = pixelwise
@@ -218,7 +57,7 @@ class MPMAE(nn.Module):
             self.model.forward_features = self._pixelwise_forward_features # replaces the forward_features method with a pixelwise version
 
         if pretrained:
-            checkpoint_path = f'{project_dir_path}/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
+            checkpoint_path = f'{data_dir_path}/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
             load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
 
     def _pixelwise_forward_features(self, x):
@@ -240,11 +79,10 @@ class MPMAE(nn.Module):
         return self.model(images['Sentinel2'])
 
 class DINOv2(nn.Module):
-    def __init__(self, num_classes, pixelwise, pretrained, nodata_value, project_dir_path):
+    def __init__(self, num_classes, pixelwise, pretrained):
         super(DINOv2, self).__init__()
 
         self.pixelwise = pixelwise
-        self.nodata_value = nodata_value
         self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg')
         self.model.interpolate_pos_encoding = self._deterministic_interpolate_pos_encoding
 
@@ -293,7 +131,7 @@ class DINOv2(nn.Module):
 
     def forward(self, images):
         images = images['Sentinel2'][:, [3,2,1], :, :]
-        images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant', value=self.nodata_value) # DinoV2 requires the image size to be divisible by 14
+        images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant') # DinoV2 requires the image size to be divisible by 14
 
         if self.pixelwise:
             features = self.model.forward_features(images)['x_norm_patchtokens'].permute(0, 2, 1)
@@ -302,127 +140,235 @@ class DINOv2(nn.Module):
         else:
             return self.model(images)
 
-class ModalityReconstructionNetwork(nn.Module):
-    def __init__(self, masked_modality=None):
-        super(ModalityReconstructionNetwork, self).__init__()
+class TaskModalityEncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
 
-        num_pixel_bands = 46
-        num_tile_bands = 880
-        total_bands = num_pixel_bands + num_tile_bands
-        self.pixel_level_modality_names = ['Sentinel2', 'sentinel1', 'asterdem', 'ethgch', 'dynamicworld', 'esaworldcover']
-        self.tile_level_modality_names = ['precipitation', 'temperature', 'geolocation', 'month', 'biome', 'ecoregion']
+        num_pixel_level_bands = 46
+        num_tile_level_bands = 880
 
-        self.unet = smp.Unet(encoder_name='resnet50', encoder_weights='imagenet', in_channels=total_bands, classes=total_bands)
-        self.modality_band_indices = {'Sentinel2': [0, 12], 'sentinel1': [12, 20], 'asterdem': [20, 22], 'ethgch': [22, 24], 'dynamicworld': [24, 34], 'esaworldcover': [34, 46], 'precipitation': [46, 49], 'temperature': [49, 58], 'geolocation': [58, 62], 'month': [62, 64], 'biome': [64, 79], 'ecoregion': [79, 926]}
-        # self.dynamicworld_class_embeddings = nn.Embedding(10, 8)
-        # self.esaworld_cover_class_embeddings = nn.Embedding(12, 8)
-        # self.biome_class_embeddings = nn.Embedding(15, 8)
-        # self.ecoregion_class_embeddings = nn.Embedding(847, 32)
+        self.encoder = smp.Unet(encoder_name='resnet50', encoder_weights='imagenet', in_channels=num_pixel_level_bands+num_tile_level_bands).encoder
+        modality_names = list(no_data_values.keys())
 
-    def forward(self, images):
-        pixel_level_modalities = torch.cat([images[modality] for modality in self.pixel_level_modality_names], dim=1)
-        tile_level_modalities = torch.cat([images[modality] for modality in self.tile_level_modality_names], dim=1)
+        self.pixel_level_modality_names = modality_names[:6]
+        self.tile_level_modality_names = modality_names[6:]
+
+    def forward(self, task_modalities):
+        pixel_level_modalities = torch.cat([task_modalities[modality] for modality in self.pixel_level_modality_names], dim=1)
+        tile_level_modalities = torch.cat([task_modalities[modality] for modality in self.tile_level_modality_names], dim=1)
         tile_level_modalities_spatial = tile_level_modalities.view(*tile_level_modalities.shape, 1, 1).expand(*tile_level_modalities.shape[:2], *pixel_level_modalities.shape[2:]) # expands the tile-level modalities to match the shape of the pixel-level modalities
         modalities = torch.cat([pixel_level_modalities, tile_level_modalities_spatial], dim=1) # combines the pixel-level and tile-level modalities
-        reconstruction = self.unet(modalities) # extracts the features from the UNet encoder
-        modality_reconstructions_raw = {modality: reconstruction[:, indices[0]:indices[1]] for modality, indices in self.modality_band_indices.items()}
-        modality_reconstructions = {modality: reconstruction.mean(dim=(1,2,3)) if modality in ['dynamicworld', 'esaworldcover', 'biome', 'ecoregion'] else reconstruction.mean(dim=(2,3)) if modality in self.tile_level_modality_names else reconstruction for modality, reconstruction in modality_reconstructions_raw.items()}
+        modality_embeddings = self.encoder(modalities)[-1]
 
-        return modality_reconstructions
-        # for modality, reconstruction in modality_reconstructions.items():
-        #     print(modality)
-        #     print(reconstruction.shape)
-        # exit()
+        return modality_embeddings
 
-class ModalityReconstructionNetworkSeparateEncoders(nn.Module):
-    def __init__(self, masked_modality=None):
-        super(ModalityReconstructionNetworkSeparateEncoders, self).__init__()
+class ResNet50Encoder(nn.Module):
+    def __init__(self, pixelwise, pretrained):
+        super().__init__()
 
-        num_pixel_bands = 26
-        num_tile_bands = 20
+        self.model = resnet50(weights='DEFAULT' if pretrained else None)
+        self.model._forward_impl = self._forward_impl_encode # removes the avgpool, flatten, and fc layers
 
-        self.unet = smp.Unet(encoder_name='resnet50', encoder_weights='imagenet', in_channels=num_pixel_bands, classes=num_pixel_bands)
-        embedding_dim = self.unet.encoder.out_channels[-1] # the deepest embedding dimension of the UNet encoder
-        self.tile_modality_encoder = nn.Sequential(nn.Linear(num_tile_bands, embedding_dim),
-                                                   nn.ReLU(),
-                                                   nn.Linear(embedding_dim, embedding_dim))
-        original_conv = self.unet.decoder.blocks[0].conv1[0]
-        self.unet.decoder.blocks[0].conv1[0] = nn.Conv2d(in_channels=5120, out_channels=original_conv.out_channels, kernel_size=original_conv.kernel_size, stride=original_conv.stride, padding=original_conv.padding, bias=original_conv.bias)
-        self.tile_modality_decoder = nn.Sequential(nn.Linear(embedding_dim + embedding_dim, embedding_dim),
-                                                   nn.ReLU(),
-                                                   nn.Linear(embedding_dim, num_tile_bands))
+    def _forward_impl_encode(self, x):
+        x = self.model.conv1(x)
+        x = self.model.bn1(x)
+        x = self.model.relu(x)
+        x = self.model.maxpool(x)
+        x = self.model.layer1(x)
+        x = self.model.layer2(x)
+        x = self.model.layer3(x)
+        x = self.model.layer4(x)
+
+        return x
 
     def forward(self, images):
-        pixel_level_modalities = torch.cat([images[modality] for modality in ['Sentinel2', 'sentinel1', 'asterdem', 'ethgch', 'dynamicworld', 'esaworldcover']], dim=1)
-        tile_level_modalities = torch.cat([images[modality] for modality in ['precipitation', 'temperature', 'geolocation', 'month', 'biome', 'ecoregion']], dim=1)
-        pixel_level_features = self.unet.encoder(pixel_level_modalities) # extracts the pixel-level features from the UNet encoder
-        tile_level_features = self.tile_modality_encoder(tile_level_modalities)
-        pixel_tile_level_features_spatial = torch.cat([pixel_level_features[-1], tile_level_features.view(*tile_level_features.shape, 1, 1).expand(*pixel_level_features[-1].shape)], dim=1) # combines the tile-level features with the deepest pixel-level features
-        decoder_input = pixel_level_features[:-1] + [pixel_tile_level_features_spatial]
-        decoder_output = self.unet.decoder(*decoder_input) # decodes the features back to the pixel level
-        pixel_level_modality_reconstructions = self.unet.segmentation_head(decoder_output) # applies the segmentation head to the decoded features
-        averaged_pixel_level_features = pixel_level_features[-1].mean(dim=(2,3))
-        pixel_tile_level_features = torch.cat([averaged_pixel_level_features, tile_level_features], dim=1) # combines the averaged pixel-level features with the tile-level features
-        tile_level_modality_reconstructions = self.tile_modality_decoder(pixel_tile_level_features)
+        return self.model(images['Sentinel2']['data'][:, [3,2,1], :, :]) # extracts the RGB bands
 
-        print(pixel_tile_level_features_spatial.shape)
-        print(averaged_pixel_level_features.shape)
-        print(pixel_tile_level_features.shape)
-        print(pixel_level_modality_reconstructions.shape)
-        print(tile_level_modality_reconstructions.shape)
-        exit()
+class TaskDecoder(nn.Module):
+    def __init__(self, architecture, pixelwise, adaptation_mode, num_classes):
+        super().__init__()
+
+        self.architecture = architecture
+        self.num_classes = num_classes
+
+        if architecture == 'ResNet50':
+            self.decoder = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)),
+                                         nn.Flatten(1),
+                                         nn.LazyLinear(num_classes)) # infers in_features from input shape
+
+    def forward(self, embeddings):
+        task_prediction = self.decoder(embeddings)
+
+        return task_prediction
 
 class LinearDecoder(nn.Module):
-    def __init__(self, num_input_channels, image_size, feature_dim, nodata_value):
-        super(LinearDecoder, self).__init__()
+    def __init__(self, image_size, num_image_channels, embedding_dim, out_channels):
+        super().__init__()
 
-        self.num_input_channels = num_input_channels
-        self.image_size = image_size
-        self.nodata_value = nodata_value
+        self.num_image_channels = num_image_channels
         self.upsample = nn.Upsample(size=image_size, mode='bilinear') # upsamples bilinearly to the image size
-        self.convolution = nn.Conv2d(in_channels=num_input_channels+feature_dim, out_channels=1, kernel_size=1) # applies a linear layer to each pixel
+        self.convolution = nn.Conv2d(in_channels=num_image_channels+embedding_dim, out_channels=out_channels, kernel_size=1) # applies a linear layer to each pixel
 
-    def forward(self, images, features):
-        if self.num_input_channels != 12:
+    def forward(self, embeddings, images):
+        images = images['Sentinel2']['data']
+
+        if self.num_image_channels != 12:
             images = images[:, [3,2,1], :, :] # extracts the RGB bands
 
-        if self.image_size != 128:
-            images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant', value=self.nodata_value) # DinoV2 requires the image size to be divisible by 14
-
-        upsampled_features = self.upsample(features)
-        concatenated = torch.cat((images, upsampled_features), dim=1) # concatenates along the channel dimension
+        upsampled_embeddings = self.upsample(embeddings) # upsamples the embeddings to the image size
+        concatenated = torch.cat((images, upsampled_embeddings), dim=1) # concatenates along the channel dimension
         convolved = self.convolution(concatenated) # applies the convolution to the concatenated tensor
 
         return convolved
 
+class TaskModalityDecoder(nn.Module):
+    def __init__(self, num_image_channels, embedding_dim):
+        super().__init__()
+
+        self.task_modality_decoder = LinearDecoder(image_size=128, num_image_channels=num_image_channels, embedding_dim=embedding_dim, out_channels=922) # 922 is the total number of bands in the task modalities excluding the NaN bands in the categorical modalities
+        self.modality_band_indices = {'Sentinel2': [0, 12],
+                                      'Sentinel1': [12, 20],
+                                      'AsterDEM': [20, 22],
+                                      'ETH_GCH': [22, 24],
+                                      'DynamicWorld': [24, 33],
+                                      'ESA_WorldCover': [33, 44],
+                                      'precipitation': [44, 47],
+                                      'temperature': [47, 56],
+                                      'geolocation': [56, 60],
+                                      'month': [60, 62],
+                                      'biome': [62, 76],
+                                      'ecoregion': [76, 922]}
+        self.tile_level_modality_names = ['precipitation', 'temperature', 'geolocation', 'month', 'biome', 'ecoregion']
+
+    def forward(self, embeddings, images):
+        modality_reconstructions = self.task_modality_decoder(embeddings, images)
+        modality_reconstructions = {modality: modality_reconstructions[:, indices[0]:indices[1]] for modality, indices in self.modality_band_indices.items()}
+        modality_reconstructions = {modality: reconstruction.mean(dim=(2,3)) if modality in self.tile_level_modality_names else reconstruction for modality, reconstruction in modality_reconstructions.items()} # collapses the spatial dimensions for the tile-level modalities
+
+        return modality_reconstructions
+
+class ModalityReconstructionLossCalculator(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.mse_loss = nn.MSELoss()
+        self.categorical_modalities = ['DynamicWorld', 'ESA_WorldCover', 'biome', 'ecoregion']
+        self.cross_entropy_losses = {modality: nn.CrossEntropyLoss(ignore_index=no_data_values[modality]) for modality in self.categorical_modalities}
+
+    def forward(self, modality_reconstructions, images):
+        modality_reconstruction_losses = {}
+
+        for modality, reconstruction in modality_reconstructions.items():
+            target = images[modality]['data']
+
+            if modality in self.categorical_modalities: # categorical modalities
+                modality_reconstruction_losses[modality] = self.cross_entropy_losses[modality](reconstruction.cpu(), target.squeeze().long().cpu()).to(reconstruction.device)
+            else: # continuous modalities
+                if 'valid_mask' in images[modality].keys():
+                    valid_mask = images[modality]['valid_mask']
+                    reconstruction = reconstruction[valid_mask]
+                    target = target[valid_mask]
+
+                modality_reconstruction_losses[modality] = self.mse_loss(reconstruction, target)
+
+        return modality_reconstruction_losses
+
+class SurrogateLossNetwork(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.surrogate_loss_network = nn.Sequential(nn.Linear(12, 64),
+                                                    nn.ReLU(),
+                                                    nn.Linear(64, 64),
+                                                    nn.ReLU(),
+                                                    nn.Linear(64, 1),
+                                                    nn.Softplus()) # ensures the surrogate loss is positive
+
+    def forward(self, modality_reconstruction_losses):
+        return self.surrogate_loss_network(torch.stack(list(modality_reconstruction_losses.values())))
+
 class EncoderDecoder(nn.Module):
-    def __init__(self, model_class_name, adaptation_mode, pixelwise, num_classes, pretrained=None, nodata_value=None, project_dir_path=None):
-        super(EncoderDecoder, self).__init__()
+    def __init__(self, architecture, adaptation_mode, pixelwise, num_classes, pretrained=None):
+        super().__init__()
 
+        self.adaptation_mode = adaptation_mode
         self.pixelwise = pixelwise
-        self.model = globals()[model_class_name](num_classes, pixelwise, pretrained, nodata_value, project_dir_path)
+        self.encoder = globals()[f'{architecture}Encoder'](pixelwise, pretrained)
+        num_image_channels = architecture_properties[architecture]['num_image_channels']
+        embedding_dim = architecture_properties[architecture]['embedding_dim']
 
-        if pixelwise:
-            num_input_channels = 12 if model_class_name == 'MPMAE' else 3 # all Sentinel-2 bands or just RGB
-            image_size = 140 if model_class_name == 'DINOv2' else 128
+        if adaptation_mode == 'multimodal':
+            self.task_modality_encoder = TaskModalityEncoder()
+        elif adaptation_mode == 'maml':
+            self.task_modality_decoder = TaskModalityDecoder(num_image_channels, embedding_dim)
+            self.modality_reconstruction_loss_calculator = ModalityReconstructionLossCalculator()
+            self.surrogate_loss_network = SurrogateLossNetwork()
 
-            if model_class_name == 'ResNet50':
-                feature_dim = 2048
-            elif model_class_name == 'DINOv2':
-                feature_dim = 384
-            elif model_class_name == 'MPMAE':
-                feature_dim = 320
-
-            self.decoder = LinearDecoder(num_input_channels, image_size, feature_dim, nodata_value) # creates the decoder with the number of features
+        self.task_decoder = TaskDecoder(architecture, pixelwise, adaptation_mode, num_classes)
 
     def forward(self, images):
-        if self.pixelwise:
-            return self.decoder(images=images['Sentinel2'], features=self.model(images)) # applies the decoder to the features
-        else:
-            return self.model(images)
+        embeddings = self.encoder(images)
+
+        if self.adaptation_mode == 'multimodal':
+            modality_embeddings = self.task_modality_encoder(images)
+            embeddings = torch.cat([embeddings, modality_embeddings], dim=1)
+        elif self.adaptation_mode == 'maml':
+            surrogate_loss = self.surrogate_loss_network(self.modality_reconstruction_loss_calculator(modality_reconstructions=self.task_modality_decoder(embeddings, images), images=images))
+
+        task_prediction = self.task_decoder(embeddings)
+
+        return task_prediction
+
+# class LinearDecoder(nn.Module):
+#     def __init__(self, num_input_channels, image_size, feature_dim):
+#         super().__init__()
+
+#         self.num_input_channels = num_input_channels
+#         self.image_size = image_size
+#         self.upsample = nn.Upsample(size=image_size, mode='bilinear') # upsamples bilinearly to the image size
+#         self.convolution = nn.Conv2d(in_channels=num_input_channels+feature_dim, out_channels=1, kernel_size=1) # applies a linear layer to each pixel
+
+#     def forward(self, images, features):
+#         if self.num_input_channels != 12:
+#             images = images[:, [3,2,1], :, :] # extracts the RGB bands
+
+#         if self.image_size != 128:
+#             images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant') # DinoV2 requires the image size to be divisible by 14
+
+#         upsampled_features = self.upsample(features)
+#         concatenated = torch.cat((images, upsampled_features), dim=1) # concatenates along the channel dimension
+#         convolved = self.convolution(concatenated) # applies the convolution to the concatenated tensor
+
+#         return convolved
+
+# class EncoderDecoder(nn.Module):
+#     def __init__(self, model_class_name, adaptation_mode, pixelwise, num_classes, pretrained=None):
+#         super(EncoderDecoder, self).__init__()
+
+#         self.pixelwise = pixelwise
+#         self.model = globals()[model_class_name](num_classes, pixelwise, pretrained)
+
+#         if pixelwise:
+#             num_input_channels = 12 if model_class_name == 'MPMAE' else 3 # all Sentinel-2 bands or just RGB
+#             image_size = 140 if model_class_name == 'DINOv2' else 128
+
+#             if model_class_name == 'ResNet50':
+#                 feature_dim = 2048
+#             elif model_class_name == 'DINOv2':
+#                 feature_dim = 384
+#             elif model_class_name == 'MPMAE':
+#                 feature_dim = 320
+
+#             self.decoder = LinearDecoder(num_input_channels, image_size, feature_dim) # creates the decoder with the number of features
+
+#     def forward(self, images):
+#         if self.pixelwise:
+#             return self.decoder(images=images['Sentinel2'], features=self.model(images)) # applies the decoder to the features
+#         else:
+#             return self.model(images)
 
 class Model(LightningModule):
-    def __init__(self, task, model, adaptation_mode, tuning_mode, decay_factor, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, nodata_value, project_dir_path):
+    def __init__(self, task, model, adaptation_mode, tuning_mode, decay_factor, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs):
         super().__init__()
 
         self.save_hyperparameters()
@@ -441,15 +387,15 @@ class Model(LightningModule):
         num_classes = 100 if self.hparams.task == 'species' else 1
 
         if self.hparams.model == 'resnet50':
-            self.model = EncoderDecoder(model_class_name='ResNet50', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, pretrained=False)
+            self.model = EncoderDecoder(architecture='ResNet50', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, pretrained=False)
         elif self.hparams.model == 'resnet50_imagenet':
-            self.model = EncoderDecoder(model_class_name='ResNet50', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, pretrained=True)
+            self.model = EncoderDecoder(architecture='ResNet50', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, pretrained=True)
         elif self.hparams.model == 'dinov2':
-            self.model = EncoderDecoder(model_class_name='DINOv2', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, nodata_value=self.hparams.nodata_value)
+            self.model = EncoderDecoder(architecture='DINOv2', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes)
         elif self.hparams.model == 'mpmae':
-            self.model = EncoderDecoder(model_class_name='MPMAE', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, pretrained=False)
+            self.model = EncoderDecoder(architecture='MPMAE', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, pretrained=False)
         elif self.hparams.model == 'mpmae_mmearth':
-            self.model = EncoderDecoder(model_class_name='MPMAE', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, pretrained=True, project_dir_path=self.hparams.project_dir_path)
+            self.model = EncoderDecoder(architecture='MPMAE', adaptation_mode=self.hparams.adaptation_mode, pixelwise=pixelwise, num_classes=num_classes, pretrained=True)
         elif self.hparams.model == 'modalityreconstruction':
             self.model = ModalityReconstructionNetwork()
 
@@ -487,8 +433,7 @@ class Model(LightningModule):
 
             if self.hparams.task == 'biomass':
                 assert sum(p.numel() for p in self.model.decoder.parameters()) == sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-
-        if self.hparams.tuning_mode == 'llrd':
+        elif self.hparams.tuning_mode == 'llrd':
             layer_names = []
 
             for name, _ in self.model.model.model.named_parameters():
@@ -543,7 +488,7 @@ class Model(LightningModule):
 
             return parameters
 
-        return self.model.parameters() # fine-tuning
+        return self.model.parameters()
 
     def configure_optimizers(self):
         parameters = self.configure_parameters(max_lr=self.hparams.max_lr)
@@ -562,10 +507,10 @@ class Model(LightningModule):
     def general_step(self, batch, batch_idx, mode, dataloader_idx=0):
         images, target = batch # extracts the images and targets for the batch
         prediction = self(images) # forward pass
-        batch_size = images['Sentinel2'].shape[0] # number of items in batch
+        batch_size = images['Sentinel2']['data'].shape[0] # number of items in batch
 
         if self.hparams.task == 'biomass':
-            valid_mask = target != self.hparams.nodata_value # mask for the NaN pixels in the target
+            valid_mask = target != biomass_no_data_value # mask for the NaN pixels in the target
 
             if self.hparams.model == 'dinov2':
                 prediction = prediction[:, :, 6:-6, 6:-6] # removes the padding added for DINOv2
@@ -599,9 +544,9 @@ class Model(LightningModule):
 
         if batch_idx == 0: # if we are on the first batch
             if mode == 'train' or mode == 'val':
-                self._log_images(images['Sentinel2'].cpu().numpy()[:, [3,2,1]].astype(float), mode)
+                self._log_images(images['Sentinel2']['data'].cpu().numpy()[:, [3,2,1]].astype(float), mode)
             else:
-                self._log_images(images['Sentinel2'].cpu().numpy()[:, [3,2,1]].astype(float), split)
+                self._log_images(images['Sentinel2']['data'].cpu().numpy()[:, [3,2,1]].astype(float), split)
 
         if mode == 'train':
             return loss
@@ -623,7 +568,7 @@ class Model(LightningModule):
 
     def _log_images(self, images, mode):
         images = np.array([np.stack(utils.normalize(image), axis=-1) for image in images])
-        images = np.ma.masked_equal(images, self.hparams.nodata_value)
+        # images = np.ma.masked_equal(images, self.hparams.nodata_value)
         num_images = min(len(images), num_logged_images)
         fig, axes = plt.subplots(1, num_images, figsize=(num_images*4, 4))
 
