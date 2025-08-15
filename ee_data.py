@@ -65,28 +65,24 @@ class EEData:
                     break # does not collect data for the rest of the modalities
 
         if 'sentinel2' not in self.missing_modalities:
-            if 'biome' not in list(self.point['properties'].keys()): # if the point does not have a biome saved
-                ecoregion_features = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile_center).getInfo()['features'] # data for the ecoregion containing the tile
+            ecoregion_features = ee.FeatureCollection('RESOLVE/ECOREGIONS/2017').filterBounds(self.tile_center).getInfo()['features'] # data for the ecoregion containing the tile
 
-                if len(ecoregion_features) > 0: # if the tile is in an ecoregion
-                    biome_name = ecoregion_features[0]['properties']['BIOME_NAME']
-                    ecoregion_name = ecoregion_features[0]['properties']['ECO_NAME']
-                else:
-                    biome_name = 'N/A'
-                    ecoregion_name = 'N/A'
-
-                if biome_name == 'N/A':
-                    biome = no_data_values['biome']
-                    ecoregion = no_data_values['ecoregion']
-
-                    self.missing_modalities.append('biome')
-                    self.missing_modalities.append('ecoregion')
-                else:
-                    biome = utils.read_json('biomes_ecoregions_data/biome_labels.json')[biome_name]
-                    ecoregion = utils.read_json('biomes_ecoregions_data/ecoregion_labels.json')[ecoregion_name]
+            if len(ecoregion_features) > 0: # if the tile is in an ecoregion
+                biome_name = ecoregion_features[0]['properties']['BIOME_NAME']
+                ecoregion_name = ecoregion_features[0]['properties']['ECO_NAME']
             else:
-                biome = self.point['properties']['biome']
-                ecoregion = self.point['properties']['ecoregion']
+                biome_name = 'N/A'
+                ecoregion_name = 'N/A'
+
+            if biome_name == 'N/A':
+                biome = no_data_values['biome']
+                ecoregion = no_data_values['ecoregion']
+
+                self.missing_modalities.append('biome')
+                self.missing_modalities.append('ecoregion')
+            else:
+                biome = utils.read_json('biomes_ecoregions_data/biome_labels.json')[biome_name]
+                ecoregion = utils.read_json('biomes_ecoregions_data/ecoregion_labels.json')[ecoregion_name]
 
             self.tile_level_data['biome'] = biome
             self.tile_level_data['ecoregion'] = ecoregion
@@ -190,7 +186,7 @@ class EEData:
                                                           np.sin(np.deg2rad(self.tile_level_data['longitude'])),
                                                           np.cos(np.deg2rad(self.tile_level_data['latitude'])),
                                                           np.sin(np.deg2rad(self.tile_level_data['latitude']))])
-        continuous_valued_bands = s2_image.select([band for band in bands if band != 'SCL']).resample('bilinear').reproject(self.proj).unmask(no_data_values['Sentinel-2'])
+        continuous_valued_bands = s2_image.select([band for band in bands if band != 'SCL']).resample('bilinear').reproject(self.proj).unmask(no_data_values['Sentinel2'])
         scl = s2_image.select('SCL').reproject(self.proj).unmask() # unmasks SCL to 0
         s2_image = continuous_valued_bands.addBands(scl) # combines continuous and categorical bands
         self.tile_level_data['MSK_CLDPRB_CLOUDY_PIXEL_FRACTION'] = s2_image.select('MSK_CLDPRB').gte(10).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=msk_cldprob_res).get('MSK_CLDPRB').getInfo()
@@ -210,7 +206,7 @@ class EEData:
         asc_image = sentinel1_images.filterMetadata('orbitProperties_pass', 'equals', 'ASCENDING').first() # ascending image
         desc_image = sentinel1_images.filterMetadata('orbitProperties_pass', 'equals', 'DESCENDING').first() # descending image
         s1_image = None
-        nan_band = ee.Image.constant(no_data_values['Sentinel-1']).float().reproject(self.proj)
+        nan_band = ee.Image.constant(no_data_values['Sentinel1']).float().reproject(self.proj)
 
         # adding ascending bands
         for band in bands:
@@ -232,7 +228,7 @@ class EEData:
 
             s1_image = ee.Image.cat([s1_image, band_data])
 
-        self.pixel_level_data['sentinel1'] = s1_image.unmask(no_data_values['Sentinel-1'])
+        self.pixel_level_data['sentinel1'] = s1_image.unmask(no_data_values['Sentinel1'])
 
         if asc_image.getInfo() is None and desc_image.getInfo() is None: # if there is no ascending image and no descending image
             return False
