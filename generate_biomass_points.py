@@ -6,23 +6,15 @@ A script to create a GeoJSON with biomass points balanced across biomes
 # ============================================== IMPORTS ============================================== #
 
 from google.cloud import storage
-from shapely import bounds
 from sys import argv
 import builtins
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
 import ee
 import functools
-import geemap
-import geopandas as gpd
-import getpass
 import json
 import math
-import matplotlib.pyplot as plt
 import os
 import random
 import subprocess
-import sys
 import time
 import utils
 
