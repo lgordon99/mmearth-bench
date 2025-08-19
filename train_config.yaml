@@ -1,19 +1,18 @@
 seed: 42
-project_dir_path: /n/davies_lab/Users/luciagordon/mmearth-bench
 epochs: 200
-nodata_value: -9999
+data_dir_path: '/n/gajos_lab/Lab/luciagordon/mmearth-bench-new'
 
 hydra:
   job:
     chdir: true
   run:
-    dir: /tmp/${task}_${model_type}_${env:JOB_ID}
+    dir: /tmp/${task}_${architecture}_${env:JOB_ID}
 
 logger:
   _target_: lightning.pytorch.loggers.wandb.WandbLogger
   entity: luciagordon-harvard-university
   project: mmearth-bench
-  name: ${task}_${model_type}_${adaptation_mode}_${env:JOB_ID}
+  name: ${task}_${architecture}_${adaptation_mode}_${env:JOB_ID}
   log_model: true
 
 trainer:
@@ -34,21 +33,21 @@ trainer:
 datamodule:
   _target_: datamodule.DataModule
   task: ${task}
-  batch_size: 64
-  data_dir_path: ${project_dir_path}
+  batch_size: 32
   num_workers: 1
   seed: ${seed}
 
 model:
   _target_: model.Model
   task: ${task}
-  model: ${model_type}
+  architecture: ${architecture}
   adaptation_mode: ${adaptation_mode}
+  tuning_mode: ft
+  pretrained: true
   decay_factor: 0.9
-  max_lr: 0.0001
+  max_lr: 0.001
   weight_decay: 0.01
   warmup_epochs: 20
   num_train_batches: null
   min_lr: 1e-6
   epochs: ${epochs}
-  nodata_value: ${nodata_value}
