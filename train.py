@@ -5,8 +5,6 @@ from omegaconf import DictConfig, OmegaConf
 import hydra
 import os
 import shutil
-import subprocess
-import time
 import torch
 import uuid
 import wandb
@@ -21,8 +19,13 @@ OmegaConf.register_new_resolver('env', lambda key: os.environ.get(key, ''))
 @hydra.main(config_path='.', config_name='train_config', version_base=None)
 def train(cfg):
     print(f'Task: {cfg.task}')
-    print(f'Model type: {cfg.model_type}')
+    print(f'Encoder architecture: {cfg.architecture}')
     print(f'Adaptation mode: {cfg.adaptation_mode}')
+
+    # Set environment variables
+    os.environ['DATA_DIR_PATH'] = cfg.data_dir_path
+    os.environ['ENTITY'] = cfg.logger.entity
+    os.environ['PROJECT'] = cfg.logger.project
 
     torch.set_float32_matmul_precision('high')
     seed_everything(cfg.seed, workers=True)
@@ -47,8 +50,12 @@ def train(cfg):
     wandb.config.update(OmegaConf.to_container(cfg, resolve=True))
     model = hydra.utils.instantiate(cfg.model)
 
-    trainer.fit(model, datamodule=datamodule)
-    trainer.test(ckpt_path='best', datamodule=datamodule)
+    if cfg.adaptation_mode == 'tto':
+        trainer.test(model, datamodule=datamodule)
+    else:
+        trainer.fit(model, datamodule=datamodule)
+        trainer.test(ckpt_path='best', datamodule=datamodule)
+
     wandb.finish()
     shutil.rmtree(os.getcwd())
 
