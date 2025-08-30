@@ -62,15 +62,22 @@ class MMEarthBenchDataset(Dataset):
         # modalities for the tile
         tile_modality_data = {modality: {'data': data[index]} for modality, data in self.modality_data.items()}
 
-        # normalization
         for modality in tile_modality_data.keys():
-            if modality in ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETH_GCH', 'precipitation', 'temperature']:
-                tile_modality_data[modality]['valid_mask'] = tile_modality_data[modality]['data'] != no_data_values[modality] # mask for where the data is valid
+            # compute a valid mask for all modalities that can have NaNs
+            if modality not in ['geolocation', 'month']:
+                tile_modality_data[modality]['valid_mask'] = (tile_modality_data[modality]['data'] != no_data_values[modality]).squeeze() # mask for where the data is valid
+                # if (~tile_modality_data[modality]['valid_mask']).all():
+                #     return self.__getitem__(np.random.randint(0, self.tile_count))
+                #     print('Tile has a modality with all NaN')
+
+            # normalization
+            if modality in ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETH_GCH', 'precipitation', 'temperature']: # continuous modalities without an encoding
+                # tile_modality_data[modality]['valid_mask'] = tile_modality_data[modality]['data'] != no_data_values[modality] # mask for where the data is valid
                 masked = np.ma.masked_equal(tile_modality_data[modality]['data'], no_data_values[modality]) # masks the no-data values
                 normalized = (masked - self.split_data[f'{modality}_train_means']) / self.split_data[f'{modality}_train_stds'] # normalization
                 tile_modality_data[modality]['data'] = normalized.filled(0) # replaces NaNs with the post-normalization mean
 
-            tile_modality_data[modality]['data'] = torch.tensor(tile_modality_data[modality]['data'], dtype=torch.float32)
+            tile_modality_data[modality]['data'] = torch.tensor(tile_modality_data[modality]['data'], dtype=torch.float32) # converts to tensor
 
         # convert categorical modalities to one-hot encoding
         # tile_modality_data['DynamicWorld'] = np.eye(no_data_values['DynamicWorld']+1)[tile_modality_data['DynamicWorld'].astype(int)].squeeze().transpose(2, 0, 1)
@@ -86,6 +93,5 @@ class MMEarthBenchDataset(Dataset):
                 task_data = np.expand_dims(task_data, axis=0)
 
             return tile_modality_data, torch.tensor(task_data, dtype=torch.float32)
-            # return {modality: {'data': torch.tensor(data['data'], dtype=torch.float32), 'valid_mask': data['valid_mask']} for modality, data in tile_modality_data.items()}, torch.tensor(task_data, dtype=torch.float32)
         else:
             return {modality: torch.tensor(data, dtype=torch.float32) for modality, data in tile_modality_data.items()}, {modality: torch.tensor(data, dtype=torch.float32) for modality, data in tile_modality_data.items()}
