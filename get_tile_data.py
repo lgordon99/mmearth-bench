@@ -4,7 +4,6 @@ get_tile_data.py
 
 # ============================================== IMPORTS ============================================== #
 
-from ee_data import EEData
 from sys import argv
 import builtins
 import ee
@@ -15,7 +14,6 @@ import os
 import subprocess
 import time
 import utils
-import yaml
 
 # ============================================== GLOBAL VARIABLES ============================================== #
 
@@ -77,7 +75,7 @@ if __name__ == '__main__':
         partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
         env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
         task = argv[1]
-        subprocess.run(['sbatch', '-t', '5-00:00:00', '-p', partitions, '--mem', '500M', '--job-name', f'{task}_mmearth_modalities', '-o', f'{data_dir_path}/{task}/output-files/{task}_mmearth_modalities.out', 'job.sh', env_path, 'get_tile_data.py', f'for_{task}'])
+        subprocess.run(['sbatch', '-t', '1-00:00', '-p', partitions, '--mem', '500M', '--job-name', f'{task}_mmearth_modalities', '-o', f'{data_dir_path}/{task}/output-files/{task}_mmearth_modalities.out', 'job.sh', env_path, 'get_tile_data.py', f'for_{task}'])
     elif 'for' in argv[1]: # python get_tile_data.py for_TASK
         task = argv[1].split('for_')[1]
         print(f'Task = {task}')
