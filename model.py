@@ -76,28 +76,6 @@ class MeanError(Metric):
     def compute(self):
         return self.error_sum / self.count
 
-class AdaptationImprovement(Metric):
-    def __init__(self):
-        super().__init__()
-
-        self.add_state('initial_loss_sum', default=torch.tensor(0.0), dist_reduce_fx='sum')
-        self.add_state('final_loss_sum', default=torch.tensor(0.0), dist_reduce_fx='sum')
-        # self.add_state('count', default=torch.tensor(0), dist_reduce_fx='sum')
-
-    def update(self, initial_loss, final_loss):
-        self.initial_loss_sum += initial_loss.sum()
-        self.final_loss_sum += final_loss.sum()
-        # self.count += initial_loss.numel() # counts the number of elements
-
-    def compute(self):
-        return (self.initial_loss_sum - self.final_loss_sum) / self.initial_loss_sum * 100 # percent improvement
-
-                # initial_predictions = torch.cat(getattr(self, f'{split}_iteration_predictions'), dim=1)[0]
-                # initial_loss = nn.MSELoss()(initial_predictions, targets) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(initial_predictions, targets)
-                # self.log(f'{get_log_name(mode, dataloader_idx)} initial loss', initial_loss) # logs the loss prior to adaptation
-                # adaptation_improvement = (initial_loss - loss) / initial_loss * 100 # larger is better
-                # self.log(f'{get_log_name(mode, dataloader_idx)} loss adaptation improvement %', adaptation_improvement, batch_size=batch_size)
-
 class MPMAE(nn.Module):
     def __init__(self, num_classes, pixelwise, pretrained):
         super(MPMAE, self).__init__()
@@ -366,18 +344,16 @@ class SurrogateLossNetwork(nn.Module):
         #                                             nn.Linear(64, 1),
         #                                             nn.Softplus()) # ensures the output is non-negative
         in_features = 24 # 12 modalities, each with a reconstruction loss and a mask value
-        self.surrogate_loss_network = nn.Linear(in_features, 1)
+        self.surrogate_loss_network = nn.Linear(in_features, 1, bias=False)
 
         with torch.no_grad():
             self.surrogate_loss_network.weight.fill_(1.0 / in_features) # initializes all weights to 1/in_features
-            self.surrogate_loss_network.bias.zero_() # initializes bias to 0
+            # self.surrogate_loss_network.bias.zero_() # initializes bias to 0
 
     def forward(self, modality_reconstruction_losses):
         stacked_modality_reconstruction_losses = torch.stack(list(modality_reconstruction_losses.values()), dim=1)
-        # print('min', stacked_modality_reconstruction_losses.min().item(), 'max', stacked_modality_reconstruction_losses.max().item())
         existing_modality_mask = (~stacked_modality_reconstruction_losses.isnan()).float() # creates a mask for existing modalities (not NaN)
         filled_modality_reconstruction_losses = torch.nan_to_num(stacked_modality_reconstruction_losses, nan=0.0)
-        # print('min', filled_modality_reconstruction_losses.min().item(), 'max', filled_modality_reconstruction_losses.max().item())
         surrogate_loss_network_input = torch.cat([filled_modality_reconstruction_losses, existing_modality_mask], dim=1)
         surrogate_loss = self.surrogate_loss_network(surrogate_loss_network_input)
 
@@ -397,50 +373,30 @@ class EncoderDecoder(nn.Module):
         num_image_channels = architecture_properties[architecture]['num_image_channels']
         embedding_dim = architecture_properties[architecture]['embedding_dim']
 
-        if adaptation_mode == 'standard':
+        if adaptation_mode == 'standard' or adaptation_mode == 'tto' or adaptation_mode == 'maml':
             self.task_decoder = TaskDecoder(architecture, pixelwise, adaptation_mode, num_classes)
-            state_dict = get_state_dict(*get_run_id(task, architecture, 'standard', tuning_mode))
-            encoder_state_dict = {key.replace('model.encoder.', ''): value for key, value in state_dict.items() if key.startswith('model.encoder')} # filters the state_dict to only include the encoder parameters
-            task_decoder_state_dict = {key.replace('model.task_decoder.', ''): value for key, value in state_dict.items() if key.startswith('model.task_decoder')} # filters the state_dict to only include the decoder parameters
-            self.encoder.load_state_dict(encoder_state_dict)
-            self.task_decoder.load_state_dict(task_decoder_state_dict)
         elif adaptation_mode == 'multimodal':
             self.task_modality_encoder = TaskModalityEncoder()
-        elif adaptation_mode == 'task_modality_decoder':
+
+        if adaptation_mode == 'task_modality_decoder' or adaptation_mode == 'tto' or adaptation_mode == 'maml':
             state_dict = get_state_dict(*get_run_id(task, architecture, 'standard', tuning_mode))
             encoder_state_dict = {key.replace('model.encoder.', ''): value for key, value in state_dict.items() if key.startswith('model.encoder')} # filters the state_dict to only include the encoder parameters
             self.encoder.load_state_dict(encoder_state_dict)
             self.encoder.requires_grad_(False) # freezes the encoder
             self.task_modality_decoder = TaskModalityDecoder(num_image_channels, embedding_dim)
-        elif adaptation_mode == 'tto':
-            self.task_decoder = TaskDecoder(architecture, pixelwise, adaptation_mode, num_classes)
-            state_dict = get_state_dict(*get_run_id(task, architecture, 'standard', tuning_mode))
-            encoder_state_dict = {key.replace('model.encoder.', ''): value for key, value in state_dict.items() if key.startswith('model.encoder')} # filters the state_dict to only include the encoder parameters
+
+        if adaptation_mode == 'tto' or adaptation_mode == 'maml':
             task_decoder_state_dict = {key.replace('model.task_decoder.', ''): value for key, value in state_dict.items() if key.startswith('model.task_decoder')} # filters the state_dict to only include the decoder parameters
-            self.encoder.load_state_dict(encoder_state_dict)
-            self.encoder.requires_grad_(False) # freezes the encoder
             self.task_decoder.load_state_dict(task_decoder_state_dict)
             self.task_decoder.requires_grad_(False) # freezes the task decoder
-            self.task_modality_decoder = TaskModalityDecoder(num_image_channels, embedding_dim)
             task_modality_decoder_state_dict = get_state_dict(run_id='u7pagh3z', name='task_modality_decoder')
             task_modality_decoder_state_dict = {key.replace('model.task_modality_decoder.', ''): value for key, value in task_modality_decoder_state_dict.items() if key.startswith('model.task_modality_decoder')}
             self.task_modality_decoder.load_state_dict(task_modality_decoder_state_dict)
             self.task_modality_decoder.requires_grad_(False) # freezes the task modality decoder
+
+        if adaptation_mode == 'tto':
             self.task_modality_decoder_loss = TaskModalityDecoderLoss()
         elif adaptation_mode == 'maml' or adaptation_mode == 'learn_loss':
-            self.task_decoder = TaskDecoder(architecture, pixelwise, adaptation_mode, num_classes)
-            state_dict = get_state_dict(*get_run_id(task, architecture, 'standard', tuning_mode))
-            encoder_state_dict = {key.replace('model.encoder.', ''): value for key, value in state_dict.items() if key.startswith('model.encoder')} # filters the state_dict to only include the encoder parameters
-            task_decoder_state_dict = {key.replace('model.task_decoder.', ''): value for key, value in state_dict.items() if key.startswith('model.task_decoder')} # filters the state_dict to only include the decoder parameters
-            self.encoder.load_state_dict(encoder_state_dict)
-            self.encoder.requires_grad_(False) # freezes the encoder
-            self.task_decoder.load_state_dict(task_decoder_state_dict)
-            self.task_decoder.requires_grad_(False) # freezes the task decoder
-            self.task_modality_decoder = TaskModalityDecoder(num_image_channels, embedding_dim)
-            task_modality_decoder_state_dict = get_state_dict(run_id='u7pagh3z', name='task_modality_decoder')
-            task_modality_decoder_state_dict = {key.replace('model.task_modality_decoder.', ''): value for key, value in task_modality_decoder_state_dict.items() if key.startswith('model.task_modality_decoder')}
-            self.task_modality_decoder.load_state_dict(task_modality_decoder_state_dict)
-            self.task_modality_decoder.requires_grad_(False) # freezes the task modality decoder
             self.modality_reconstruction_loss_calculator = ModalityReconstructionLossCalculator()
             self.surrogate_loss_network = SurrogateLossNetwork(average_over_batch=adaptation_mode=='maml')
 
@@ -487,18 +443,23 @@ class EncoderDecoder(nn.Module):
                     encoder_parameters = {name: parameter.detach().requires_grad_() for name, parameter in encoder_parameters.items()}
 
             return torch.cat(iteration_predictions, dim=1).t().unsqueeze(-1) # (num_iterations, batch_size, 1)
+        elif self.adaptation_mode == 'maml':
+            # keep batch norm and dropout deterministic
+            self.encoder.eval()
+            self.task_decoder.eval()
+            self.task_modality_decoder.eval()
 
-            # with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
-            #     encoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.encoder.named_parameters()}
-            #     initial_input_embeddings = functional_call(self.encoder, encoder_parameters, (images,))
-            #     initial_task_prediction = self.task_decoder(initial_input_embeddings)
-            #     task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions=self.task_modality_decoder(initial_input_embeddings, images), images=images)
-            #     task_modality_reconstruction_loss_grads = torch.autograd.grad(task_modality_reconstruction_loss, encoder_parameters.values()) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
-            #     adapted_encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)}
-            #     adapted_input_embeddings = functional_call(self.encoder, adapted_encoder_parameters, (images,))
-            #     adapted_task_prediction = self.task_decoder(adapted_input_embeddings)
+            with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
+                encoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.encoder.named_parameters()}
+                initial_input_embeddings = functional_call(self.encoder, encoder_parameters, (images,))
+                initial_task_prediction = self.task_decoder(initial_input_embeddings)
+                surrogate_loss = self.surrogate_loss_network(self.modality_reconstruction_loss_calculator(modality_reconstructions=self.task_modality_decoder(initial_input_embeddings, images), images=images))
+                surrogate_loss_grads = torch.autograd.grad(surrogate_loss, encoder_parameters.values(), create_graph=True) # computes the gradients of the surrogate loss with respect to the encoder parameters
+                adapted_encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), surrogate_loss_grads)}
+                adapted_input_embeddings = functional_call(self.encoder, adapted_encoder_parameters, (images,))
+                adapted_task_prediction = self.task_decoder(adapted_input_embeddings)
 
-            # return initial_task_prediction, adapted_task_prediction
+            return torch.cat([initial_task_prediction, adapted_task_prediction], dim=1).t().unsqueeze(-1) # (num_iterations, batch_size, 1)
         elif self.adaptation_mode == 'learn_loss':
             # keep batch norm and dropout deterministic
             self.encoder.eval()
@@ -518,26 +479,9 @@ class EncoderDecoder(nn.Module):
                 adapted_task_prediction = self.task_decoder(adapted_input_embeddings)
 
             return initial_task_prediction, surrogate_loss, adapted_task_prediction
-        elif self.adaptation_mode == 'maml':
-            # keep batch norm and dropout deterministic
-            self.encoder.eval()
-            self.task_decoder.eval()
-            self.task_modality_decoder.eval()
-
-            with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
-                encoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.encoder.named_parameters()}
-                initial_input_embeddings = functional_call(self.encoder, encoder_parameters, (images,))
-                initial_task_prediction = self.task_decoder(initial_input_embeddings)
-                surrogate_loss = self.surrogate_loss_network(self.modality_reconstruction_loss_calculator(modality_reconstructions=self.task_modality_decoder(initial_input_embeddings, images), images=images))
-                surrogate_loss_grads = torch.autograd.grad(surrogate_loss, encoder_parameters.values(), create_graph=True) # computes the gradients of the surrogate loss with respect to the encoder parameters
-                adapted_encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), surrogate_loss_grads)}
-                adapted_input_embeddings = functional_call(self.encoder, adapted_encoder_parameters, (images,))
-                adapted_task_prediction = self.task_decoder(adapted_input_embeddings)
-
-            return initial_task_prediction, adapted_task_prediction
 
 class Model(LightningModule):
-    def __init__(self, task, architecture, adaptation_mode, tuning_mode, pretrained, decay_factor, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs):
+    def __init__(self, task, architecture, adaptation_mode, tuning_mode, pretrained, decay_factor, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, inner_loop_lr):
         super().__init__()
 
         self.save_hyperparameters()
@@ -564,25 +508,17 @@ class Model(LightningModule):
                                     pixelwise=pixelwise,
                                     num_classes=num_classes,
                                     pretrained=self.hparams.pretrained,
-                                    lr=self.hparams.max_lr)
+                                    lr=self.hparams.inner_loop_lr)
 
     def configure_metrics(self):
         if self.hparams.task == 'species':
             num_labels = 100
             metrics = MetricCollection({'Recall': MultilabelRecall(num_labels),
                                         'MAP': MultilabelAveragePrecision(num_labels)})
-        elif self.hparams.adaptation_mode == 'tto' or self.hparams.adaptation_mode == 'maml':
-            metrics = MetricCollection({'RMSE': MeanSquaredError(squared=False),
-                                        'MAE': MeanAbsoluteError(),
-                                        'ME': MeanError(),
-                                        'R2': R2Score(),
-                                        # 'adaptation improvement %': AdaptationImprovement()
-                                        })
         else:
             metrics = MetricCollection({'RMSE': MeanSquaredError(squared=False),
                                         'MAE': MeanAbsoluteError(),
-                                        'ME': MeanError(),
-                                        'R2': R2Score()})
+                                        'ME': MeanError()})
 
         for split in ['train', 'val', 'random_test', 'geographic_test']:
             setattr(self, f'{split}_metrics', metrics.clone(prefix=f'{split.replace("_", " ").capitalize()} '))
@@ -668,7 +604,6 @@ class Model(LightningModule):
         parameters = self.configure_parameters(max_lr=self.hparams.max_lr)
         optimizer = optim.AdamW(parameters, lr=self.hparams.max_lr, weight_decay=self.hparams.weight_decay)
         warmup_steps = self.hparams.warmup_epochs * self.hparams.num_train_batches
-        assert self.trainer.num_train_batches == self.hparams.num_train_batches
         warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=self.hparams.min_lr/self.hparams.max_lr, total_iters=warmup_steps)
         cooldown_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(self.hparams.epochs-self.hparams.warmup_epochs)*self.hparams.num_train_batches, eta_min=self.hparams.min_lr)
         scheduler = optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, cooldown_scheduler], milestones=[warmup_steps])
@@ -683,15 +618,13 @@ class Model(LightningModule):
         images, target = batch # extracts the images and targets for the batch
         prediction = self(images) # forward pass
 
-        if self.hparams.adaptation_mode == 'tto':
+        if self.hparams.adaptation_mode == 'tto' or self.hparams.adaptation_mode == 'maml':
             iteration_predictions = prediction
             prediction = iteration_predictions[-1]
-        elif self.hparams.adaptation_mode == 'maml':
-            initial_task_prediction, prediction = prediction
+        # elif self.hparams.adaptation_mode == 'maml':
+        #     initial_task_prediction, prediction = prediction
         elif self.hparams.adaptation_mode == 'learn_loss':
             initial_task_prediction, prediction, adapted_task_prediction = prediction # initial task prediction, surrogate loss, adapted task prediction
-
-        batch_size = images['Sentinel2']['data'].shape[0] # number of items in batch
 
         if self.hparams.task == 'biomass':
             valid_mask = target != biomass_no_data_value # mask for the NaN pixels in the target
@@ -708,7 +641,7 @@ class Model(LightningModule):
 
             if self.hparams.adaptation_mode == 'maml' or self.hparams.adaptation_mode == 'tto' or self.hparams.adaptation_mode == 'learn_loss':
                 initial_task_prediction = initial_task_prediction[valid_mask]
-            if self.hparams.adaptaiton_mode == 'learn_loss':
+            if self.hparams.adaptation_mode == 'learn_loss':
                 adapted_task_prediction = adapted_task_prediction[valid_mask]
 
         if self.hparams.adaptation_mode == 'task_modality_decoder':
@@ -724,13 +657,8 @@ class Model(LightningModule):
             target = nn.MSELoss(reduction='none')(initial_task_prediction, target) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(initial_task_prediction, target) # task loss
 
         loss = self.criterion(prediction, target) # computes the loss
-        self.log(f'{get_log_name(mode, dataloader_idx)} loss', loss) # logs the loss
+        self.log(f'{mode.capitalize().replace("_", " ")} loss', loss) # logs the loss
 
-        # if self.hparams.adaptation_mode == 'maml':
-        #     initial_loss = nn.MSELoss()(initial_task_prediction, target) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(initial_task_prediction, target)
-        #     self.log(f'{get_log_name(mode, dataloader_idx)} initial loss', initial_loss, batch_size=batch_size) # logs the loss prior to adaptation
-        #     adaptation_improvement = (initial_loss - loss) / initial_loss * 100 # larger is better
-        #     self.log(f'{get_log_name(mode, dataloader_idx)} loss adaptation improvement %', adaptation_improvement, batch_size=batch_size)
         # elif self.hparams.adaptation_mode == 'learn_loss':
         #     initial_loss = nn.MSELoss()(initial_task_prediction, task) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(initial_task_prediction, task)
         #     self.log(f'{get_log_name(mode, dataloader_idx)} initial task loss', initial_loss, batch_size=batch_size) # logs the loss prior to adaptation
@@ -742,59 +670,58 @@ class Model(LightningModule):
             prediction = torch.sigmoid(prediction) # converts logits to probabilities
             target = target.long()
 
-        if mode == 'train' or mode == 'val':
-            metrics = getattr(self, f'{mode}_metrics')
-        else: # test mode
-            split = 'random_test' if dataloader_idx == 0 else 'geographic_test'
-            metrics = getattr(self, f'{split}_metrics')
+        # retrieve the number of batches in the current dataloader
+        if mode == 'train':
+            num_batches = self.trainer.num_training_batches
+        elif mode == 'val':
+            num_batches = self.trainer.num_val_batches[0]
+        else:
+            num_batches = self.trainer.num_test_batches[dataloader_idx]
 
-            if self.hparams.adaptation_mode != 'task_modality_decoder':
-                if not hasattr(self, f'{split}_predictions'):
-                    setattr(self, f'{split}_predictions', [])
-                    setattr(self, f'{split}_targets', [])
-
-                getattr(self, f'{split}_predictions').append(prediction.detach().cpu())
-                getattr(self, f'{split}_targets').append(target.detach().cpu())
-
-            if self.hparams.adaptation_mode == 'tto':
-                if not hasattr(self, f'{split}_iteration_predictions'):
-                    setattr(self, f'{split}_iteration_predictions', [])
-
-                getattr(self, f'{split}_iteration_predictions').append(iteration_predictions.detach().cpu())
-
-                losses = torch.stack([nn.MSELoss(reduction='none')(prediction, target) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(prediction, target) for prediction in iteration_predictions]).squeeze(-1)
-
-                if not hasattr(self, f'{split}_losses'):
-                    setattr(self, f'{split}_losses', [])
-
-                getattr(self, f'{split}_losses').append(losses.detach().cpu())
-
-                if batch_idx == self.trainer.num_test_batches[dataloader_idx]-1: # if we are on the last batch
-                    losses = torch.cat(getattr(self, f'{split}_losses'), dim=1).mean(dim=1)
-                    initial_loss = losses[0].item()
-                    final_loss = losses[-1].item()
-                    adaptation_improvement = (initial_loss - final_loss) / initial_loss * 100
-
-                    self.log(f'{split.replace("_", " ").capitalize()} adaptation improvement %', adaptation_improvement)
+        metrics = getattr(self, f'{mode}_metrics')
 
         if self.hparams.adaptation_mode != 'task_modality_decoder':
-            for name, metric in metrics.items():
-                if name == 'adaptation improvement %' and self.hparams.adaptation_mode == 'tto':
-                    metric.update(initial_loss=losses[0], final_loss=losses[-1])
-                    # metric.update(initial_loss=nn.MSELoss()(iteration_predictions[0], target) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(iteration_predictions[0], target), final_loss=loss)
-                else:
-                    metric.update(prediction, target)
-
-            # metrics(prediction, target) # calculates the metrics
+            metrics(prediction, target) # calculates the metrics
             self.log_dict(metrics) # logs the metrics
 
-        if batch_idx == 0: # if we are on the first batch
-            images_to_log = images['Sentinel2']['data'].cpu().numpy()[:, [3,2,1]].astype(float)
+            if not hasattr(self, f'{mode}_predictions'):
+                setattr(self, f'{mode}_predictions', []) # initializes to an empty list
+                setattr(self, f'{mode}_targets', []) # initializes to an empty list
 
-            if mode == 'train' or mode == 'val':
-                self._log_images(images_to_log, mode)
-            else:
-                self._log_images(images_to_log, split)
+            getattr(self, f'{mode}_predictions').append(prediction.detach().cpu()) # appends this batch's predictions to the list
+            getattr(self, f'{mode}_targets').append(target.detach().cpu()) # appends this batch's targets to the list
+
+            if batch_idx == num_batches-1:
+                predictions = torch.cat(getattr(self, f'{mode}_predictions'))
+                targets = torch.cat(getattr(self, f'{mode}_targets'))
+                setattr(self, f'{mode}_r2', R2Score()(predictions, targets))
+                self.log(f'{mode.capitalize().replace("_", " ")} R²', getattr(self, f'{mode}_r2')) # logs the R2 score at the end of each epoch
+
+        # log adaptation improvement over iterations
+        if self.hparams.adaptation_mode == 'tto' or self.hparams.adaptation_mode == 'maml':
+            if not hasattr(self, f'{mode}_iteration_predictions'):
+                setattr(self, f'{mode}_iteration_predictions', [])
+
+            getattr(self, f'{mode}_iteration_predictions').append(iteration_predictions.detach().cpu())
+
+            losses = torch.stack([nn.MSELoss(reduction='none')(prediction, target) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(prediction, target) for prediction in iteration_predictions]).squeeze(-1) # (num_iterations+1, batch_size)
+
+            if not hasattr(self, f'{mode}_losses'):
+                setattr(self, f'{mode}_losses', [])
+
+            getattr(self, f'{mode}_losses').append(losses.detach().cpu())
+
+            if batch_idx == num_batches-1: # if we are on the last batch
+                losses = torch.cat(getattr(self, f'{mode}_losses'), dim=1).mean(dim=1)
+                initial_loss = losses[0].item()
+                final_loss = losses[-1].item()
+                adaptation_improvement = (initial_loss - final_loss) / initial_loss * 100
+
+                self.log(f'{mode.capitalize().replace("_", " ")} adaptation improvement %', adaptation_improvement)
+
+        # log the images in the first batch
+        if batch_idx == 0: # if we are on the first batch
+            self._log_images(images['Sentinel2']['data'].cpu().numpy()[:, [3,2,1]].astype(float), mode)
 
         if mode == 'train':
             return loss
@@ -808,14 +735,14 @@ class Model(LightningModule):
         self.general_step(batch=batch, batch_idx=batch_idx, mode='val')
 
     def test_step(self, batch, batch_idx, dataloader_idx):
-        self.general_step(batch=batch, batch_idx=batch_idx, mode='test', dataloader_idx=dataloader_idx)
+        self.general_step(batch=batch, batch_idx=batch_idx, mode='random_test' if dataloader_idx==0 else 'geographic_test', dataloader_idx=dataloader_idx)
 
     def on_test_end(self):
         if self.hparams.adaptation_mode != 'task_modality_decoder':
             self._plot_predictions_vs_targets('random_test')
             self._plot_predictions_vs_targets('geographic_test')
 
-        if self.hparams.adaptation_mode == 'tto':
+        if self.hparams.adaptation_mode == 'tto' or self.hparams.adaptation_mode == 'maml':
             self._plot_tto_loss_over_iterations('random_test')
             self._plot_tto_loss_over_iterations('geographic_test')
 
@@ -852,7 +779,7 @@ class Model(LightningModule):
 
         # get metrics
         metrics = getattr(self, f'{split}_metrics').compute()
-        r2 = metrics[f'{split.replace("_", " ").capitalize()} R2'].item()
+        r2 = getattr(self, f'{split}_r2').item()
         rmse = metrics[f'{split.replace("_", " ").capitalize()} RMSE'].item()
         mae = metrics[f'{split.replace("_", " ").capitalize()} MAE'].item()
         me = metrics[f'{split.replace("_", " ").capitalize()} ME'].item()
@@ -881,10 +808,7 @@ class Model(LightningModule):
             wandb.log({f'{split.replace("_", " ").capitalize()} scatter plot': wandb.Image(f'figures/{split}_scatter_plot.png')})
 
     def _plot_tto_loss_over_iterations(self, split):
-        # iteration_predictions = torch.cat(getattr(self, f'{split}_iteration_predictions'), dim=1)
-        # targets = torch.cat(getattr(self, f'{split}_targets'))
         losses = torch.cat(getattr(self, f'{split}_losses'), dim=1).mean(dim=1)
-        # losses = [nn.MSELoss()(predictions, targets).item() if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(predictions, targets).item() for predictions in iteration_predictions]
         x = range(len(losses))
         plt.figure(figsize=(6, 4))
         plt.scatter(x, losses)
@@ -899,40 +823,3 @@ class Model(LightningModule):
 
         if wandb.run is not None:
             wandb.log({f'{split.replace("_", " ").capitalize()} TTO loss over iterations': wandb.Image(f'figures/{split}_tto_loss_over_iterations.png')})
-
-    def on_train_batch_end(self, outputs, batch, batch_idx):
-        if self.hparams.adaptation_mode == 'maml':
-            with torch.no_grad():
-                if not hasattr(self, "_prev_surrogate_params"):
-                    self._prev_surrogate_params = [p.detach().clone() for p in self.model.surrogate_loss_network.parameters()]
-                else:
-                    deltas = []
-                    for p, prev in zip(self.model.surrogate_loss_network.parameters(), self._prev_surrogate_params):
-                        deltas.append((p - prev).norm().item())
-                    self.log("surrogate/param_delta_mean", float(np.mean(deltas)), on_step=True)
-                    self._prev_surrogate_params = [p.detach().clone() for p in self.model.surrogate_loss_network.parameters()]
-
-                # if not hasattr(self, "_prev_surrogate_params"):
-                #     self._prev_surrogate_params = [p.detach().clone() for p in self.model.surrogate_loss_network.parameters()]
-                # else:
-                #     deltas = []
-                #     for p, prev in zip(self.model.surrogate_loss_network.parameters(), self._prev_surrogate_params):
-                #         deltas.append((p - prev).norm().item())
-                #     self.log("surrogate/param_delta_mean", float(np.mean(deltas)), on_step=True)
-                #     self._prev_surrogate_params = [p.detach().clone() for p in self.model.surrogate_loss_network.parameters()]
-
-
-    # def on_train_batch_end(self, outputs, batch, batch_idx):
-    #     if self.hparams.adaptation_mode == 'maml':
-    #         print(f"\n--- Batch {batch_idx} Surrogate Network Gradients ---")
-    #         for name, param in self.model.surrogate_loss_network.named_parameters():
-    #             if param.grad is not None:
-    #                 grad_norm = param.grad.norm().item()
-    #                 grad_max = param.grad.abs().max().item()
-    #                 grad_mean = param.grad.mean().item()
-    #                 has_nan = param.grad.isnan().any().item()
-    #                 has_inf = param.grad.isinf().any().item()
-
-    #                 print(f"{name}: norm={grad_norm:.6f}, max={grad_max:.6f}, mean={grad_mean:.6f}, nan={has_nan}, inf={has_inf}")
-    #             else:
-    #                 print(f"{name}: No gradient")
