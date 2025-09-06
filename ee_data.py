@@ -12,7 +12,6 @@ import certifi
 import ee
 import json
 import numpy as np
-import os
 import pandas as pd
 import rasterio
 import requests
@@ -87,7 +86,7 @@ class EEData:
             self.tile_level_data['biome'] = biome
             self.tile_level_data['ecoregion'] = ecoregion
             self.tile_level_data['missing_modalities'] = json.dumps(self.missing_modalities) # saves the missing modalities as a JSON string
-            self.task_data(task) # gets the task data for the tile
+            self.task_data() # gets the task data for the tile
 
             merged_image = self.pixel_level_data[datasets[0]] # start with Sentinel-2
 
@@ -327,11 +326,13 @@ class EEData:
         if all(value == no_data_values['temperature'] for value in temperature):
             return False
 
-    def task_data(self, task):
-        if task == 'biomass':
-            self.pixel_level_data['biomass'] = ee.Image.constant(-9999).paint(self.gedi_points, 'agbd').reproject(self.proj).rename('biomass') # image array with -9999 wherever there are no points, aligned with Sentinel-2
-        elif 'soil' in task:
-            self.tile_level_data[task] = self.point['properties'][task] # saves the soil value for the tile
+    def task_data(self):
+        if self.task == 'biomass':
+            self.pixel_level_data[self.task] = ee.Image.constant(-9999).paint(self.gedi_points, 'agbd').reproject(self.proj).rename(self.task) # image array with -9999 wherever there are no points, aligned with Sentinel-2
+        elif 'soil' in self.task:
+            self.tile_level_data[self.task] = self.point['properties'][self.task] # saves the soil value for the tile
+        elif self.task == 'species':
+            self.tile_level_data[self.task] = json.dumps(self.point['properties'][self.task]) # saves the species list for the tile
 
     def save_tiff(self, image):
         band_names = image.bandNames().getInfo()
