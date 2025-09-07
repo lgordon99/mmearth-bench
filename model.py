@@ -312,9 +312,6 @@ class ModalityReconstructionLossCalculator(nn.Module):
                     modality_reconstruction_losses[modality] = mean.masked_fill(count == 0, float('nan')) # sets the reconstruction loss to NaN for the image if there are no valid pixels for the modality
                 else: # for biome and ecoregion
                     modality_reconstruction_losses[modality] = reconstruction_loss.masked_fill(~valid_mask, float('nan')) # sets any no data pixels to NaN
-
-                # masked_reconstruction_loss = reconstruction_loss.masked_fill(~valid_mask, float('nan')) # sets the no data pixels to NaN
-                # modality_reconstruction_losses[modality] = torch.nanmean(masked_reconstruction_loss, dim=tuple(range(1, len(masked_reconstruction_loss.shape)))) if len(masked_reconstruction_loss.shape) > 1 else masked_reconstruction_loss # computes the mean loss per image across all but the batch dimension, ignoring NaNs
             else: # geolocation and month
                 modality_reconstruction_losses[modality] = torch.mean(reconstruction_loss, dim=1) # computes the mean loss per image across the channel dimension
 
@@ -402,21 +399,21 @@ class EncoderDecoder(nn.Module):
         num_image_channels = architecture_properties[architecture]['num_image_channels']
         embedding_dim = architecture_properties[architecture]['embedding_dim']
 
-        if adaptation_mode == 'standard' or adaptation_mode == 'tto' or adaptation_mode == 'maml' or adaptation_mode == 'mt3' or adaptation_mode == 'mt3_frozen' or adaptation_mode == 'rna':
+        if adaptation_mode in ['standard', 'joint_training', 'tto', 'maml', 'mt3', 'mt3_frozen', 'rna']:
             self.task_decoder = TaskDecoder(architecture, pixelwise, adaptation_mode, num_classes)
         elif adaptation_mode == 'multimodal':
             self.task_modality_encoder = TaskModalityEncoder()
 
-        if adaptation_mode == 'task_modality_decoder' or adaptation_mode == 'tto' or adaptation_mode == 'maml' or adaptation_mode == 'mt3' or adaptation_mode == 'mt3_frozen' or adaptation_mode == 'rna':
+        if adaptation_mode in ['joint_training', 'task_modality_decoder', 'tto', 'maml', 'mt3', 'mt3_frozen', 'rna']:
             self.task_modality_decoder = TaskModalityDecoder(num_image_channels, embedding_dim)
 
-        if adaptation_mode == 'task_modality_decoder' or adaptation_mode == 'tto' or adaptation_mode == 'maml' or adaptation_mode == 'mt3_frozen' or adaptation_mode == 'rna':
+        if adaptation_mode in ['task_modality_decoder', 'tto', 'maml', 'mt3_frozen', 'rna']:
             state_dict = get_state_dict(*get_run_id(task, architecture, 'standard', tuning_mode))
             encoder_state_dict = {key.replace('model.encoder.', ''): value for key, value in state_dict.items() if key.startswith('model.encoder')} # filters the state_dict to only include the encoder parameters
             self.encoder.load_state_dict(encoder_state_dict)
             self.encoder.requires_grad_(False) # freezes the encoder
 
-        if adaptation_mode == 'tto' or adaptation_mode == 'maml' or adaptation_mode == 'mt3_frozen' or adaptation_mode == 'rna':
+        if adaptation_mode in ['tto', 'maml', 'mt3_frozen', 'rna']:
             task_decoder_state_dict = {key.replace('model.task_decoder.', ''): value for key, value in state_dict.items() if key.startswith('model.task_decoder')} # filters the state_dict to only include the decoder parameters
             self.task_decoder.load_state_dict(task_decoder_state_dict)
             self.task_decoder.requires_grad_(False) # freezes the task decoder
@@ -424,15 +421,15 @@ class EncoderDecoder(nn.Module):
             task_modality_decoder_state_dict = {key.replace('model.task_modality_decoder.', ''): value for key, value in task_modality_decoder_state_dict.items() if key.startswith('model.task_modality_decoder')}
             self.task_modality_decoder.load_state_dict(task_modality_decoder_state_dict)
 
-        if adaptation_mode == 'tto' or adaptation_mode == 'maml' or adaptation_mode == 'rna':
+        if adaptation_mode in ['tto', 'maml', 'rna']:
             self.task_modality_decoder.requires_grad_(False) # freezes the task modality decoder
 
-        if adaptation_mode == 'tto' or adaptation_mode == 'mt3' or adaptation_mode == 'mt3_frozen':
+        if adaptation_mode in ['joint_training', 'tto', 'mt3', 'mt3_frozen']:
             self.task_modality_decoder_loss = TaskModalityDecoderLoss()
-        elif adaptation_mode == 'maml' or adaptation_mode == 'learn_loss' or adaptation_mode == 'rna':
+        elif adaptation_mode in ['maml', 'learn_loss', 'rna']:
             self.modality_reconstruction_loss_calculator = ModalityReconstructionLossCalculator()
 
-        if adaptation_mode == 'maml' or adaptation_mode == 'learn_loss':
+        if adaptation_mode in ['maml', 'learn_loss']:
             self.surrogate_loss_network = SurrogateLossNetwork(average_over_batch=adaptation_mode=='maml')
         elif adaptation_mode == 'rna':
             self.hypernetwork = Hypernetwork(input_dim=25, embedding_dim=embedding_dim)
@@ -451,6 +448,12 @@ class EncoderDecoder(nn.Module):
             task_prediction = self.task_decoder(concatenated_embeddings)
 
             return task_prediction
+        elif self.adaptation_mode == 'joint_training':
+            input_embeddings = self.encoder(images)
+            task_prediction = self.task_decoder(input_embeddings)
+            task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions=self.task_modality_decoder(input_embeddings, images), images=images)
+
+            return task_prediction, task_modality_reconstruction_loss
         elif self.adaptation_mode == 'task_modality_decoder':
             self.encoder.eval() # keeps batch norm and dropout deterministic
 
@@ -469,7 +472,7 @@ class EncoderDecoder(nn.Module):
             with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
                 encoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.encoder.named_parameters()}
 
-                for _ in range(11): # 10 iterations
+                for _ in range(2): # iterations
                     input_embeddings = functional_call(self.encoder, encoder_parameters, (images,))
                     iteration_predictions.append(self.task_decoder(input_embeddings))
                     task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions=self.task_modality_decoder(input_embeddings, images), images=images)
@@ -700,6 +703,8 @@ class Model(LightningModule):
         if self.hparams.adaptation_mode == 'tto' or self.hparams.adaptation_mode == 'maml' or self.hparams.adaptation_mode == 'mt3_frozen' or self.hparams.adaptation_mode == 'rna':
             iteration_predictions = prediction
             prediction = iteration_predictions[-1]
+        elif self.hparams.adaptation_mode == 'joint_training':
+            prediction, task_modality_reconstruction_loss = prediction
         elif self.hparams.adaptation_mode == 'mt3':
             iteration_predictions, task_modality_reconstruction_loss = prediction
             prediction = iteration_predictions[-1]
@@ -738,7 +743,7 @@ class Model(LightningModule):
 
         loss = self.criterion(prediction, target) # computes the loss
 
-        if self.hparams.adaptation_mode == 'mt3':
+        if self.hparams.adaptation_mode == 'joint_training' or self.hparams.adaptation_mode == 'mt3':
             loss += task_modality_reconstruction_loss
 
         self.log(f'{mode.capitalize().replace("_", " ")} loss', loss, add_dataloader_idx=False) # logs the loss
@@ -799,7 +804,7 @@ class Model(LightningModule):
                 self.log(f'{mode.capitalize().replace("_", " ")} adaptation improvement %', adaptation_improvement, add_dataloader_idx=False)
 
                 if 'test' in mode:
-                    self._plot_tto_loss_over_iterations(mode)
+                    self._plot_loss_over_iterations(mode)
 
                 setattr(self, f'{mode}_losses', []) # resets for the next epoch
 
@@ -887,7 +892,7 @@ class Model(LightningModule):
         if wandb.run is not None:
             wandb.log({f'{split.replace("_", " ").capitalize()} scatter plot': wandb.Image(f'figures/{split}_scatter_plot.png')})
 
-    def _plot_tto_loss_over_iterations(self, mode):
+    def _plot_loss_over_iterations(self, mode):
         losses = torch.cat(getattr(self, f'{mode}_losses'), dim=1).mean(dim=1)
         x = range(len(losses))
         plt.figure(figsize=(6, 4))
@@ -895,12 +900,12 @@ class Model(LightningModule):
         plt.plot(x, losses, linestyle="-", linewidth=2)
         plt.xlabel('Iteration')
         plt.ylabel('Task loss')
-        plt.title(f'TTO loss over iterations on {mode.replace("_", " ")} set')
+        plt.title(f'Loss over iterations on {mode.replace("_", " ")} set')
         plt.grid(True, linestyle='--', alpha=0.6)
         plt.xticks(x)
         plt.tight_layout()
-        plt.savefig(f'figures/{mode}_tto_loss_over_iterations.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'figures/{mode}_loss_over_iterations.png', dpi=300, bbox_inches='tight')
         plt.close()
 
         if wandb.run is not None:
-            wandb.log({f'{mode.replace("_", " ").capitalize()} TTO loss over iterations': wandb.Image(f'figures/{mode}_tto_loss_over_iterations.png')})
+            wandb.log({f'{mode.replace("_", " ").capitalize()} loss over iterations': wandb.Image(f'figures/{mode}_loss_over_iterations.png')})
