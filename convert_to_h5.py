@@ -50,6 +50,8 @@ def convert_tiffs_to_h5(task):
                     data[task].append(biomass) # saves the biomass array
                 elif 'soil' in task:
                     data[task].append([float(tags[task])])
+                elif task == 'species':
+                    data[task].append(tags[task])
 
                 # additional tile data
                 data['id'].append(get_tile_id(tiff_filename))
@@ -101,6 +103,7 @@ def check_h5(task):
         print(h5_file['sentinel2_date'].asstr()[...])
         print(h5_file['crs'].asstr()[...])
         print(h5_file['id'][:5])
+        print([json.loads(lst) for lst in h5_file['missing_modalities'].asstr()[...]][:5])
 
         aster_dem_reshaped = aster_dem.reshape(len(aster_dem), 2, 16384)
         assert np.count_nonzero(aster_dem_reshaped[:, 0] == 0) == 0 # should be no zeros in the elevation band
@@ -118,7 +121,7 @@ def plot_missing_modalities(task):
     print(f'Original number of tiles = {original_num_tiles}')
 
     with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
-        missing_modalities = [json.loads(s) for s in h5_file['missing_modalities'].asstr()[...]]
+        missing_modalities = [json.loads(lst) for lst in h5_file['missing_modalities'].asstr()[...]]
 
     print(f'Final number of tiles = {len(missing_modalities)}')
     assert len(missing_modalities) == len(os.listdir(f'{data_dir_path}/{task}/tiffs'))
@@ -130,23 +133,76 @@ def plot_missing_modalities(task):
 
     plt.figure(dpi=300)
     plt.bar(['Sentinel-2', 'Sentinel-1', 'AsterDEM', 'ETH GCH', 'Dynamic World', 'ESA WorldCover', 'Precipitation', 'Temperature', 'Biome', 'Ecoregion'], missing_modality_counts.values())
-    plt.title(f'{task.capitalize().replace("_", " ")} missing modality counts', fontsize=14)
+    plt.title(f'{task.capitalize().replace("_", " ").replace("ph", "pH")} missing modality counts', fontsize=14)
     plt.xlabel('Modality', fontsize=12)
     plt.ylabel('Tile count', fontsize=12)
     plt.xticks(rotation=45, ha='right', fontsize=10)
     plt.tight_layout()
     plt.savefig(f'{data_dir_path}/{task}/{task}_missing_modality_counts.png')
 
+def plot_species_statistics():
+    with h5py.File(f'{data_dir_path}/species/species.h5', 'r') as h5_file:
+        tiles = [json.loads(lst) for lst in h5_file['species'].asstr()[...]]
+
+    print(f'Total tiles: {len(tiles)}')
+
+    # plot number of tiles per species
+    species_counts = {}
+
+    for tile in tiles:
+        for species in tile:
+            if species in species_counts.keys():
+                species_counts[species] += 1
+            else:
+                species_counts[species] = 1
+
+    species = list(species_counts.keys())
+    counts = list(species_counts.values())
+    indices = np.arange(len(species))
+    plt.figure(dpi=300, figsize=(15, 5))
+    plt.bar(indices, counts)
+    plt.xticks(indices, species, rotation=90)
+    plt.xlabel('Species')
+    plt.ylabel('Number of tiles')
+    plt.title('Number of tiles per species')
+    plt.tight_layout()
+    plt.savefig(f'{data_dir_path}/species/tiles_per_species.png')
+
+    print(f'Max number of tiles for a species: {max(counts)}')
+    print(f'Min number of tiles for a species: {min(counts)}')
+
+    # histogram of number of species per tile
+    tile_species_counts = []
+
+    for tile in tiles:
+        tile_species_counts.append(len(tile))
+
+    plt.figure(dpi=300, figsize=(15, 5))
+    plt.hist(tile_species_counts, bins=np.arange(min(tile_species_counts), max(tile_species_counts) + 2) - 0.5)
+    plt.xlabel('Number of species')
+    plt.ylabel('Number of tiles')
+    plt.tight_layout()
+    plt.savefig(f'{data_dir_path}/species/tile_species_counts.png')
+
 if __name__ == '__main__':
     if 'check_h5' in argv[1]: # python convert_to_h5.py check_h5 TASK
         check_h5(argv[2])
     elif 'plot_missing_modalities' in argv[1]: # python convert_to_h5.py plot_missing_modalities TASK
         plot_missing_modalities(argv[2])
+    elif 'plot_species_statistics' in argv[1]: # python convert_to_h5.py plot_species_statistics
+        plot_species_statistics()
     elif 'for' not in argv[1]: # python convert_to_h5.py TASK
         partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
         env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
-        mem = 300 if argv[1] == 'biomass' else 60
         task = argv[1]
+
+        if task == 'biomass':
+            mem = 300
+        elif 'soil' in task:
+            mem = 60
+        elif task == 'species':
+            mem = 100
+
         subprocess.run(['sbatch', '-t', '15:00:00', '-p', partitions, '--mem', f'{mem}G', '--job-name', f'{task}_convert_to_h5', '-o', f'{data_dir_path}/{task}/output-files/{task}_convert_to_h5.out', '--account', 'davies_lab', 'job.sh', env_path, 'convert_to_h5.py', f'for_{task}'])
     else: # python convert_to_h5.py for_TASK
         task = argv[1].split('for_')[1]
