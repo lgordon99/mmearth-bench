@@ -21,7 +21,7 @@ cat > $bash_file <<EOF
 #SBATCH --partition gpu,seas_gpu
 #SBATCH --mem $MEM
 #SBATCH --gres gpu:nvidia_a100-sxm4-80gb:1
-#SBATCH --output $data_dir_path/experiments/output-files/$task_$architecture_$adaptation_mode.out
+#SBATCH --output ${data_dir_path}/experiments/output-files/${task}_${architecture}_${adaptation_mode}.out
 #SBATCH --account davies_lab
 
 source ~/.bashrc
