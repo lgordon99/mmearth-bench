@@ -193,6 +193,8 @@ class TaskModalityEncoder(nn.Module):
 
         return modality_embeddings
 
+# ============================================== ENCODER CLASSES ============================================== #
+
 class ResNet50Encoder(nn.Module):
     def __init__(self, pixelwise, pretrained):
         super().__init__()
@@ -213,17 +215,42 @@ class ResNet50Encoder(nn.Module):
 
         return x
 
+class MPMAEEncoder(nn.Module):
+    def __init__(self, pixelwise, pretrained):
+        super().__init__()
+
+        self.model = ConvNeXtV2()
+
+        if pretrained:
+            checkpoint_path = f'{data_dir_path}/pretrained_checkpoints/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
+            load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
+
+    def forward(self, images):
+        x = images['Sentinel2']['data']
+
+        return self.model(x)
+
 class TaskDecoder(nn.Module):
     def __init__(self, architecture, pixelwise, adaptation_mode, num_classes):
         super().__init__()
 
         self.architecture = architecture
         self.num_classes = num_classes
+        embedding_dim = architecture_properties[architecture]['embedding_dim']
 
-        if architecture == 'ResNet50':
-            self.decoder = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=(1, 1)),
-                                         nn.Flatten(),
-                                         nn.Linear(in_features=architecture_properties[architecture]['embedding_dim'], out_features=num_classes)) # infers in_features from input shape
+        # if architecture == 'ResNet50':
+        #     self.decoder = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=(1, 1)),
+        #                                  nn.Flatten(),
+        #                                  nn.Linear(in_features=embedding_dim, out_features=num_classes))
+        # else:
+        #     self.decoder = nn.Sequential(nn.Lambda(lambda x: x.mean(dim=[-2, -1])), # global average pooling
+        #                                  nn.LayerNorm(normalized_shape=embedding_dim, eps=1e-6),
+        #                                  nn.Linear(in_features=embedding_dim, out_features=num_classes))
+        # else:
+        self.decoder = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=(1, 1)), # global average pooling over the spatial dimensions
+                                     nn.Flatten(), # collapses the spatial dimensions
+                                     nn.LayerNorm(normalized_shape=embedding_dim, eps=1e-6), # normalizes across the embedding dimension
+                                     nn.Linear(in_features=embedding_dim, out_features=num_classes)) # collapses the embedding dimension to the number of classes
 
     def forward(self, embeddings):
         task_prediction = self.decoder(embeddings)
