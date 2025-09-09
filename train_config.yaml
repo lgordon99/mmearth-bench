@@ -1,6 +1,6 @@
 seed: 42
-epochs: 200
-data_dir_path: '/n/gajos_lab/Lab/luciagordon/mmearth-bench-new'
+epochs: 100
+data_dir_path: '/n/gajos_lab/Lab/luciagordon/mmearth-bench'
 
 hydra:
   job:
@@ -34,7 +34,8 @@ trainer:
 datamodule:
   _target_: datamodule.DataModule
   task: ${task}
-  batch_size: 32
+  adaptation_mode: ${adaptation_mode}
+  batch_size: 64
   num_workers: 1
   seed: ${seed}
 
@@ -46,9 +47,10 @@ model:
   tuning_mode: ft
   pretrained: true
   decay_factor: 0.9
-  max_lr: 0.001
-  weight_decay: 0.01
-  warmup_epochs: 20
+  max_lr: 1e-4
+  weight_decay: 0.05
+  warmup_epochs: 10
   num_train_batches: null
   min_lr: 1e-6
   epochs: ${epochs}
+  inner_loop_lr: 1e-5
