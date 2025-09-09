@@ -22,22 +22,12 @@ class MMEarthBenchDataset(Dataset):
     def __init__(self, task):
         self.task = task
 
-        if task == 'pretraining':
-            h5_path = '/n/gajos_lab/Lab/luciagordon/MMEarth-train/data_1M_v001_64/data_1M_v001_64.h5'
-
-            with h5py.File(h5_path, 'r') as h5_file:
-                print(h5_file.keys())
-                self.sentinel2 = h5_file['sentinel2'][:]
-                print(f'Sentinel-2: {self.sentinel2.shape}')
-        else:
-            h5_path = f'{data_dir_path}/{task}/{task}.h5'
-            self.split_data = utils.read_json(f'{data_dir_path}/{task}/{task}_split_data.json')
+        h5_path = f'{data_dir_path}/{task}/{task}.h5'
+        self.split_data = utils.read_json(f'{data_dir_path}/{task}/{task}_split_data.json')
 
         with h5py.File(h5_path, 'r') as h5_file:
             self.modality_data = {modality: h5_file[modality][:] for modality in no_data_values.keys()}
-
-            if task != 'pretraining':
-                self.task_data = h5_file[task][:]
+            self.task_data = h5_file[task][:]
 
         # # convert categorical modalities to one-hot encoding
         # self.modality_data['DynamicWorld'] = np.eye(self.no_data_values['DynamicWorld']+1)[self.modality_data['DynamicWorld'].astype(int).squeeze(1)].transpose(0, 3, 1, 2)
@@ -66,13 +56,9 @@ class MMEarthBenchDataset(Dataset):
             # compute a valid mask for all modalities that can have NaNs
             if modality not in ['geolocation', 'month']:
                 tile_modality_data[modality]['valid_mask'] = (tile_modality_data[modality]['data'] != no_data_values[modality]).squeeze() # mask for where the data is valid
-                # if (~tile_modality_data[modality]['valid_mask']).all():
-                #     return self.__getitem__(np.random.randint(0, self.tile_count))
-                #     print('Tile has a modality with all NaN')
 
             # normalization
             if modality in ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETH_GCH', 'precipitation', 'temperature']: # continuous modalities without an encoding
-                # tile_modality_data[modality]['valid_mask'] = tile_modality_data[modality]['data'] != no_data_values[modality] # mask for where the data is valid
                 masked = np.ma.masked_equal(tile_modality_data[modality]['data'], no_data_values[modality]) # masks the no-data values
                 normalized = (masked - self.split_data[f'{modality}_train_means']) / self.split_data[f'{modality}_train_stds'] # normalization
                 tile_modality_data[modality]['data'] = normalized.filled(0) # replaces NaNs with the post-normalization mean
@@ -86,12 +72,9 @@ class MMEarthBenchDataset(Dataset):
         # tile_modality_data['ecoregion'] = np.eye(no_data_values['ecoregion']+1)[tile_modality_data['ecoregion'].astype(int)]
 
         # task data for the tile
-        if hasattr(self, 'task_data'):
-            task_data = self.task_data[index]
+        task_data = self.task_data[index]
 
-            if len(task_data.shape) == 2: # for biomass
-                task_data = np.expand_dims(task_data, axis=0)
+        if len(task_data.shape) == 2: # for biomass
+            task_data = np.expand_dims(task_data, axis=0)
 
-            return tile_modality_data, torch.tensor(task_data, dtype=torch.float32)
-        else:
-            return {modality: torch.tensor(data, dtype=torch.float32) for modality, data in tile_modality_data.items()}, {modality: torch.tensor(data, dtype=torch.float32) for modality, data in tile_modality_data.items()}
+        return tile_modality_data, torch.tensor(task_data, dtype=torch.float32)
