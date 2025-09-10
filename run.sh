@@ -4,9 +4,9 @@ adaptation_mode=${3}
 
 data_dir_path=$(python -c "import yaml; print(yaml.safe_load(open('config-user.yml'))['data_dir_path'])")
 
-if [ "$TASK" == "biomass" ]; then
+if [ "$task" == "biomass" ]; then
     MEM="70G"
-elif [ "$TASK" == "species" ]; then
+elif [ "$task" == "species" ]; then
     MEM="130G"
 else
     MEM="30G"
@@ -21,14 +21,16 @@ cat > $bash_file <<EOF
 #SBATCH --partition gpu,seas_gpu
 #SBATCH --mem $MEM
 #SBATCH --gres gpu:nvidia_a100-sxm4-80gb:1
-#SBATCH --output ${data_dir_path}/experiments/output-files/${task}_${architecture}_${adaptation_mode}.out
+#SBATCH --output ${data_dir_path}/experiments/output-files/${task}/${task}_${architecture}_${adaptation_mode}.out
 #SBATCH --account davies_lab
 
 source ~/.bashrc
 conda activate $data_dir_path/mmearth-bench-env
 echo "Task: ${task}"
 echo "Architecture: ${architecture}"
-echo "Adaptation Mode: ${adaptation_mode}"
+echo "Adaptation mode: ${adaptation_mode}"
+NUM_GPUS=\$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
+echo "Number of GPUs: \$NUM_GPUS"
 python train.py +task=${task} +architecture=${architecture} +adaptation_mode=${adaptation_mode}
 EOF
 
