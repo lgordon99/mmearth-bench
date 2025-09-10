@@ -3,6 +3,7 @@
 from convnextv2 import ConvNeXtV2, load_custom_checkpoint
 from lightning.pytorch import LightningModule
 from tabulate_results import get_best_run_in_sweep
+from terratorch import BACKBONE_REGISTRY
 from torchmetrics import Metric, MetricCollection, Recall
 from torchmetrics.classification import MultilabelRecall, MultilabelAveragePrecision
 from torch.func import functional_call
@@ -30,7 +31,8 @@ entity = os.environ['ENTITY']
 project = os.environ['PROJECT']
 no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
 biomass_no_data_value = -9999
-architecture_properties = {'ResNet50': {'num_image_channels': 3, 'embedding_dim': 2048}, 'DINOv2': {'num_image_channels': 3, 'embedding_dim': 384}, 'MPMAE': {'num_image_channels': 12, 'embedding_dim': 320}}
+image_size = 128
+architecture_properties = {'ResNet50': {'num_image_channels': 3, 'embedding_dim': 2048}, 'DINOv3': {'num_image_channels': 3, 'embedding_dim': 1024}, 'MPMAE': {'num_image_channels': 12, 'embedding_dim': 320}, 'TerraMind': {'num_image_channels': 12, 'embedding_dim': 768}}
 
 # ============================================== FUNCTIONS ============================================== #
 
@@ -76,100 +78,100 @@ class MeanError(Metric):
     def compute(self):
         return self.error_sum / self.count
 
-class MPMAE(nn.Module):
-    def __init__(self, num_classes, pixelwise, pretrained):
-        super(MPMAE, self).__init__()
+# class MPMAE(nn.Module):
+#     def __init__(self, num_classes, pixelwise, pretrained):
+#         super(MPMAE, self).__init__()
 
-        self.pixelwise = pixelwise
-        self.model = ConvNeXtV2(num_classes=num_classes)
+#         self.pixelwise = pixelwise
+#         self.model = ConvNeXtV2(num_classes=num_classes)
 
-        if pixelwise:
-            self.model.head = nn.Identity() # removes the classifier layer
-            self.model.forward_features = self._pixelwise_forward_features # replaces the forward_features method with a pixelwise version
+#         if pixelwise:
+#             self.model.head = nn.Identity() # removes the classifier layer
+#             self.model.forward_features = self._pixelwise_forward_features # replaces the forward_features method with a pixelwise version
 
-        if pretrained:
-            checkpoint_path = f'{data_dir_path}/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
-            load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
+#         if pretrained:
+#             checkpoint_path = f'{data_dir_path}/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
+#             load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
 
-    def _pixelwise_forward_features(self, x):
-        if self.model.use_orig_stem:
-            x = self.model.stem_orig(x)
-        else:
-            x = self.model.initial_conv(x)
-            x = self.model.stem(x)
+#     def _pixelwise_forward_features(self, x):
+#         if self.model.use_orig_stem:
+#             x = self.model.stem_orig(x)
+#         else:
+#             x = self.model.initial_conv(x)
+#             x = self.model.stem(x)
 
-        x = self.model.stages[0](x)
+#         x = self.model.stages[0](x)
 
-        for i in range(3):
-            x = self.model.downsample_layers[i](x)
-            x = self.model.stages[i + 1](x)
+#         for i in range(3):
+#             x = self.model.downsample_layers[i](x)
+#             x = self.model.stages[i + 1](x)
 
-        return self.model.norm(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+#         return self.model.norm(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
 
-    def forward(self, images):
-        return self.model(images['Sentinel2'])
+#     def forward(self, images):
+#         return self.model(images['Sentinel2'])
 
-class DINOv2(nn.Module):
-    def __init__(self, num_classes, pixelwise, pretrained):
-        super(DINOv2, self).__init__()
+# class DINOv2(nn.Module):
+#     def __init__(self, num_classes, pixelwise, pretrained):
+#         super(DINOv2, self).__init__()
 
-        self.pixelwise = pixelwise
-        self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg')
-        self.model.interpolate_pos_encoding = self._deterministic_interpolate_pos_encoding
+#         self.pixelwise = pixelwise
+#         self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg')
+#         self.model.interpolate_pos_encoding = self._deterministic_interpolate_pos_encoding
 
-        if pixelwise:
-            self.model.head = nn.Identity()
-        else:
-            self.model.head = nn.Linear(in_features=384, out_features=num_classes)
+#         if pixelwise:
+#             self.model.head = nn.Identity()
+#         else:
+#             self.model.head = nn.Linear(in_features=384, out_features=num_classes)
 
-    def _deterministic_interpolate_pos_encoding(self, x, w, h):
-        '''Deterministic version using CPU for bicubic interpolation'''
+#     def _deterministic_interpolate_pos_encoding(self, x, w, h):
+#         '''Deterministic version using CPU for bicubic interpolation'''
 
-        previous_dtype = x.dtype
-        npatch = x.shape[1] - 1
-        N = self.model.pos_embed.shape[1] - 1
+#         previous_dtype = x.dtype
+#         npatch = x.shape[1] - 1
+#         N = self.model.pos_embed.shape[1] - 1
 
-        if npatch == N and w == h:
-            return self.model.pos_embed
+#         if npatch == N and w == h:
+#             return self.model.pos_embed
 
-        pos_embed = self.model.pos_embed.float()
-        class_pos_embed = pos_embed[:, 0]
-        patch_pos_embed = pos_embed[:, 1:]
-        dim = x.shape[-1]
-        w0 = w // self.model.patch_size
-        h0 = h // self.model.patch_size
-        M = int(math.sqrt(N))  # Recover the number of patches in each dimension
-        assert N == M * M
+#         pos_embed = self.model.pos_embed.float()
+#         class_pos_embed = pos_embed[:, 0]
+#         patch_pos_embed = pos_embed[:, 1:]
+#         dim = x.shape[-1]
+#         w0 = w // self.model.patch_size
+#         h0 = h // self.model.patch_size
+#         M = int(math.sqrt(N))  # Recover the number of patches in each dimension
+#         assert N == M * M
 
-        kwargs = {}
+#         kwargs = {}
 
-        if self.model.interpolate_offset:
-            sx = float(w0 + self.model.interpolate_offset) / M
-            sy = float(h0 + self.model.interpolate_offset) / M
-            kwargs['scale_factor'] = (sx, sy)
-        else:
-            kwargs['size'] = (w0, h0) # specifies an output size instead of a scale factor
+#         if self.model.interpolate_offset:
+#             sx = float(w0 + self.model.interpolate_offset) / M
+#             sy = float(h0 + self.model.interpolate_offset) / M
+#             kwargs['scale_factor'] = (sx, sy)
+#         else:
+#             kwargs['size'] = (w0, h0) # specifies an output size instead of a scale factor
 
-        patch_pos_embed = nn.functional.interpolate(patch_pos_embed.cpu().reshape(1, M, M, dim).permute(0, 3, 1, 2),
-                                                    mode='bicubic',
-                                                    antialias=self.model.interpolate_antialias,
-                                                    **kwargs)
-        patch_pos_embed = patch_pos_embed.to(x.device)
-        assert (w0, h0) == patch_pos_embed.shape[-2:]
-        patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
+#         patch_pos_embed = nn.functional.interpolate(patch_pos_embed.cpu().reshape(1, M, M, dim).permute(0, 3, 1, 2),
+#                                                     mode='bicubic',
+#                                                     antialias=self.model.interpolate_antialias,
+#                                                     **kwargs)
+#         patch_pos_embed = patch_pos_embed.to(x.device)
+#         assert (w0, h0) == patch_pos_embed.shape[-2:]
+#         patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
 
-        return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
+#         return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
 
-    def forward(self, images):
-        images = images['Sentinel2'][:, [3,2,1], :, :]
-        images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant') # DinoV2 requires the image size to be divisible by 14
+#     def forward(self, images):
+#         images = images['Sentinel2'][:, [3,2,1], :, :]
+#         images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant') # DinoV2 requires the image size to be divisible by 14
 
-        if self.pixelwise:
-            features = self.model.forward_features(images)['x_norm_patchtokens'].permute(0, 2, 1)
+#         if self.pixelwise:
+#             features = self.model.forward_features(images)['x_norm_patchtokens'].permute(0, 2, 1)
 
-            return features.reshape(features.shape[0], features.shape[1], int(np.sqrt(features.shape[2])), int(np.sqrt(features.shape[2])))
-        else:
-            return self.model(images)
+#             return features.reshape(features.shape[0], features.shape[1], int(np.sqrt(features.shape[2])), int(np.sqrt(features.shape[2])))
+#         else:
+#             return self.model(images)
 
 class TaskModalityEncoder(nn.Module):
     def __init__(self):
@@ -195,28 +197,44 @@ class TaskModalityEncoder(nn.Module):
 
 # ============================================== ENCODER CLASSES ============================================== #
 
-class ResNet50Encoder(nn.Module):
-    def __init__(self, pixelwise, pretrained):
+# class ResNet50Encoder(nn.Module):
+#     def __init__(self, pixelwise, pretrained):
+#         super().__init__()
+
+#         self.model = resnet50(weights='DEFAULT' if pretrained else None)
+#         self.model.fc = nn.Identity()
+
+#     def forward(self, images): # doesn't call the avgpool, flatten, and fc layers
+#         x = images['Sentinel2']['data'][:, [3,2,1], :, :] # extracts the RGB bands
+#         x = self.model.conv1(x)
+#         x = self.model.bn1(x)
+#         x = self.model.relu(x)
+#         x = self.model.maxpool(x)
+#         x = self.model.layer1(x)
+#         x = self.model.layer2(x)
+#         x = self.model.layer3(x)
+#         x = self.model.layer4(x)
+
+#         return x
+
+class DINOv3Encoder(nn.Module):
+    def __init__(self, pretrained):
         super().__init__()
 
-        self.model = resnet50(weights='DEFAULT' if pretrained else None)
-        self.model.fc = nn.Identity()
+        self.model = torch.hub.load(f'{data_dir_path}/pretrained_checkpoints/dinov3',
+                                    'dinov3_vitl16',
+                                    source='local',
+                                    weights=f'{data_dir_path}/pretrained_checkpoints/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth')
 
-    def forward(self, images): # doesn't call the avgpool, flatten, and fc layers
+    def forward(self, images):
         x = images['Sentinel2']['data'][:, [3,2,1], :, :] # extracts the RGB bands
-        x = self.model.conv1(x)
-        x = self.model.bn1(x)
-        x = self.model.relu(x)
-        x = self.model.maxpool(x)
-        x = self.model.layer1(x)
-        x = self.model.layer2(x)
-        x = self.model.layer3(x)
-        x = self.model.layer4(x)
+        embeddings = self.model.forward_features(x)['x_norm_patchtokens'].permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
+        embeddings = embeddings.reshape(embeddings.shape[0], embeddings.shape[1], int(np.sqrt(embeddings.shape[2])), int(np.sqrt(embeddings.shape[2]))) # (batch_size, embedding_dim, num_vertical_patches, num_horizontal_patches)
 
-        return x
+        return embeddings
 
 class MPMAEEncoder(nn.Module):
-    def __init__(self, pixelwise, pretrained):
+    def __init__(self, pretrained):
         super().__init__()
 
         self.model = ConvNeXtV2()
@@ -227,15 +245,61 @@ class MPMAEEncoder(nn.Module):
 
     def forward(self, images):
         x = images['Sentinel2']['data']
+        embeddings = self.model(x)
 
-        return self.model(x)
+        return embeddings
+
+class TerraMindEncoder(nn.Module):
+    def __init__(self, pretrained):
+        super().__init__()
+
+        self.model = BACKBONE_REGISTRY.build('terramind_v1_base', pretrained=pretrained, modalities=['S2L2A', 'S1GRD', 'DEM', 'RGB'])
+
+    def forward(self, images):
+        sentinel1 = images['Sentinel1']['data']
+        sentinel1_mask = images['Sentinel1']['valid_mask']
+
+        print(sentinel1.shape)
+        print(sentinel1_mask.shape)
+        exit()
+
+        x = {'S2L2A': images['Sentinel2']['data'],
+             'S1GRD': images['Sentinel1']['data'],
+             'DEM': images['AsterDEM']['data'][:, 0, :, :], # extracts the elevation band
+             'RGB': images['Sentinel2']['data'][:, [3,2,1], :, :]} # extracts the RGB bands in Sentinel-2
+
+        embeddings = self.model(x)[-1] # extracts the final block's embeddings
+        embeddings = embeddings.permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
+        embeddings = embeddings.reshape(embeddings.shape[0], embeddings.shape[1], int(np.sqrt(embeddings.shape[2])), int(np.sqrt(embeddings.shape[2]))) # (batch_size, embedding_dim, num_vertical_patches, num_horizontal_patches)
+
+        return embeddings
+
+# ============================================== DECODER CLASSES ============================================== #
+
+class LinearDecoder(nn.Module):
+    def __init__(self, num_image_channels, embedding_dim, out_channels):
+        super().__init__()
+
+        self.upsample = nn.Upsample(size=image_size, mode='bilinear') # upsamples bilinearly to the image size
+        self.num_image_channels = num_image_channels
+        self.convolution = nn.Conv2d(in_channels=embedding_dim+num_image_channels, out_channels=out_channels, kernel_size=1) # applies a linear layer to each pixel
+
+    def forward(self, embeddings, images):
+        images = images['Sentinel2']['data']
+
+        if self.num_image_channels != 12:
+            images = images[:, [3,2,1], :, :] # extracts the RGB bands
+
+        upsampled_embeddings = self.upsample(embeddings) # upsamples the embeddings to the image size
+        concatenated = torch.cat((upsampled_embeddings, images), dim=1) # concatenates along the channel dimension
+        convolved = self.convolution(concatenated) # applies the convolution to the concatenated tensor
+
+        return convolved
 
 class TaskDecoder(nn.Module):
     def __init__(self, architecture, pixelwise, adaptation_mode, num_classes):
         super().__init__()
 
-        self.architecture = architecture
-        self.num_classes = num_classes
         embedding_dim = architecture_properties[architecture]['embedding_dim']
 
         # if architecture == 'ResNet50':
@@ -247,35 +311,20 @@ class TaskDecoder(nn.Module):
         #                                  nn.LayerNorm(normalized_shape=embedding_dim, eps=1e-6),
         #                                  nn.Linear(in_features=embedding_dim, out_features=num_classes))
         # else:
-        self.decoder = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=(1, 1)), # global average pooling over the spatial dimensions
-                                     nn.Flatten(), # collapses the spatial dimensions
-                                     nn.LayerNorm(normalized_shape=embedding_dim, eps=1e-6), # normalizes across the embedding dimension
-                                     nn.Linear(in_features=embedding_dim, out_features=num_classes)) # collapses the embedding dimension to the number of classes
+        if not pixelwise:
+            self.decoder = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=1), # global average pooling over the spatial dimensions
+                                         nn.Flatten(), # collapses the spatial dimensions
+                                         nn.LayerNorm(normalized_shape=embedding_dim, eps=1e-6), # normalizes across the embedding dimension
+                                         nn.Linear(in_features=embedding_dim, out_features=num_classes)) # collapses the embedding dimension to the number of classes
+        else:
+            self.decoder = LinearDecoder(num_image_channels=architecture_properties[architecture]['num_image_channels'],
+                                         embedding_dim=embedding_dim,
+                                         out_channels=1)
 
-    def forward(self, embeddings):
-        task_prediction = self.decoder(embeddings)
+    def forward(self, embeddings, images=None):
+        task_prediction = self.decoder(embeddings) if images is None else self.decoder(embeddings, images)
 
         return task_prediction
-
-class LinearDecoder(nn.Module):
-    def __init__(self, image_size, num_image_channels, embedding_dim, out_channels):
-        super().__init__()
-
-        self.num_image_channels = num_image_channels
-        self.upsample = nn.Upsample(size=image_size, mode='bilinear') # upsamples bilinearly to the image size
-        self.convolution = nn.Conv2d(in_channels=num_image_channels+embedding_dim, out_channels=out_channels, kernel_size=1) # applies a linear layer to each pixel
-
-    def forward(self, embeddings, images):
-        images = images['Sentinel2']['data']
-
-        if self.num_image_channels != 12:
-            images = images[:, [3,2,1], :, :] # extracts the RGB bands
-
-        upsampled_embeddings = self.upsample(embeddings) # upsamples the embeddings to the image size
-        concatenated = torch.cat((images, upsampled_embeddings), dim=1) # concatenates along the channel dimension
-        convolved = self.convolution(concatenated) # applies the convolution to the concatenated tensor
-
-        return convolved
 
 class TaskModalityDecoder(nn.Module):
     def __init__(self, num_image_channels, embedding_dim):
@@ -421,7 +470,7 @@ class EncoderDecoder(nn.Module):
 
         self.adaptation_mode = adaptation_mode
         self.pixelwise = pixelwise
-        self.encoder = globals()[f'{architecture}Encoder'](pixelwise, pretrained)
+        self.encoder = globals()[f'{architecture}Encoder'](pretrained)
         self.lr = lr
         num_image_channels = architecture_properties[architecture]['num_image_channels']
         embedding_dim = architecture_properties[architecture]['embedding_dim']
@@ -465,7 +514,7 @@ class EncoderDecoder(nn.Module):
     def forward(self, images):
         if self.adaptation_mode == 'standard':
             input_embeddings = self.encoder(images)
-            task_prediction = self.task_decoder(input_embeddings)
+            task_prediction = self.task_decoder(input_embeddings) if not self.pixelwise else self.task_decoder(input_embeddings, images)
 
             return task_prediction
         elif self.adaptation_mode == 'multimodal':
@@ -740,19 +789,12 @@ class Model(LightningModule):
 
         if self.hparams.task == 'biomass':
             valid_mask = target != biomass_no_data_value # mask for the NaN pixels in the target
-
-            # remove the padding added for DINOv2
-            if self.hparams.architecture == 'DINOv2':
-                prediction = prediction[:, :, 6:-6, 6:-6]
-
-                if self.hparams.adaptation_mode == 'maml' or self.hparams.adaptation_mode == 'tto' or self.hparams.adaptation_mode == 'learn_loss':
-                    initial_task_prediction = initial_task_prediction[:, :, 6:-6, 6:-6]
-
             prediction = prediction[valid_mask]
             target = target[valid_mask]
 
             if self.hparams.adaptation_mode == 'maml' or self.hparams.adaptation_mode == 'tto' or self.hparams.adaptation_mode == 'learn_loss':
                 initial_task_prediction = initial_task_prediction[valid_mask]
+
             if self.hparams.adaptation_mode == 'learn_loss':
                 adapted_task_prediction = adapted_task_prediction[valid_mask]
 
