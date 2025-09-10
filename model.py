@@ -256,17 +256,15 @@ class TerraMindEncoder(nn.Module):
         self.model = BACKBONE_REGISTRY.build('terramind_v1_base', pretrained=pretrained, modalities=['S2L2A', 'S1GRD', 'DEM', 'RGB'])
 
     def forward(self, images):
-        sentinel1 = images['Sentinel1']['data']
-        sentinel1_mask = images['Sentinel1']['valid_mask']
-
-        print(sentinel1.shape)
-        print(sentinel1_mask.shape)
-        exit()
+        sentinel1_mask_vertical = images['Sentinel1']['valid_mask'][:, [0,1,4,5]] # ascending VV, VH; descending VV, VH
+        asc_num_valid_pixels = sentinel1_mask_vertical[:, :2].sum(dim=(1,2,3)) # counts the number of valid pixels in the ascending VV and VH bands
+        desc_num_valid_pixels = sentinel1_mask_vertical[:, 2:].sum(dim=(1,2,3)) # counts the number of valid pixels in the descending VV and VH bands
+        sentinel1 = [images['Sentinel1']['data'][i, [0,1]] if asc_num_valid_pixels[i] >= desc_num_valid_pixels[i] else images['Sentinel1']['data'][i, [4,5]] for i in range(len(sentinel1_mask_vertical))]
 
         x = {'S2L2A': images['Sentinel2']['data'],
-             'S1GRD': images['Sentinel1']['data'],
-             'DEM': images['AsterDEM']['data'][:, 0, :, :], # extracts the elevation band
-             'RGB': images['Sentinel2']['data'][:, [3,2,1], :, :]} # extracts the RGB bands in Sentinel-2
+             'S1GRD': torch.stack(sentinel1), # extracts the VV and VH bands from either the ascending or descending pass, whichever has more valid pixels
+             'DEM': images['AsterDEM']['data'][:, 0].unsqueeze(1), # extracts the elevation band
+             'RGB': images['Sentinel2']['data'][:, [3,2,1]]} # extracts the RGB bands in Sentinel-2
 
         embeddings = self.model(x)[-1] # extracts the final block's embeddings
         embeddings = embeddings.permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
