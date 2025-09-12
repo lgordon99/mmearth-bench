@@ -9,8 +9,6 @@ from torchmetrics.classification import MultilabelRecall, MultilabelAveragePreci
 from torch.func import functional_call
 from torchmetrics.regression import MeanAbsoluteError, MeanSquaredError, R2Score
 from torchvision.models import resnet50
-import copy
-import math
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -32,15 +30,19 @@ project = os.environ['PROJECT']
 no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
 biomass_no_data_value = -9999
 image_size = 128
-architecture_properties = {'ResNet50': {'num_image_channels': 3, 'embedding_dim': 2048}, 'DINOv3': {'num_image_channels': 3, 'embedding_dim': 1024}, 'MPMAE': {'num_image_channels': 12, 'embedding_dim': 320}, 'TerraMind': {'num_image_channels': 12, 'embedding_dim': 768}}
+architecture_properties = {'DINOv3': {'num_image_channels': 3, 'embedding_dim': 1024},
+                           'MPMAE': {'num_image_channels': 12, 'embedding_dim': 320},
+                           'TerraMind': {'num_image_channels': 18, 'embedding_dim': 768}}
 
 # ============================================== FUNCTIONS ============================================== #
 
-def get_run_id(task, architecture, adaptation_mode, tuning_mode):
-    name = '_'.join([task, architecture, adaptation_mode, tuning_mode])
-    best_run = get_best_run_in_sweep(name, data_dir_path)
+def get_run_id(task, architecture, adaptation_mode):
+    runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['beta']}})
+    name = '_'.join([task, architecture, adaptation_mode])
+    run = [run for run in runs if run.startswith(name)][0]
+    print(run['ID'])
 
-    return best_run["ID"], name
+    return run['ID'], name
 
 def get_state_dict(run_id, name):
     run = wandb.Api().run(f'{entity}/{project}/{run_id}')
@@ -53,14 +55,19 @@ def get_state_dict(run_id, name):
 
     return ckpt['state_dict']
 
-def get_log_name(mode, dataloader_idx):
-    if mode == 'test':
-        split = 'random_test' if dataloader_idx == 0 else 'geographic_test'
-        name = split.capitalize().replace('_', ' ')
-    else:
-        name = mode.capitalize()
+def get_model_input(architecture, images):
+    if architecture == 'DINOv3':
+        x = images['Sentinel2']['data'][:, [3,2,1], :, :] # extracts the RGB bands
+    elif architecture == 'MPMAE':
+        x = images['Sentinel2']['data']
+    elif architecture == 'TerraMind':
+        sentinel1_mask_vertical = images['Sentinel1']['valid_mask'][:, [0,1,4,5]] # ascending VV, VH; descending VV, VH
+        asc_num_valid_pixels = sentinel1_mask_vertical[:, :2].sum(dim=(1,2,3)) # counts the number of valid pixels in the ascending VV and VH bands
+        desc_num_valid_pixels = sentinel1_mask_vertical[:, 2:].sum(dim=(1,2,3)) # counts the number of valid pixels in the descending VV and VH bands
+        sentinel1 = [images['Sentinel1']['data'][i, [0,1]] if asc_num_valid_pixels[i] >= desc_num_valid_pixels[i] else images['Sentinel1']['data'][i, [4,5]] for i in range(len(sentinel1_mask_vertical))]
+        x = torch.cat([images['Sentinel2']['data'], torch.stack(sentinel1), images['AsterDEM']['data'][:, 0].unsqueeze(1), images['Sentinel2']['data'][:, [3,2,1]]], dim=1)
 
-    return name
+    return x
 
 # ============================================== CLASSES ============================================== #
 
@@ -77,101 +84,6 @@ class MeanError(Metric):
 
     def compute(self):
         return self.error_sum / self.count
-
-# class MPMAE(nn.Module):
-#     def __init__(self, num_classes, pixelwise, pretrained):
-#         super(MPMAE, self).__init__()
-
-#         self.pixelwise = pixelwise
-#         self.model = ConvNeXtV2(num_classes=num_classes)
-
-#         if pixelwise:
-#             self.model.head = nn.Identity() # removes the classifier layer
-#             self.model.forward_features = self._pixelwise_forward_features # replaces the forward_features method with a pixelwise version
-
-#         if pretrained:
-#             checkpoint_path = f'{data_dir_path}/all_mod_atto_1M_64_uncertainty_56-8.pth' # Vishal's checkpoint
-#             load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
-
-#     def _pixelwise_forward_features(self, x):
-#         if self.model.use_orig_stem:
-#             x = self.model.stem_orig(x)
-#         else:
-#             x = self.model.initial_conv(x)
-#             x = self.model.stem(x)
-
-#         x = self.model.stages[0](x)
-
-#         for i in range(3):
-#             x = self.model.downsample_layers[i](x)
-#             x = self.model.stages[i + 1](x)
-
-#         return self.model.norm(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-
-#     def forward(self, images):
-#         return self.model(images['Sentinel2'])
-
-# class DINOv2(nn.Module):
-#     def __init__(self, num_classes, pixelwise, pretrained):
-#         super(DINOv2, self).__init__()
-
-#         self.pixelwise = pixelwise
-#         self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14_reg')
-#         self.model.interpolate_pos_encoding = self._deterministic_interpolate_pos_encoding
-
-#         if pixelwise:
-#             self.model.head = nn.Identity()
-#         else:
-#             self.model.head = nn.Linear(in_features=384, out_features=num_classes)
-
-#     def _deterministic_interpolate_pos_encoding(self, x, w, h):
-#         '''Deterministic version using CPU for bicubic interpolation'''
-
-#         previous_dtype = x.dtype
-#         npatch = x.shape[1] - 1
-#         N = self.model.pos_embed.shape[1] - 1
-
-#         if npatch == N and w == h:
-#             return self.model.pos_embed
-
-#         pos_embed = self.model.pos_embed.float()
-#         class_pos_embed = pos_embed[:, 0]
-#         patch_pos_embed = pos_embed[:, 1:]
-#         dim = x.shape[-1]
-#         w0 = w // self.model.patch_size
-#         h0 = h // self.model.patch_size
-#         M = int(math.sqrt(N))  # Recover the number of patches in each dimension
-#         assert N == M * M
-
-#         kwargs = {}
-
-#         if self.model.interpolate_offset:
-#             sx = float(w0 + self.model.interpolate_offset) / M
-#             sy = float(h0 + self.model.interpolate_offset) / M
-#             kwargs['scale_factor'] = (sx, sy)
-#         else:
-#             kwargs['size'] = (w0, h0) # specifies an output size instead of a scale factor
-
-#         patch_pos_embed = nn.functional.interpolate(patch_pos_embed.cpu().reshape(1, M, M, dim).permute(0, 3, 1, 2),
-#                                                     mode='bicubic',
-#                                                     antialias=self.model.interpolate_antialias,
-#                                                     **kwargs)
-#         patch_pos_embed = patch_pos_embed.to(x.device)
-#         assert (w0, h0) == patch_pos_embed.shape[-2:]
-#         patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
-
-#         return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
-
-#     def forward(self, images):
-#         images = images['Sentinel2'][:, [3,2,1], :, :]
-#         images = torch.nn.functional.pad(images, (6, 6, 6, 6), mode='constant') # DinoV2 requires the image size to be divisible by 14
-
-#         if self.pixelwise:
-#             features = self.model.forward_features(images)['x_norm_patchtokens'].permute(0, 2, 1)
-
-#             return features.reshape(features.shape[0], features.shape[1], int(np.sqrt(features.shape[2])), int(np.sqrt(features.shape[2])))
-#         else:
-#             return self.model(images)
 
 class TaskModalityEncoder(nn.Module):
     def __init__(self):
@@ -197,26 +109,6 @@ class TaskModalityEncoder(nn.Module):
 
 # ============================================== ENCODER CLASSES ============================================== #
 
-# class ResNet50Encoder(nn.Module):
-#     def __init__(self, pixelwise, pretrained):
-#         super().__init__()
-
-#         self.model = resnet50(weights='DEFAULT' if pretrained else None)
-#         self.model.fc = nn.Identity()
-
-#     def forward(self, images): # doesn't call the avgpool, flatten, and fc layers
-#         x = images['Sentinel2']['data'][:, [3,2,1], :, :] # extracts the RGB bands
-#         x = self.model.conv1(x)
-#         x = self.model.bn1(x)
-#         x = self.model.relu(x)
-#         x = self.model.maxpool(x)
-#         x = self.model.layer1(x)
-#         x = self.model.layer2(x)
-#         x = self.model.layer3(x)
-#         x = self.model.layer4(x)
-
-#         return x
-
 class DINOv3Encoder(nn.Module):
     def __init__(self, pretrained):
         super().__init__()
@@ -227,8 +119,7 @@ class DINOv3Encoder(nn.Module):
                                     weights=f'{data_dir_path}/pretrained_checkpoints/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth')
 
     def forward(self, images):
-        x = images['Sentinel2']['data'][:, [3,2,1], :, :] # extracts the RGB bands
-        embeddings = self.model.forward_features(x)['x_norm_patchtokens'].permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
+        embeddings = self.model.forward_features(images)['x_norm_patchtokens'].permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
         embeddings = embeddings.reshape(embeddings.shape[0], embeddings.shape[1], int(np.sqrt(embeddings.shape[2])), int(np.sqrt(embeddings.shape[2]))) # (batch_size, embedding_dim, num_vertical_patches, num_horizontal_patches)
 
         return embeddings
@@ -244,8 +135,7 @@ class MPMAEEncoder(nn.Module):
             load_custom_checkpoint(self.model, checkpoint_path) # freezing and unfreezing is done in this function
 
     def forward(self, images):
-        x = images['Sentinel2']['data']
-        embeddings = self.model(x)
+        embeddings = self.model(images)
 
         return embeddings
 
@@ -256,16 +146,10 @@ class TerraMindEncoder(nn.Module):
         self.model = BACKBONE_REGISTRY.build('terramind_v1_base', pretrained=pretrained, modalities=['S2L2A', 'S1GRD', 'DEM', 'RGB'])
 
     def forward(self, images):
-        sentinel1_mask_vertical = images['Sentinel1']['valid_mask'][:, [0,1,4,5]] # ascending VV, VH; descending VV, VH
-        asc_num_valid_pixels = sentinel1_mask_vertical[:, :2].sum(dim=(1,2,3)) # counts the number of valid pixels in the ascending VV and VH bands
-        desc_num_valid_pixels = sentinel1_mask_vertical[:, 2:].sum(dim=(1,2,3)) # counts the number of valid pixels in the descending VV and VH bands
-        sentinel1 = [images['Sentinel1']['data'][i, [0,1]] if asc_num_valid_pixels[i] >= desc_num_valid_pixels[i] else images['Sentinel1']['data'][i, [4,5]] for i in range(len(sentinel1_mask_vertical))]
-
-        x = {'S2L2A': images['Sentinel2']['data'],
-             'S1GRD': torch.stack(sentinel1), # extracts the VV and VH bands from either the ascending or descending pass, whichever has more valid pixels
-             'DEM': images['AsterDEM']['data'][:, 0].unsqueeze(1), # extracts the elevation band
-             'RGB': images['Sentinel2']['data'][:, [3,2,1]]} # extracts the RGB bands in Sentinel-2
-
+        x = {'S2L2A': images[:, :12], # extracts the 12 bands in Sentinel-2
+             'S1GRD': images[:, 12:14], # extracts the VV and VH bands from either the ascending or descending pass, whichever has more valid pixels
+             'DEM': images[:, 14:15], # extracts the elevation band
+             'RGB': images[:, 15:]} # extracts the RGB bands in Sentinel-2
         embeddings = self.model(x)[-1] # extracts the final block's embeddings
         embeddings = embeddings.permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
         embeddings = embeddings.reshape(embeddings.shape[0], embeddings.shape[1], int(np.sqrt(embeddings.shape[2])), int(np.sqrt(embeddings.shape[2]))) # (batch_size, embedding_dim, num_vertical_patches, num_horizontal_patches)
@@ -283,11 +167,6 @@ class LinearDecoder(nn.Module):
         self.convolution = nn.Conv2d(in_channels=embedding_dim+num_image_channels, out_channels=out_channels, kernel_size=1) # applies a linear layer to each pixel
 
     def forward(self, embeddings, images):
-        images = images['Sentinel2']['data']
-
-        if self.num_image_channels != 12:
-            images = images[:, [3,2,1], :, :] # extracts the RGB bands
-
         upsampled_embeddings = self.upsample(embeddings) # upsamples the embeddings to the image size
         concatenated = torch.cat((upsampled_embeddings, images), dim=1) # concatenates along the channel dimension
         convolved = self.convolution(concatenated) # applies the convolution to the concatenated tensor
@@ -295,20 +174,12 @@ class LinearDecoder(nn.Module):
         return convolved
 
 class TaskDecoder(nn.Module):
-    def __init__(self, architecture, pixelwise, adaptation_mode, num_classes):
+    def __init__(self, architecture, pixelwise, num_classes):
         super().__init__()
 
         embedding_dim = architecture_properties[architecture]['embedding_dim']
+        self.architecture = architecture
 
-        # if architecture == 'ResNet50':
-        #     self.decoder = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=(1, 1)),
-        #                                  nn.Flatten(),
-        #                                  nn.Linear(in_features=embedding_dim, out_features=num_classes))
-        # else:
-        #     self.decoder = nn.Sequential(nn.Lambda(lambda x: x.mean(dim=[-2, -1])), # global average pooling
-        #                                  nn.LayerNorm(normalized_shape=embedding_dim, eps=1e-6),
-        #                                  nn.Linear(in_features=embedding_dim, out_features=num_classes))
-        # else:
         if not pixelwise:
             self.decoder = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=1), # global average pooling over the spatial dimensions
                                          nn.Flatten(), # collapses the spatial dimensions
@@ -328,8 +199,7 @@ class TaskModalityDecoder(nn.Module):
     def __init__(self, num_image_channels, embedding_dim):
         super().__init__()
 
-        self.task_modality_decoder = LinearDecoder(image_size=128,
-                                                   num_image_channels=num_image_channels,
+        self.task_modality_decoder = LinearDecoder(num_image_channels=num_image_channels,
                                                    embedding_dim=embedding_dim,
                                                    out_channels=922) # 922 is the total number of bands in the task modalities excluding the NaN bands in the categorical modalities
         self.modality_band_indices = {'Sentinel2': [0, 12],
@@ -383,7 +253,7 @@ class ModalityReconstructionLossCalculator(nn.Module):
                     sum_ = masked_reconstruction_loss.sum(dim=dims_to_reduce) # numerator in average
                     count = valid_mask.sum(dim=dims_to_reduce) # number of valid pixels in each image
                     mean = sum_ / count.clamp_min(1) # prevents division by 0
-                    modality_reconstruction_losses[modality] = mean.masked_fill(count == 0, float('nan')) # sets the reconstruction loss to NaN for the image if there are no valid pixels for the modality
+                    modality_reconstruction_losses[modality] = mean.masked_fill(count == 0, float('nan')) # sets the reconstruction loss to NaN for the modality if there are no valid pixels for the modality
                 else: # for biome and ecoregion
                     modality_reconstruction_losses[modality] = reconstruction_loss.masked_fill(~valid_mask, float('nan')) # sets any no data pixels to NaN
             else: # geolocation and month
@@ -466,6 +336,7 @@ class EncoderDecoder(nn.Module):
     def __init__(self, task, architecture, adaptation_mode, tuning_mode, pixelwise, num_classes, pretrained, lr):
         super().__init__()
 
+        self.architecture = architecture
         self.adaptation_mode = adaptation_mode
         self.pixelwise = pixelwise
         self.encoder = globals()[f'{architecture}Encoder'](pretrained)
@@ -473,21 +344,21 @@ class EncoderDecoder(nn.Module):
         num_image_channels = architecture_properties[architecture]['num_image_channels']
         embedding_dim = architecture_properties[architecture]['embedding_dim']
 
-        if adaptation_mode in ['standard', 'joint_training', 'tto', 'maml', 'mt3', 'mt3_frozen', 'rna']:
-            self.task_decoder = TaskDecoder(architecture, pixelwise, adaptation_mode, num_classes)
+        if adaptation_mode in ['standard', 'joint_training', 'ttt', 'maml', 'mt3', 'mt3_frozen', 'rna']:
+            self.task_decoder = TaskDecoder(architecture, pixelwise, num_classes)
         elif adaptation_mode == 'multimodal':
             self.task_modality_encoder = TaskModalityEncoder()
 
-        if adaptation_mode in ['joint_training', 'task_modality_decoder', 'tto', 'maml', 'mt3', 'mt3_frozen', 'rna']:
+        if adaptation_mode in ['joint_training', 'task_modality_decoder', 'ttt', 'maml', 'mt3', 'mt3_frozen', 'rna']:
             self.task_modality_decoder = TaskModalityDecoder(num_image_channels, embedding_dim)
 
-        if adaptation_mode in ['task_modality_decoder', 'tto', 'maml', 'mt3_frozen', 'rna']:
+        if adaptation_mode in ['task_modality_decoder', 'ttt', 'maml', 'mt3_frozen', 'rna']:
             state_dict = get_state_dict(*get_run_id(task, architecture, 'standard', tuning_mode))
             encoder_state_dict = {key.replace('model.encoder.', ''): value for key, value in state_dict.items() if key.startswith('model.encoder')} # filters the state_dict to only include the encoder parameters
             self.encoder.load_state_dict(encoder_state_dict)
             self.encoder.requires_grad_(False) # freezes the encoder
 
-        if adaptation_mode in ['tto', 'maml', 'mt3_frozen', 'rna']:
+        if adaptation_mode in ['ttt', 'maml', 'mt3_frozen', 'rna']:
             task_decoder_state_dict = {key.replace('model.task_decoder.', ''): value for key, value in state_dict.items() if key.startswith('model.task_decoder')} # filters the state_dict to only include the decoder parameters
             self.task_decoder.load_state_dict(task_decoder_state_dict)
             self.task_decoder.requires_grad_(False) # freezes the task decoder
@@ -495,15 +366,15 @@ class EncoderDecoder(nn.Module):
             task_modality_decoder_state_dict = {key.replace('model.task_modality_decoder.', ''): value for key, value in task_modality_decoder_state_dict.items() if key.startswith('model.task_modality_decoder')}
             self.task_modality_decoder.load_state_dict(task_modality_decoder_state_dict)
 
-        if adaptation_mode in ['tto', 'maml', 'rna']:
+        if adaptation_mode in ['ttt', 'maml', 'rna']:
             self.task_modality_decoder.requires_grad_(False) # freezes the task modality decoder
 
-        if adaptation_mode in ['joint_training', 'tto', 'mt3', 'mt3_frozen']:
+        if adaptation_mode in ['joint_training', 'ttt', 'mt3', 'mt3_frozen']:
             self.task_modality_decoder_loss = TaskModalityDecoderLoss()
-        elif adaptation_mode in ['maml', 'learn_loss', 'rna']:
+        elif adaptation_mode in ['maml', 'rna']:
             self.modality_reconstruction_loss_calculator = ModalityReconstructionLossCalculator()
 
-        if adaptation_mode in ['maml', 'learn_loss']:
+        if adaptation_mode in ['maml']:
             self.surrogate_loss_network = SurrogateLossNetwork(average_over_batch=adaptation_mode=='maml')
         elif adaptation_mode == 'rna':
             self.hypernetwork = Hypernetwork(input_dim=25, embedding_dim=embedding_dim)
@@ -511,8 +382,9 @@ class EncoderDecoder(nn.Module):
 
     def forward(self, images):
         if self.adaptation_mode == 'standard':
-            input_embeddings = self.encoder(images)
-            task_prediction = self.task_decoder(input_embeddings) if not self.pixelwise else self.task_decoder(input_embeddings, images)
+            input_modalities = get_model_input(architecture=self.architecture, images=images)
+            input_embeddings = self.encoder(input_modalities)
+            task_prediction = self.task_decoder(input_embeddings) if not self.pixelwise else self.task_decoder(input_embeddings, input_modalities)
 
             return task_prediction
         elif self.adaptation_mode == 'multimodal':
@@ -523,11 +395,13 @@ class EncoderDecoder(nn.Module):
 
             return task_prediction
         elif self.adaptation_mode == 'joint_training':
-            input_embeddings = self.encoder(images)
-            task_prediction = self.task_decoder(input_embeddings)
-            task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions=self.task_modality_decoder(input_embeddings, images), images=images)
+            input_modalities = get_model_input(architecture=self.architecture, images=images)
+            input_embeddings = self.encoder(input_modalities)
+            task_prediction = self.task_decoder(input_embeddings) if not self.pixelwise else self.task_decoder(input_embeddings, input_modalities)
+            modality_reconstructions = self.task_modality_decoder(input_embeddings, input_modalities)
+            task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions, images)
 
-            return task_prediction, task_modality_reconstruction_loss
+            return task_prediction, modality_reconstructions, task_modality_reconstruction_loss
         elif self.adaptation_mode == 'task_modality_decoder':
             self.encoder.eval() # keeps batch norm and dropout deterministic
 
@@ -535,7 +409,7 @@ class EncoderDecoder(nn.Module):
             modality_reconstructions = self.task_modality_decoder(input_embeddings, images)
 
             return modality_reconstructions
-        elif self.adaptation_mode == 'tto':
+        elif self.adaptation_mode == 'ttt':
             # keep batch norm and dropout deterministic
             self.encoder.eval()
             self.task_decoder.eval()
@@ -580,13 +454,19 @@ class EncoderDecoder(nn.Module):
                 encoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.encoder.named_parameters()}
                 initial_input_embeddings = functional_call(self.encoder, encoder_parameters, (images,))
                 initial_task_prediction = self.task_decoder(initial_input_embeddings)
-                task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions=self.task_modality_decoder(initial_input_embeddings, images), images=images)
-                task_modality_reconstruction_loss_grads = torch.autograd.grad(task_modality_reconstruction_loss, encoder_parameters.values(), create_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters                        encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)} # SGD parameter update
-                adapted_encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)}
+                task_modality_decoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.task_modality_decoder.named_parameters()}
+                modality_reconstructions = functional_call(self.task_modality_decoder, task_modality_decoder_parameters, (initial_input_embeddings, images))
+                task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions, images)
+                task_modality_reconstruction_loss_encoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, encoder_parameters.values(), create_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters                        encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)} # SGD parameter update
+                task_modality_reconstruction_loss_task_modality_decoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, task_modality_decoder_parameters.values(), create_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters                        encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)} # SGD parameter update
+                adapted_encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_encoder_grads)}
+                adapted_task_modality_decoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(task_modality_decoder_parameters.items(), task_modality_reconstruction_loss_task_modality_decoder_grads)}
                 adapted_input_embeddings = functional_call(self.encoder, adapted_encoder_parameters, (images,))
                 adapted_task_prediction = self.task_decoder(adapted_input_embeddings)
+                adapted_modality_reconstructions = functional_call(self.task_modality_decoder, adapted_task_modality_decoder_parameters, (adapted_input_embeddings, images))
+                adapted_task_modality_reconstruction_loss = self.task_modality_decoder_loss(adapted_modality_reconstructions, images)
 
-            return torch.cat([initial_task_prediction, adapted_task_prediction], dim=1).t().unsqueeze(-1), task_modality_reconstruction_loss # (num_iterations+1, batch_size, 1)
+            return torch.cat([initial_task_prediction, adapted_task_prediction], dim=1).t().unsqueeze(-1), adapted_task_modality_reconstruction_loss # (num_iterations+1, batch_size, 1)
         elif self.adaptation_mode == 'mt3_frozen':
             # keep batch norm and dropout deterministic
             self.encoder.eval()
@@ -616,26 +496,6 @@ class EncoderDecoder(nn.Module):
 
             return torch.cat([initial_task_prediction, adapted_task_prediction], dim=1).t().unsqueeze(-1) # (num_iterations+1, batch_size, 1)
 
-        # elif self.adaptation_mode == 'learn_loss':
-        #     # keep batch norm and dropout deterministic
-        #     self.encoder.eval()
-        #     self.task_decoder.eval()
-        #     self.task_modality_decoder.eval()
-
-        #     with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
-        #         encoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.encoder.named_parameters()}
-        #         initial_input_embeddings = functional_call(self.encoder, encoder_parameters, (images,))
-        #         initial_task_prediction = self.task_decoder(initial_input_embeddings)
-        #         surrogate_loss = self.surrogate_loss_network(self.modality_reconstruction_loss_calculator(modality_reconstructions=self.task_modality_decoder(initial_input_embeddings, images), images=images))
-        #         surrogate_loss_grads = torch.autograd.grad(surrogate_loss.mean(), encoder_parameters.values(), retain_graph=True) # computes the gradients of the surrogate loss with respect to the encoder parameters
-
-        #     with torch.no_grad():
-        #         adapted_encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), surrogate_loss_grads)}
-        #         adapted_input_embeddings = functional_call(self.encoder, adapted_encoder_parameters, (images,))
-        #         adapted_task_prediction = self.task_decoder(adapted_input_embeddings)
-
-        #     return initial_task_prediction, surrogate_loss, adapted_task_prediction
-
 class Model(LightningModule):
     def __init__(self, task, architecture, adaptation_mode, tuning_mode, pretrained, decay_factor, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, inner_loop_lr):
         super().__init__()
@@ -646,8 +506,6 @@ class Model(LightningModule):
 
         if adaptation_mode == 'task_modality_decoder':
             self.criterion = TaskModalityDecoderLoss()
-        elif adaptation_mode == 'learn_loss':
-            self.criterion = nn.MSELoss()
         elif task == 'species': # multi-label classification
             self.criterion = nn.BCEWithLogitsLoss()
         else: # regression
@@ -774,39 +632,37 @@ class Model(LightningModule):
         images, target = batch # extracts the images and targets for the batch
         prediction = self(images) # forward pass
 
-        if self.hparams.adaptation_mode == 'tto' or self.hparams.adaptation_mode == 'maml' or self.hparams.adaptation_mode == 'mt3_frozen' or self.hparams.adaptation_mode == 'rna':
+        if self.hparams.adaptation_mode == 'ttt' or self.hparams.adaptation_mode == 'maml' or self.hparams.adaptation_mode == 'mt3_frozen' or self.hparams.adaptation_mode == 'rna':
             iteration_predictions = prediction
             prediction = iteration_predictions[-1]
         elif self.hparams.adaptation_mode == 'joint_training':
-            prediction, task_modality_reconstruction_loss = prediction
+            prediction, modality_reconstructions, task_modality_reconstruction_loss = prediction
         elif self.hparams.adaptation_mode == 'mt3':
             iteration_predictions, task_modality_reconstruction_loss = prediction
             prediction = iteration_predictions[-1]
-        elif self.hparams.adaptation_mode == 'learn_loss':
-            initial_task_prediction, prediction, adapted_task_prediction = prediction # initial task prediction, surrogate loss, adapted task prediction
 
         if self.hparams.task == 'biomass':
             valid_mask = target != biomass_no_data_value # mask for the NaN pixels in the target
             prediction = prediction[valid_mask]
             target = target[valid_mask]
 
-            if self.hparams.adaptation_mode == 'maml' or self.hparams.adaptation_mode == 'tto' or self.hparams.adaptation_mode == 'learn_loss':
+            if self.hparams.adaptation_mode == 'maml' or self.hparams.adaptation_mode == 'ttt':
                 initial_task_prediction = initial_task_prediction[valid_mask]
 
-            if self.hparams.adaptation_mode == 'learn_loss':
-                adapted_task_prediction = adapted_task_prediction[valid_mask]
+        if self.hparams.adaptation_mode == 'joint_training':
+            with torch.no_grad():
+                modality_reconstruction_losses = ModalityReconstructionLossCalculator()(modality_reconstructions, images)
 
-        if self.hparams.adaptation_mode == 'task_modality_decoder':
+                for modality, loss in modality_reconstruction_losses.items():
+                    self.log(f'{modality.capitalize()} reconstruction loss', loss.nanmean())
+        elif self.hparams.adaptation_mode == 'task_modality_decoder':
             target = images # task is to reconstruct the modalities
 
             with torch.no_grad():
                 modality_reconstruction_losses = ModalityReconstructionLossCalculator()(prediction, images)
 
                 for modality, loss in modality_reconstruction_losses.items():
-                    self.log(f'{mode.capitalize()} {modality.capitalize()} reconstruction loss', loss.nanmean())
-        elif self.hparams.adaptation_mode == 'learn_loss':
-            task = target
-            target = nn.MSELoss(reduction='none')(initial_task_prediction, target) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(initial_task_prediction, target) # task loss
+                    self.log(f'{modality.capitalize()} reconstruction loss', loss.nanmean())
 
         loss = self.criterion(prediction, target) # computes the loss
 
@@ -814,13 +670,6 @@ class Model(LightningModule):
             loss += task_modality_reconstruction_loss
 
         self.log(f'{mode.capitalize().replace("_", " ")} loss', loss, add_dataloader_idx=False) # logs the loss
-
-        # elif self.hparams.adaptation_mode == 'learn_loss':
-        #     initial_loss = nn.MSELoss()(initial_task_prediction, task) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(initial_task_prediction, task)
-        #     self.log(f'{get_log_name(mode, dataloader_idx)} initial task loss', initial_loss, batch_size=batch_size) # logs the loss prior to adaptation
-        #     adapted_task_loss = nn.MSELoss()(adapted_task_prediction, task) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(adapted_task_prediction, task)
-        #     adaptation_improvement = (initial_loss - adapted_task_loss) / initial_loss * 100 # larger is better
-        #     self.log(f'{get_log_name(mode, dataloader_idx)} task loss adaptation improvement %', adaptation_improvement, batch_size=batch_size)
 
         if self.hparams.task == 'species':
             prediction = torch.sigmoid(prediction) # converts logits to probabilities
@@ -847,14 +696,14 @@ class Model(LightningModule):
             getattr(self, f'{mode}_predictions').append(prediction.detach().cpu()) # appends this batch's predictions to the list
             getattr(self, f'{mode}_targets').append(target.detach().cpu()) # appends this batch's targets to the list
 
-            if batch_idx == num_batches-1:
+            if batch_idx == num_batches-1: # at the end of the epoch
                 predictions = torch.cat(getattr(self, f'{mode}_predictions'))
                 targets = torch.cat(getattr(self, f'{mode}_targets'))
                 setattr(self, f'{mode}_r2', R2Score()(predictions, targets))
                 self.log(f'{mode.capitalize().replace("_", " ")} R²', getattr(self, f'{mode}_r2'), add_dataloader_idx=False) # logs the R2 score at the end of each epoch
 
         # log adaptation improvement over iterations
-        if self.hparams.adaptation_mode == 'tto' or self.hparams.adaptation_mode == 'maml' or self.hparams.adaptation_mode == 'mt3' or self.hparams.adaptation_mode == 'mt3_frozen' or self.hparams.adaptation_mode == 'rna':
+        if self.hparams.adaptation_mode == 'ttt' or self.hparams.adaptation_mode == 'maml' or self.hparams.adaptation_mode == 'mt3' or self.hparams.adaptation_mode == 'mt3_frozen' or self.hparams.adaptation_mode == 'rna':
             losses = torch.stack([nn.MSELoss(reduction='none')(prediction, target) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(prediction, target) for prediction in iteration_predictions]).squeeze(-1) # (num_iterations+1, batch_size)
 
             if not hasattr(self, f'{mode}_losses'):
