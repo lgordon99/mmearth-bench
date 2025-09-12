@@ -9,6 +9,7 @@ import ee
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import random
 import time
 import utils
