@@ -3,14 +3,14 @@
 # ============================================== IMPORTS ============================================== #
 
 from shapely.geometry import shape
-from shapely.ops import unary_union
-from tqdm import tqdm
+from sys import argv
 import ee
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
+import subprocess
 import time
 import utils
 
@@ -19,30 +19,8 @@ import utils
 random.seed(42) # sets a seed for reproducibility
 ee.Initialize(project='mmearth-bench') # initializes EE with the project
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
-
-# def get_africa_boundaries():
-#     continents = utils.read_geojson(f'{data_dir_path}/World_Continents_-8423622284373332078.geojson')['features']
-#     africa = [continent for continent in continents if continent['properties']['CONTINENT'] == 'Africa'][0]
-#     tolerance = 9
-#     smoothed_africa = shape(africa['geometry']).buffer(tolerance).buffer(-tolerance) # smooths the boundaries
-#     gpd.GeoDataFrame(geometry=[smoothed_africa], crs='EPSG:4326').to_file(f'{data_dir_path}/africa_9.geojson', driver='GeoJSON') # saves the Africa boundaries as a GeoJSON file
-
-    # country_data = utils.read_geojson(f'{data_dir_path}/world_administrative_boundaries.geojson')['features'] # country boundary data
-    # african_country_data = [country for country in country_data if country['properties'].get('continent') == 'Africa'] # African country boundary data
-    # africa_polygons = [] # list of polygons for boundaries of African countries
-
-    # for country in african_country_data: # for each African country
-    #     geometry = country['geometry'] # extracts the country's geometry
-
-    #     if geometry['type'] == 'Polygon': # if the geometry is a polygon
-    #         africa_polygons.append(Polygon(geometry['coordinates'][0])) # saves the polygon's coordinates
-    #     elif geometry['type'] == 'MultiPolygon': # if the geometry is multiple polygons
-    #         for polygon_coordinates in geometry['coordinates']: # for each polygon
-    #             africa_polygons.append(Polygon(polygon_coordinates[0])) # saves the polygon's coordinates
-
-    # tolerance = 0.1
-    # africa_boundaries = MultiPolygon(africa_polygons).buffer(tolerance).buffer(-tolerance) # boundaries of all the African countries
-    # gpd.GeoDataFrame(geometry=[africa_boundaries], crs='EPSG:4326').to_file(f'{data_dir_path}/africa.geojson', driver='GeoJSON') # saves the Africa boundaries as a GeoJSON file
+partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
+env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
 
 def get_species_ranges():
     with open(f'{data_dir_path}/species/output-files/get_species_ranges.out', 'w') as out_file:
@@ -80,37 +58,18 @@ def get_species_ranges():
     plt.xticks(rotation=15)
     plt.savefig(f'{data_dir_path}/species/species_per_order.png')
 
-    # mammals_in_africa = mammals_in_africa.sort_values(by='area_outside_africa', ascending=False)[:100] # selects species with the largest area outside Africa
-    # print(f'Min area in Africa: {mammals_in_africa["area_in_africa"].min()}, Min area outside Africa: {mammals_in_africa["area_outside_africa"].min()}')
-    # mammals_in_africa.to_file(f'{data_dir_path}/species/species_ranges.geojson', driver='GeoJSON')
-
-    # os.makedirs(f'{data_dir_path}/species/species_ranges', exist_ok=True)
-
-    # for _, row in mammals_in_africa.iterrows():
-    #     species_name = row["sci_name"].replace(" ", "_").replace("/", "_")
-    #     gdf_row = gpd.GeoDataFrame([row], columns=mammals_in_africa.columns, crs=mammals_in_africa.crs)
-    #     gdf_row.to_file(f"{data_dir_path}/species/species_ranges/{species_name}.geojson", driver="GeoJSON")
-
-    # top_in_africa = mammals_in_africa.sort_values(by='area_in_africa', ascending=False)[:1100] # selects species with the largest area in Africa
-    # top_outside_africa = mammals_in_africa.sort_values(by='area_outside_africa', ascending=False)[:100] # selects species with the largest area outside Africa
-    # mammals_top = mammals_in_africa[mammals_in_africa['sci_name'].isin(top_in_africa['sci_name']) & mammals_in_africa['sci_name'].isin(top_outside_africa['sci_name'])] # selects species in both top lists
-    # print(f'{len(mammals_top)} species in both top lists')
-    # mammals_top = mammals_top[:90] # limits to top 90 species in both
-    # print(f'Min area in Africa: {mammals_top["area_in_africa"].min()}, Min area outside Africa: {mammals_top["area_outside_africa"].min()}')
-    # os.makedirs(f'{data_dir_path}/species/species_ranges', exist_ok=True)
-    # mammals_top.to_file(f'{data_dir_path}/species/species_ranges/species_ranges.shp', driver='ESRI Shapefile') # saves the top species ranges as a shapefile
-
 def generate_species_points():
     start_time = time.time()
-    species_gdf = gpd.read_file(f'{data_dir_path}/species/species_ranges/species_ranges.shp')
+    species_gdf = gpd.read_file(f'{data_dir_path}/species/species_ranges.geojson')
     OUTER_TILE_SIZE_M = utils.read_yaml('config.yml')['OUTER_TILE_SIZE_M']
-    africa_union = unary_union(gpd.read_file(f'{data_dir_path}/africa.geojson').geometry) # union of all African country boundaries
+    africa_geometry = gpd.read_file(f'{data_dir_path}/africa.geojson').geometry.squeeze()
     points = []
 
-    for row in tqdm(species_gdf.itertuples(index=False), total=len(species_gdf), desc='Species'):
+    for i, row in enumerate(species_gdf.itertuples(index=False)):
         species = row.sci_name
-        range_in_africa = row.geometry.intersection(africa_union)
-        range_outside_africa = row.geometry.difference(africa_union)
+        print(f'Species {i+1}/{len(species_gdf)}: {species}')
+        range_in_africa = row.geometry.intersection(africa_geometry)
+        range_outside_africa = row.geometry.difference(africa_geometry)
         split_data = {'in_africa': {'num_tiles': 100, 'range': range_in_africa, 'points': []},
                       'outside_africa': {'num_tiles': 300, 'range': range_outside_africa, 'points': []}}
 
@@ -120,26 +79,23 @@ def generate_species_points():
             while len(split_data[split]['points']) < data['num_tiles']:
                 x = random.uniform(minx, maxx) # random x coordinate within the bounding box
                 y = random.uniform(miny, maxy) # random y coordinate within the bounding box
-                # point = Point(x, y) # creates a point from the coordinates
                 point = ee.Feature(ee.Geometry.Point([x, y])).set({'species': [species], 'outer_tile': ee.Geometry.Point([x, y]).buffer(OUTER_TILE_SIZE_M / 2).bounds()}).getInfo()
 
-                # if data['range'].contains(point): # if the point is within the range
                 if data['range'].intersects(shape(point['properties']['outer_tile'])): # if the point's outer tile intersects the range
-                    # split_data[split]['points'].append(ee.Feature(ee.Geometry.Point([x, y])).set({'species': [species], 'outer_tile': ee.Geometry.Point([x, y]).buffer(OUTER_TILE_SIZE_M / 2).bounds()}).getInfo()) # creates an outer tile around each point
                     split_data[split]['points'].append(point)
 
         species_points = [point for split in split_data.keys() for point in split_data[split]['points']]
-        print(f'{len(species_points)} before removing overlaps')
+        print(f'{len(species_points)} points before removing overlaps')
         species_points = utils.remove_overlapping_tiles(species_points) # removes points with overlapping tiles
         print(f'{len(species_points)} points after removing overlaps')
         points.extend(species_points)
 
-    print(f'{len(points)} before removing overlaps')
+    print(f'{len(points)} points before removing overlaps')
 
     points = utils.remove_overlapping_tiles(points) # removes points with overlapping tiles
     print(f'{len(points)} points after removing overlaps')
 
-    for point in tqdm(points, total=len(points), desc='Points'):
+    for point in points:
         for row in species_gdf.itertuples(index=False): # for each species
             if row.sci_name not in point['properties']['species'] and row.geometry.intersects(shape(point['properties']['outer_tile'])): # if the point's outer tile intersects the species range
                 point['properties']['species'].append(row.sci_name) # adds the species to the point's species list
@@ -151,55 +107,54 @@ def generate_species_points():
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
 def check_point_statistics():
-    points = utils.read_geojson(f'{data_dir_path}/species/species_points.geojson')['features']
-    print(f'Total points: {len(points)}')
+    with open(f'{data_dir_path}/species/output-files/check_point_statistics.out', 'w') as out_file:
+        points = utils.read_geojson(f'{data_dir_path}/species/species_points.geojson')['features']
+        out_file.write(f'Total points: {len(points)}\n')
 
-    # plot number of points per species
-    species_counts = {}
+        # plot number of points per species
+        species_counts = {}
 
-    for point in points:
-        for species in point['properties']['species']:
-            if species in species_counts.keys():
-                species_counts[species] += 1
-            else:
-                species_counts[species] = 1
+        for point in points:
+            for species in point['properties']['species']:
+                species_counts[species] = species_counts.get(species, 0) + 1
 
-    species = list(species_counts.keys())
-    counts = list(species_counts.values())
-    indices = np.arange(len(species))
-    plt.figure(dpi=300, figsize=(15, 5))
-    plt.bar(indices, counts)
-    plt.xticks(indices, species, rotation=90)
-    plt.xlabel('Species')
-    plt.ylabel('Number of points')
-    plt.title('Number of points per species')
-    plt.tight_layout()
-    plt.savefig(f'{data_dir_path}/species/points_per_species.png')
+        species = list(species_counts.keys())
+        counts = list(species_counts.values())
+        indices = np.arange(len(species))
+        plt.figure(dpi=300, figsize=(20, 5))
+        plt.bar(indices, counts)
+        plt.xticks(indices, species, rotation=90)
+        plt.xlabel('Species')
+        plt.ylabel('Number of points')
+        plt.title('Number of points per species')
+        plt.tight_layout()
+        plt.savefig(f'{data_dir_path}/species/points_per_species.png')
 
-    print(f'Max number of points for a species: {max(counts)}')
-    print(f'Min number of points for a species: {min(counts)}')
+        out_file.write(f'Max number of points for a species: {max(counts)}\n')
+        out_file.write(f'Min number of points for a species: {min(counts)}\n')
 
-    # histogram of number of species per point
-    point_species_counts = []
+        # histogram of number of species per point
+        plt.figure(dpi=300)
+        bin_size = 1000
+        bins = np.arange(0, max(counts) + bin_size, bin_size)
+        tick_interval = 5000
 
-    for point in points:
-        point_species_counts.append(len(point['properties']['species']))
-
-    plt.figure(dpi=300, figsize=(15, 5))
-    plt.hist(point_species_counts, bins=np.arange(min(point_species_counts), max(point_species_counts) + 2) - 0.5)
-    plt.xlabel('Number of species')
-    plt.ylabel('Number of points')
-    plt.tight_layout()
-    plt.savefig(f'{data_dir_path}/species/point_species_counts.png')
+        plt.hist(counts, bins=bins, edgecolor='black')
+        plt.xlabel('Number of points')
+        plt.ylabel('Number of species')
+        plt.xticks(np.arange(0, max(counts) + tick_interval, tick_interval))
+        plt.tight_layout()
+        plt.savefig(f'{data_dir_path}/species/point_species_counts.png')
 
 if __name__ == '__main__':
-    # if not os.path.exists(f'{data_dir_path}/africa.geojson'):
-    #     get_africa_boundaries()
+    if len(argv) == 1:
+        if not os.path.exists(f'{data_dir_path}/species/species_ranges.geojson'):
+            get_species_ranges()
 
-    if not os.path.exists(f'{data_dir_path}/species/species_ranges.geojson'):
-        get_species_ranges()
-
-    if not os.path.exists(f'{data_dir_path}/species/species_points.geojson'):
-        generate_species_points()
-
-    check_point_statistics()
+        if not os.path.exists(f'{data_dir_path}/species/species_points.geojson'):
+            subprocess.run(['sbatch', '-t', '1-00:00', '-p', partitions, '--mem', '1G', '--job-name', 'generate_species_points', '-o', f'{data_dir_path}/species/output-files/generate_species_points.out', '--account', 'davies_lab', 'job.sh', env_path, 'generate_species_points.py', 'generate_species_points'])
+    elif len(argv) > 1:
+        if argv[1] == 'generate_species_points':
+            generate_species_points()
+        elif argv[1] == 'check_point_statistics':
+            check_point_statistics()
