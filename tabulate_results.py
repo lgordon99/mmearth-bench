@@ -1,75 +1,63 @@
-# ============================================== IMPORTS ============================================== #
-
-import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
+import utils
 import wandb
-from concurrent.futures import ThreadPoolExecutor
-from matplotlib.colors import LinearSegmentedColormap
-from sys import argv
-from tqdm import tqdm
 
-# ============================================== GLOBAL VARIABLES ============================================== #
-
-num_decimals = 1
-models = ['ResNet50', 'ResNet50-ImageNet', 'DINOv2', 'MPMAE', 'MPMAE-MMEarth']
+entity = utils.read_yaml('config-user.yml')['entity']
+project = utils.read_yaml('config-user.yml')['project']
+runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['zeta']}})
+architectures = ['DINOv3', 'MPMAE', 'TerraMind']
+adaptation_modes = ['standard', 'multimodal']
 splits = ['Random', 'Geographic']
-adaptation_methods = ['lp', 'ft', 'llrd']
 
-# ============================================== FUNCTIONS ============================================== #
+def tabulate_results_task(task):
+    data = {split: {mode: {architecture: np.nan for architecture in architectures} for mode in adaptation_modes} for split in splits}
 
-def get_run_data(run, hyperparameters):
-    if run.state != 'finished':
-        print(f'{run.name} is not finished yet')
-        exit()
+    for architecture in architectures:
+        for adaptation_mode in adaptation_modes:
+            name = '_'.join([task, architecture, adaptation_mode])
+            run = next((run for run in runs if run.name.startswith(name)), None)
+            random_test_rmse = run.summary_metrics.get('Random test RMSE') if run else np.nan
+            geographic_test_rmse = run.summary_metrics.get('Geographic test RMSE') if run else np.nan
+            data['Random'][adaptation_mode][architecture] = random_test_rmse
+            data['Geographic'][adaptation_mode][architecture] = geographic_test_rmse
 
-    run_data = {'name': run.name,
-                'Val RMSE': round(run.history(keys=['Val RMSE'])['Val RMSE'].min(), num_decimals),
-                'Random test RMSE': round(run.summary_metrics['Random test RMSE/dataloader_idx_0'], num_decimals),
-                'Random test R2': round(run.summary_metrics['Random test R2/dataloader_idx_0'], num_decimals),
-                'Random test MAE': round(run.summary_metrics['Random test MAE/dataloader_idx_0'], num_decimals),
-                'Random test ME': round(run.summary_metrics['Random test ME/dataloader_idx_0'], num_decimals),
-                'Geographic test RMSE': round(run.summary_metrics['Geographic test RMSE/dataloader_idx_1'], num_decimals),
-                'Geographic test R2': round(run.summary_metrics['Geographic test R2/dataloader_idx_1'], num_decimals),
-                'Geographic test MAE': round(run.summary_metrics['Geographic test MAE/dataloader_idx_1'], num_decimals),
-                'Geographic test ME': round(run.summary_metrics['Geographic test ME/dataloader_idx_1'], num_decimals)}
-    run_hyperparameter_data = {hyperparameter: run.config[hyperparameter] for hyperparameter in hyperparameters}
-    run_data = {**run_data, **run_hyperparameter_data}
+    random_df = pd.DataFrame.from_dict(data['Random'], orient='index')[architectures].reindex(adaptation_modes)
+    geographic_df = pd.DataFrame.from_dict(data['Geographic'], orient='index')[architectures].reindex(adaptation_modes)
 
-    return run_data
+    df = pd.concat({'Random': random_df, 'Geographic': geographic_df}, axis=0)
+    df.index.set_names(['Split', 'Adaptation mode'], inplace=True)
+    df = df.rename_axis(['Split', 'Adaptation mode'])  # make sure names are set
+    df = df.rename(index=str.capitalize, level='Adaptation mode')
+    cols = df.columns.tolist()
+    header_line = ' & '.join(['\\textbf{Split}', '\\textbf{Adaptation mode}'] + [f'\\textbf{{{c}}}' for c in cols]) + r' \\'
 
-def monitor_sweep(name):
-    sweep_log_df = pd.read_csv('sweep_log.csv')
-    sweep_ID = sweep_log_df[sweep_log_df['name'] == name]['sweep_ID'].values[0]
-    sweep = wandb.Api().sweep(sweep_ID)
-    hyperparameters = sweep.config['parameters'].keys()
-    all_run_data = []
+    latex = df.to_latex(na_rep='--',
+                        float_format=lambda x: f'{x:.2f}',
+                        index=True,
+                        header=False,          # we provide our own header
+                        index_names=False,     # <-- prevent pandas from adding the "Split  Adaptation mode" row
+                        multirow=True,         # merged "Random/Geographic"
+                        multicolumn=False,     # no "Architecture" banner
+                        escape=False,
+                        column_format='cl' + 'r'*len(cols))
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(get_run_data, run, hyperparameters) for run in sweep.runs]
-        all_run_data = [future.result() for future in futures if future.result() is not None]
+    latex = latex.replace('\\toprule', '\\toprule\n' + header_line + '\n\\midrule', 1)
+    latex = latex.replace(r'\multirow[t]{', r'\multirow[c]{')
+    latex = ("\\begin{table}[ht]\n\\centering\n" +
+            latex +
+            f"\\caption{{{task.replace('_', ' ').capitalize().replace('ph', 'pH')} test RMSE}}\n" +
+            f"\\label{{tab:{task}_rmse}}\n" +
+            "\\end{table}\n")
 
-    df = pd.DataFrame(all_run_data).sort_values(by='Val RMSE')
-    best_run = df.iloc[0]
+    return latex
 
-    return best_run['Random test RMSE'], best_run['Geographic test RMSE']
-    # return best_run
+def tabulate_results():
+    tasks = ['biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH']
+    latex = '\n'.join([tabulate_results_task(task) for task in tasks])
 
-def create_table(task):
-    results = np.full((len(models), len(splits) * len(adaptation_methods)), np.nan)
+    with open('latex.tex', 'w') as file:
+        file.write(latex)
 
-    for i, model in enumerate(tqdm(models, desc='Models', position=0)):
-        for j, adaptation_method in enumerate(tqdm(adaptation_methods, desc='Adaptation methods', position=1, leave=False)):
-            model_name = model.lower().replace('-', '_')
-            random_test_rmse, geographic_test_rmse = monitor_sweep(name=f'{task}_{model_name}_{adaptation_method}')
-            results[i, j] = random_test_rmse
-            results[i, j + len(adaptation_methods)] = geographic_test_rmse
-
-    columns = pd.MultiIndex.from_tuples([('Random', 'LP'), ('Random', 'FT'),
-                                         ('Random', 'LLRD'), ('Geographic', 'LP'),
-                                         ('Geographic', 'FT'), ('Geographic', 'LLRD')])
-    df = pd.DataFrame(results, index=models, columns=columns)
-
-    print(df)
-
-create_table(task=argv[1])
+if __name__ == '__main__':
+    tabulate_results()
