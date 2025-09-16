@@ -19,21 +19,21 @@ no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
 # ============================================== CLASSES ============================================== #
 
 class MMEarthBenchDataset(Dataset):
-    def __init__(self, task):
+    def __init__(self, task, adaptation_mode):
         self.task = task
-
-        h5_path = f'{data_dir_path}/{task}/{task}.h5'
+        self.adaptation_mode = adaptation_mode
         self.split_data = utils.read_json(f'{data_dir_path}/{task}/{task}_split_data.json')
 
-        with h5py.File(h5_path, 'r') as h5_file:
+        with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
             self.modality_data = {modality: h5_file[modality][:] for modality in no_data_values.keys()}
             self.task_data = h5_file[task][:]
 
-        # # convert categorical modalities to one-hot encoding
-        # self.modality_data['DynamicWorld'] = np.eye(self.no_data_values['DynamicWorld']+1)[self.modality_data['DynamicWorld'].astype(int).squeeze(1)].transpose(0, 3, 1, 2)
-        # self.modality_data['ESA_WorldCover'] = np.eye(self.no_data_values['ESA_WorldCover']+1)[self.modality_data['ESA_WorldCover'].astype(int).squeeze(1)].transpose(0, 3, 1, 2)
-        # self.modality_data['biome'] = np.eye(self.no_data_values['biome']+1)[self.modality_data['biome'].astype(int)]
-        # self.modality_data['ecoregion'] = np.eye(self.no_data_values['ecoregion']+1)[self.modality_data['ecoregion'].astype(int)]
+        # if adaptation_mode == 'multimodal':
+        #     # convert categorical modalities to one-hot encoding
+        #     self.modality_data['DynamicWorld'] = np.eye(self.no_data_values['DynamicWorld']+1)[self.modality_data['DynamicWorld'].astype(int).squeeze(1)].transpose(0, 3, 1, 2)
+        #     self.modality_data['ESA_WorldCover'] = np.eye(self.no_data_values['ESA_WorldCover']+1)[self.modality_data['ESA_WorldCover'].astype(int).squeeze(1)].transpose(0, 3, 1, 2)
+        #     self.modality_data['biome'] = np.eye(self.no_data_values['biome']+1)[self.modality_data['biome'].astype(int)]
+        #     self.modality_data['ecoregion'] = np.eye(self.no_data_values['ecoregion']+1)[self.modality_data['ecoregion'].astype(int)]
 
         self.tile_count = len(self.modality_data['Sentinel2']) # number of tiles for the task
 
@@ -63,13 +63,16 @@ class MMEarthBenchDataset(Dataset):
                 normalized = (masked - self.split_data[f'{modality}_train_means']) / self.split_data[f'{modality}_train_stds'] # normalization
                 tile_modality_data[modality]['data'] = normalized.filled(0) # replaces NaNs with the post-normalization mean
 
-            tile_modality_data[modality]['data'] = torch.tensor(tile_modality_data[modality]['data'], dtype=torch.float32) # converts to tensor
+        if self.adaptation_mode == 'multimodal':
+            # convert categorical modalities to one-hot encoding
+            tile_modality_data['DynamicWorld']['data'] = np.eye(no_data_values['DynamicWorld']+1)[tile_modality_data['DynamicWorld']['data'].astype(int)].squeeze().transpose(2, 0, 1)
+            tile_modality_data['ESA_WorldCover']['data'] = np.eye(no_data_values['ESA_WorldCover']+1)[tile_modality_data['ESA_WorldCover']['data'].astype(int)].squeeze().transpose(2, 0, 1)
+            tile_modality_data['biome']['data'] = np.eye(no_data_values['biome']+1)[tile_modality_data['biome']['data'].astype(int)]
+            tile_modality_data['ecoregion']['data'] = np.eye(no_data_values['ecoregion']+1)[tile_modality_data['ecoregion']['data'].astype(int)]
 
-        # convert categorical modalities to one-hot encoding
-        # tile_modality_data['DynamicWorld'] = np.eye(no_data_values['DynamicWorld']+1)[tile_modality_data['DynamicWorld'].astype(int)].squeeze().transpose(2, 0, 1)
-        # tile_modality_data['ESA_WorldCover'] = np.eye(no_data_values['ESA_WorldCover']+1)[tile_modality_data['ESA_WorldCover'].astype(int)].squeeze().transpose(2, 0, 1)
-        # tile_modality_data['biome'] = np.eye(no_data_values['biome']+1)[tile_modality_data['biome'].astype(int)]
-        # tile_modality_data['ecoregion'] = np.eye(no_data_values['ecoregion']+1)[tile_modality_data['ecoregion'].astype(int)]
+        # convert to tensors
+        for modality in tile_modality_data.keys():
+            tile_modality_data[modality]['data'] = torch.tensor(tile_modality_data[modality]['data'], dtype=torch.float32) # converts to tensor
 
         # task data for the tile
         task_data = self.task_data[index]
