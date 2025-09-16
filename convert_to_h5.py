@@ -141,48 +141,48 @@ def plot_missing_modalities(task):
     plt.savefig(f'{data_dir_path}/{task}/{task}_missing_modality_counts.png')
 
 def plot_species_statistics():
-    with h5py.File(f'{data_dir_path}/species/species.h5', 'r') as h5_file:
-        tiles = [json.loads(lst) for lst in h5_file['species'].asstr()[...]]
+    with open(f'{data_dir_path}/species/output-files/check_species_statistics.out', 'w') as out_file:
+        with h5py.File(f'{data_dir_path}/species/species.h5', 'r') as h5_file:
+            tiles = [json.loads(lst) for lst in h5_file['species'].asstr()[...]]
 
-    print(f'Total tiles: {len(tiles)}')
+        out_file.write(f'Total tiles: {len(tiles)}\n')
 
-    # plot number of tiles per species
-    species_counts = {}
+        # plot number of tiles per species
+        species_counts = {}
 
-    for tile in tiles:
-        for species in tile:
-            if species in species_counts.keys():
-                species_counts[species] += 1
-            else:
-                species_counts[species] = 1
+        for tile in tiles:
+            for species in tile:
+                species_counts[species] = species_counts.get(species, 0) + 1
 
-    species = list(species_counts.keys())
-    counts = list(species_counts.values())
-    indices = np.arange(len(species))
-    plt.figure(dpi=300, figsize=(15, 5))
-    plt.bar(indices, counts)
-    plt.xticks(indices, species, rotation=90)
-    plt.xlabel('Species')
-    plt.ylabel('Number of tiles')
-    plt.title('Number of tiles per species')
-    plt.tight_layout()
-    plt.savefig(f'{data_dir_path}/species/tiles_per_species.png')
+        species_counts = dict(sorted(species_counts.items(), key=lambda item: item[1], reverse=True)) # sorts by value in descending order
+        species = list(species_counts.keys())
+        counts = list(species_counts.values())
+        indices = np.arange(len(species))
+        plt.figure(dpi=300, figsize=(20, 5))
+        plt.bar(indices, counts)
+        plt.margins(x=1e-2)
+        plt.xticks(indices, species, rotation=90)
+        plt.xlabel('Species')
+        plt.ylabel('Number of tiles')
+        plt.title('Number of tiles per species')
+        plt.tight_layout()
+        plt.savefig(f'{data_dir_path}/species/tiles_per_species.png')
 
-    print(f'Max number of tiles for a species: {max(counts)}')
-    print(f'Min number of tiles for a species: {min(counts)}')
+        out_file.write(f'Max number of tiles for a species: {max(counts)}\n')
+        out_file.write(f'Min number of tiles for a species: {min(counts)}\n')
 
-    # histogram of number of species per tile
-    tile_species_counts = []
+        # histogram of number of species per tile
+        plt.figure(dpi=300)
+        bin_size = 1000
+        bins = np.arange(0, max(counts) + bin_size, bin_size)
+        tick_interval = 5000
 
-    for tile in tiles:
-        tile_species_counts.append(len(tile))
-
-    plt.figure(dpi=300, figsize=(15, 5))
-    plt.hist(tile_species_counts, bins=np.arange(min(tile_species_counts), max(tile_species_counts) + 2) - 0.5)
-    plt.xlabel('Number of species')
-    plt.ylabel('Number of tiles')
-    plt.tight_layout()
-    plt.savefig(f'{data_dir_path}/species/tile_species_counts.png')
+        plt.hist(counts, bins=bins, edgecolor='black')
+        plt.xlabel('Number of tiles')
+        plt.ylabel('Number of species')
+        plt.xticks(np.arange(0, max(counts) + tick_interval, tick_interval))
+        plt.tight_layout()
+        plt.savefig(f'{data_dir_path}/species/tile_species_counts.png')
 
 if __name__ == '__main__':
     if 'check_h5' in argv[1]: # python convert_to_h5.py check_h5 TASK
