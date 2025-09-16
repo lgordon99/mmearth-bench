@@ -1,9 +1,13 @@
 # ============================================== IMPORTS ============================================== #
 
 from affine import Affine
+from itertools import chain
+from matplotlib.lines import Line2D
 from rasterio.warp import transform_bounds
-from shapely.geometry import box, Polygon, MultiPolygon
-from tqdm import tqdm
+from shapely.geometry import box
+from sys import argv
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 import geopandas as gpd
 import h5py
 import json
@@ -19,7 +23,6 @@ random.seed(42)
 training_fraction = 0.7
 validation_fraction = 0.15
 height, width = 128, 128
-nodata_value = -9999
 splits = ['train', 'val', 'random_test', 'geographic_test']
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
 no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
@@ -37,7 +40,7 @@ def get_box_wgs_84(transform, width, height, crs):
 
     return box(*bounds)
 
-def get_split_data_for_task(task):
+def generate_splits(task):
     with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
         transforms = h5_file['transform'][:] # affine transformation for each tile
         crs = h5_file['crs'].asstr()[...] # coordinate reference system for each tile
@@ -46,8 +49,8 @@ def get_split_data_for_task(task):
 
         # bounding boxes
         boxes = {i: get_box_wgs_84(transform=transforms[i], width=width, height=height, crs=crs[i]) for i in range(tile_count)} # dictionary of boxes for each tile
-        africa_boundaries = gpd.read_file(f'{data_dir_path}/africa.geojson')
-        africa_boxes = {tile_index: box for tile_index, box in boxes.items() if box.intersects(africa_boundaries.geometry.union_all())} # dictionary of boxes for each tile within the Africa boundaries
+        africa = gpd.read_file(f'{data_dir_path}/africa.geojson')
+        africa_boxes = {tile_index: box for tile_index, box in boxes.items() if box.intersects(africa.geometry.squeeze())} # dictionary of boxes for each tile intersecting the Africa boundaries
         non_africa_boxes = {tile_index: box for tile_index, box in boxes.items() if tile_index not in africa_boxes.keys()} # dictionary of boxes for each tile outside the Africa boundaries
 
         # training, validation, and testing tile indices
@@ -61,7 +64,12 @@ def get_split_data_for_task(task):
         split_data['random_test_indices'] = sorted(non_africa_tile_indices[end_val_indices:]) # remaining 15% of the non-Africa tiles for testing
         split_data['geographic_test_indices'] = sorted(list(map(int, africa_boxes.keys()))) # Africa tiles for testing
 
-        # calculating normalization statistics
+        if task == 'species':
+            species = [json.loads(lst) for lst in h5_file['species'].asstr()[...]]
+            species_names = np.unique(list(chain.from_iterable(species))).tolist()
+            species_counts = {split: {species_name: len(np.where(np.array(list(chain.from_iterable([species[idx] for idx in split_data[f'{split}_indices']]))) == species_name)[0]) for species_name in species_names} for split in ['train', 'val', 'random_test', 'geographic_test']}
+
+        # calculate normalization statistics
         for modality in ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETH_GCH', 'precipitation', 'temperature']:
             train_images = h5_file[modality][:][split_data['train_indices']]
             masked = np.ma.masked_equal(train_images, no_data_values[modality])
@@ -79,7 +87,8 @@ def get_split_data_for_task(task):
     os.makedirs(f'{data_dir_path}/{task}/split_tiles', exist_ok=True)
 
     for split in splits:
-        gpd.GeoDataFrame(geometry=split_boxes[split], crs='EPSG:4326').to_file(f'{data_dir_path}/{task}/split_tiles/{task}_{split}_tiles.geojson', driver='GeoJSON')
+        gdf = gpd.GeoDataFrame({'index': split_data[f'{split}_indices'], 'geometry': split_boxes[split]}, crs='EPSG:4326')
+        gdf.to_file(f'{data_dir_path}/{task}/split_tiles/{task}_{split}_tiles.geojson', driver='GeoJSON')
 
     if task != 'species':
         # calculate RMSE using the train mean as the prediction
@@ -113,8 +122,8 @@ def get_split_data_for_task(task):
             axes[i].set_ylabel('Percentage (%)')
             axes[i].set_title(split.replace('_', ' ').capitalize())
 
-        fig.suptitle(task.replace('_', ' ').capitalize(), fontweight='bold')
-        axes[-1].set_xlabel(f'{task.replace("_", " ").capitalize()} value') # sets common x-label
+        fig.suptitle(task.replace('_', ' ').capitalize().replace("ph", "pH"), fontweight='bold')
+        axes[-1].set_xlabel(f'{task.replace("_", " ").capitalize().replace("ph", "pH")} value') # sets common x-label
         plt.tight_layout(rect=[0, 0, 1, 0.99])
         plt.savefig(f'{data_dir_path}/{task}/{task}_distributions.png', dpi=300, bbox_inches='tight')
         plt.close()
@@ -146,10 +155,37 @@ def get_split_data_for_task(task):
             txt_file.write(f'Val MAE using the train mean as the prediction: {round(float(val_mae), 2)}\n')
             txt_file.write(f'Random test MAE using the train mean as the prediction: {round(float(random_test_mae), 2)}\n')
             txt_file.write(f'Geographic test MAE using the train mean as the prediction: {round(float(geographic_test_mae), 2)}\n')
+        else:
+            txt_file.write(f'Min count of a species in train: {min(species_counts["train"].values())}\n')
+            txt_file.write(f'Min count of a species in val: {min(species_counts["val"].values())}\n')
+            txt_file.write(f'Min count of a species in random test: {min(species_counts["random_test"].values())}\n')
+            txt_file.write(f'Min count of a species in geographic test: {min(species_counts["geographic_test"].values())}\n')
 
-def get_split_data():
-    for task in tqdm(['biomass', 'species', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH'], desc='Generating splits for tasks', unit='task'):
-        get_split_data_for_task(task)
+    # plot dataset split on world map
+    fig = plt.figure(figsize=(15, 10))
+    ax = plt.axes(projection=ccrs.PlateCarree())
+    ax.set_global() # shows the whole world
+    ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
+    ax.add_feature(cfeature.BORDERS, linewidth=0.3, linestyle=':')
+    ax.add_feature(cfeature.LAND, color='lightgray', alpha=0.3)
+    ax.add_feature(cfeature.OCEAN, color='lightblue', alpha=0.3)
+
+    split_properties = {'train': {'color': 'blue', 'label': 'Training'},
+                        'val': {'color': 'green', 'label': 'Validation'},
+                        'random_test': {'color': 'orange', 'label': 'Random test'},
+                        'geographic_test': {'color': 'red', 'label': 'Geographic test'}}
+
+    for split in ['train', 'val', 'random_test', 'geographic_test']:
+        gdf = gpd.read_file(f'{data_dir_path}/{task}/split_tiles/{task}_{split}_tiles.geojson').to_crs(epsg=3857)
+        gdf['geometry'] = gdf.geometry.centroid.to_crs(epsg=4326)
+        gdf.plot(ax=ax, color=split_properties[split]['color'], marker='s', markersize=20, label=split_properties[split]['label'])
+
+    ax.legend(handles=[Line2D([0], [0], marker='s', color='w', markerfacecolor=split_properties[mode]['color'], markersize=15, label=split_properties[mode]['label']) for mode in split_properties.keys()],
+              loc='lower left',
+              fontsize=12)
+    plt.title(f'{task.replace("_", " ").title().replace("Ph", "pH")} Dataset Split', fontsize=16, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(f'{data_dir_path}/{task}/{task}_split_map.png', dpi=300, bbox_inches='tight')
 
 if __name__ == '__main__':
-    get_split_data()
+    generate_splits(task=argv[1])
