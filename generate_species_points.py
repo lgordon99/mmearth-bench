@@ -118,6 +118,7 @@ def check_point_statistics():
             for species in point['properties']['species']:
                 species_counts[species] = species_counts.get(species, 0) + 1
 
+        species_counts = dict(sorted(species_counts.items(), key=lambda item: item[1], reverse=True)) # sorts by value in descending order
         species = list(species_counts.keys())
         counts = list(species_counts.values())
         indices = np.arange(len(species))
