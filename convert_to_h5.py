@@ -184,6 +184,9 @@ def plot_species_statistics():
         plt.tight_layout()
         plt.savefig(f'{data_dir_path}/species/tile_species_counts.png')
 
+        with open(f'{data_dir_path}/species/species_labels.json', 'w') as file:
+            json.dump({name: i for i, name in enumerate(species)}, file, indent=4)
+
 if __name__ == '__main__':
     if 'check_h5' in argv[1]: # python convert_to_h5.py check_h5 TASK
         check_h5(argv[2])
