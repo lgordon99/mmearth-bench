@@ -5,8 +5,8 @@ from lightning.pytorch import LightningModule
 from terratorch import BACKBONE_REGISTRY
 from torch.nn.attention import sdpa_kernel, SDPBackend
 from torch.func import functional_call
-from torchmetrics import Metric, MetricCollection, Recall
-from torchmetrics.classification import MultilabelRecall, MultilabelAveragePrecision
+from torchmetrics import Metric, MetricCollection
+from torchmetrics.classification import MultilabelAveragePrecision, MultilabelRecall
 from torchmetrics.regression import MeanAbsoluteError, MeanSquaredError, R2Score
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,14 +29,15 @@ project = os.environ['PROJECT']
 no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
 biomass_no_data_value = -9999
 image_size = 128
-architecture_properties = {'DINOv3': {'num_input_bands': 3, 'embedding_dim': 1024},
+architecture_properties = {'DINOv3Web': {'num_input_bands': 3, 'embedding_dim': 1024},
+                           'DINOv3Sat': {'num_input_bands': 3, 'embedding_dim': 1024},
                            'MPMAE': {'num_input_bands': 12, 'embedding_dim': 320},
                            'TerraMind': {'num_input_bands': 18, 'embedding_dim': 768}}
 
 # ============================================== FUNCTIONS ============================================== #
 
 def get_state_dict(task, architecture, adaptation_mode):
-    runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['beta']}})
+    runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['zeta']}})
     name = '_'.join([task, architecture, adaptation_mode])
     run = [run for run in runs if run.name.startswith(name)][0]
 
@@ -49,10 +50,11 @@ def get_state_dict(task, architecture, adaptation_mode):
     return ckpt['state_dict']
 
 def get_model_input(architecture, images):
-    if architecture == 'DINOv3':
+    if 'DINOv3' in architecture:
         x = images['Sentinel2']['data'][:, [3,2,1], :, :] # extracts the RGB bands
     elif architecture == 'MPMAE':
-        x = images['Sentinel2']['data']
+        x = images['Sentinel2']['data'].clone()
+        x[:, [7, 8]] = x[:, [8, 7]] # swaps bands 8 and 8A
     elif architecture == 'TerraMind':
         sentinel1_mask_vertical = images['Sentinel1']['valid_mask'][:, [0,1,4,5]] # ascending VV, VH; descending VV, VH
         asc_num_valid_pixels = sentinel1_mask_vertical[:, :2].sum(dim=(1,2,3)) # counts the number of valid pixels in the ascending VV and VH bands
@@ -80,7 +82,26 @@ class MeanError(Metric):
 
 # ============================================== ENCODER CLASSES ============================================== #
 
-class DINOv3Encoder(nn.Module):
+class DINOv3WebEncoder(nn.Module):
+    def __init__(self, pretrained):
+        super().__init__()
+
+        self.model = torch.hub.load(f'{data_dir_path}/pretrained_checkpoints/dinov3',
+                                    'dinov3_vitl16',
+                                    source='local',
+                                    weights=f'{data_dir_path}/pretrained_checkpoints/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth')
+
+        # remove unused layer
+        if hasattr(self.model, 'local_cls_norm'):
+            del self.model.local_cls_norm
+
+    def forward(self, images):
+        embeddings = self.model.forward_features(images)['x_norm_patchtokens'].permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
+        embeddings = embeddings.reshape(embeddings.shape[0], embeddings.shape[1], int(np.sqrt(embeddings.shape[2])), int(np.sqrt(embeddings.shape[2]))) # (batch_size, embedding_dim, num_vertical_patches, num_horizontal_patches)
+
+        return embeddings
+
+class DINOv3SatEncoder(nn.Module):
     def __init__(self, pretrained):
         super().__init__()
 
@@ -142,6 +163,7 @@ class TaskModalityEncoder(nn.Module):
         self.pixel_level_modality_names = modality_names[:6]
         self.tile_level_modality_names = modality_names[6:]
         self.encoder = smp.Unet(encoder_name='resnet50', encoder_weights='imagenet', in_channels=num_pixel_level_bands+num_tile_level_bands).encoder
+        # self.encoder = smp.Unet(encoder_name='resnet18', encoder_weights='imagenet', in_channels=num_pixel_level_bands+num_tile_level_bands).encoder
 
     def forward(self, task_modalities):
         pixel_level_modalities = torch.cat([task_modalities[modality]['data'] for modality in self.pixel_level_modality_names], dim=1)
@@ -174,8 +196,9 @@ class TaskDecoder(nn.Module):
 
         embedding_dim = architecture_properties[architecture]['embedding_dim']
 
-        if adaptation_mode == 'multimodal':
+        if adaptation_mode in ['multimodal', 'maml_encode']:
             embedding_dim += 2048 # 2048 is the embedding dimension of the task modality encoder
+            # embedding_dim += 512 # 512 is the embedding dimension of the task modality encoder
 
         if not pixelwise:
             self.decoder = nn.Sequential(nn.AdaptiveAvgPool2d(output_size=1), # global average pooling over the spatial dimensions
@@ -274,55 +297,102 @@ class TaskModalityDecoderLoss(nn.Module):
 
 # ============================================== MODULE CLASSES ============================================== #
 
+# class SurrogateLossNetwork(nn.Module):
+#     def __init__(self):
+#         super().__init__()
+
+#         # self.surrogate_loss_network = nn.Sequential(nn.Linear(24, 64),
+#         #                                             nn.GELU(),
+#         #                                             nn.Linear(64, 64),
+#         #                                             nn.GELU(),
+#         #                                             nn.Linear(64, 1),
+#         #                                             nn.Softplus()) # ensures the output is non-negative
+#         in_features = 25 # 12 modalities, each with a reconstruction loss and a mask value
+#         self.surrogate_loss_network = nn.Linear(in_features, 1, bias=False)
+
+#         with torch.no_grad():
+#             self.surrogate_loss_network.weight.fill_(1.0 / in_features) # initializes all weights to 1/in_features
+#             # self.surrogate_loss_network.bias.zero_() # initializes bias to 0
+
+#     def forward(self, modality_reconstruction_losses, initial_task_prediction):
+#         if len(initial_task_prediction.shape) > 2:
+#             initial_task_prediction = initial_task_prediction.mean(dim=(2,3)) # collapses the spatial dimensions for pixelwise tasks
+
+#         stacked_modality_reconstruction_losses = torch.stack(list(modality_reconstruction_losses.values()), dim=1)
+#         existing_modality_mask = (~stacked_modality_reconstruction_losses.isnan()).float() # creates a mask for existing modalities (not NaN)
+#         filled_modality_reconstruction_losses = torch.nan_to_num(stacked_modality_reconstruction_losses, nan=0.0)
+#         surrogate_loss_network_input = torch.cat([filled_modality_reconstruction_losses, existing_modality_mask, initial_task_prediction], dim=1)
+#         surrogate_loss = self.surrogate_loss_network(surrogate_loss_network_input).mean()
+
+#         return surrogate_loss
+
 class SurrogateLossNetwork(nn.Module):
-    def __init__(self):
+    def __init__(self, in_features):
         super().__init__()
 
-        # self.surrogate_loss_network = nn.Sequential(nn.Linear(24, 64),
-        #                                             nn.GELU(),
-        #                                             nn.Linear(64, 64),
-        #                                             nn.GELU(),
-        #                                             nn.Linear(64, 1),
-        #                                             nn.Softplus()) # ensures the output is non-negative
-        in_features = 25 # 12 modalities, each with a reconstruction loss and a mask value
-        self.surrogate_loss_network = nn.Linear(in_features, 1, bias=False)
+        hidden_dim = 128
+        self.surrogate_loss_network = nn.Sequential(nn.LayerNorm(in_features),
+                                                    nn.Linear(in_features, hidden_dim),
+                                                    nn.ReLU(),
+                                                    nn.Linear(hidden_dim, hidden_dim // 2),
+                                                    nn.ReLU(),
+                                                    nn.Linear(hidden_dim // 2, 1),
+                                                    nn.Softplus()) # ensures the output is non-negative
 
-        with torch.no_grad():
-            self.surrogate_loss_network.weight.fill_(1.0 / in_features) # initializes all weights to 1/in_features
-            # self.surrogate_loss_network.bias.zero_() # initializes bias to 0
+    def forward(self, embeddings, initial_task_prediction):
+        pooled_embeddings = embeddings.mean(dim=(2,3)) # global average pooling over the spatial dimensions
 
-    def forward(self, modality_reconstruction_losses, initial_task_prediction):
         if len(initial_task_prediction.shape) > 2:
             initial_task_prediction = initial_task_prediction.mean(dim=(2,3)) # collapses the spatial dimensions for pixelwise tasks
 
-        stacked_modality_reconstruction_losses = torch.stack(list(modality_reconstruction_losses.values()), dim=1)
-        existing_modality_mask = (~stacked_modality_reconstruction_losses.isnan()).float() # creates a mask for existing modalities (not NaN)
-        filled_modality_reconstruction_losses = torch.nan_to_num(stacked_modality_reconstruction_losses, nan=0.0)
-        surrogate_loss_network_input = torch.cat([filled_modality_reconstruction_losses, existing_modality_mask, initial_task_prediction], dim=1)
+        surrogate_loss_network_input = torch.cat([pooled_embeddings, initial_task_prediction], dim=1)
         surrogate_loss = self.surrogate_loss_network(surrogate_loss_network_input).mean()
 
         return surrogate_loss
 
+# class Hypernetwork(nn.Module):
+#     def __init__(self, embedding_dim):
+#         super().__init__()
+
+#         in_features = 25 # 12 modalities, each with a reconstruction loss and a mask value
+#         hidden_dim = 64
+#         num_params_to_predict = 2 * embedding_dim # gamma and beta for each embedding dimension
+
+#         self.hypernetwork = nn.Sequential(nn.Linear(in_features, hidden_dim),
+#                                           nn.ReLU(),
+#                                           nn.Linear(hidden_dim, num_params_to_predict))
+
+#     def forward(self, modality_reconstruction_losses, initial_task_prediction):
+#         if len(initial_task_prediction.shape) > 2:
+#             initial_task_prediction = initial_task_prediction.mean(dim=(2,3)) # collapses the spatial dimensions for pixelwise tasks
+
+#         stacked_modality_reconstruction_losses = torch.stack(list(modality_reconstruction_losses.values()), dim=1)
+#         existing_modality_mask = (~stacked_modality_reconstruction_losses.isnan()).float() # creates a mask for existing modalities (not NaN)
+#         filled_modality_reconstruction_losses = torch.nan_to_num(stacked_modality_reconstruction_losses, nan=0.0)
+#         hypernetwork_input = torch.cat([filled_modality_reconstruction_losses, existing_modality_mask, initial_task_prediction], dim=1)
+#         feature_adapter_parameters = self.hypernetwork(hypernetwork_input)
+
+#         return feature_adapter_parameters
+
 class Hypernetwork(nn.Module):
-    def __init__(self, embedding_dim):
+    def __init__(self, embedding_dim, in_features):
         super().__init__()
 
-        in_features = 25 # 12 modalities, each with a reconstruction loss and a mask value
         hidden_dim = 64
         num_params_to_predict = 2 * embedding_dim # gamma and beta for each embedding dimension
 
-        self.hypernetwork = nn.Sequential(nn.Linear(in_features, hidden_dim),
+        self.hypernetwork = nn.Sequential(nn.LayerNorm(in_features),
+                                          nn.Linear(in_features, hidden_dim),
                                           nn.ReLU(),
                                           nn.Linear(hidden_dim, num_params_to_predict))
 
-    def forward(self, modality_reconstruction_losses, initial_task_prediction):
+    def forward(self, embeddings, initial_task_prediction):
+        pooled_embeddings = embeddings.mean(dim=(2,3)) # global average pooling over the spatial dimensions
+
         if len(initial_task_prediction.shape) > 2:
             initial_task_prediction = initial_task_prediction.mean(dim=(2,3)) # collapses the spatial dimensions for pixelwise tasks
 
-        stacked_modality_reconstruction_losses = torch.stack(list(modality_reconstruction_losses.values()), dim=1)
-        existing_modality_mask = (~stacked_modality_reconstruction_losses.isnan()).float() # creates a mask for existing modalities (not NaN)
-        filled_modality_reconstruction_losses = torch.nan_to_num(stacked_modality_reconstruction_losses, nan=0.0)
-        hypernetwork_input = torch.cat([filled_modality_reconstruction_losses, existing_modality_mask, initial_task_prediction], dim=1)
+        hypernetwork_input = torch.cat([pooled_embeddings, initial_task_prediction], dim=1)
         feature_adapter_parameters = self.hypernetwork(hypernetwork_input)
 
         return feature_adapter_parameters
@@ -336,6 +406,56 @@ class FeatureAdapter(nn.Module):
 
         return gamma * initial_input_embeddings + beta
 
+class Adapter(nn.Module):
+    """
+    Unified residual adapter for [B,C,H,W] features.
+    Blocks:
+      - FiLM: per-channel scale/shift
+      - Depthwise: 3x3 depthwise conv (spatially local)
+      - LowRank: 1x1 -> r -> 1x1 bottleneck (channel mixing)
+
+    y = z + alpha * ( w_film * FiLM(z) + w_dw * DW(z) + w_lr * LR(z) )
+
+    All paths are identity-initialized (zero) so the adapter starts as no-op.
+    """
+    def __init__(self, embedding_dim):
+        super().__init__()
+
+        self.embedding_dim = embedding_dim
+        self.alpha = nn.Parameter(torch.tensor(1e-3)) # global strength (learnable, starts small)
+        self.path_logits = nn.Parameter(torch.zeros(3)) # per-path mixture weights (learnable, start equal)
+
+        # --- FiLM path ---
+        self.gamma = nn.Parameter(torch.zeros(embedding_dim)) # per-channel scale
+        self.beta  = nn.Parameter(torch.zeros(embedding_dim)) # per-channel shift
+
+        # --- Depthwise path ---
+        self.depthwise_convolution = nn.Conv2d(embedding_dim, embedding_dim, kernel_size=3, padding=1, groups=embedding_dim, bias=True)
+        nn.init.zeros_(self.depthwise_convolution.weight) # zero init = identity
+        nn.init.zeros_(self.depthwise_convolution.bias) # zero init = identity
+
+        # --- Low-rank path (1x1 bottleneck) ---
+        r = max(1, min(8, embedding_dim))
+        self.pw1 = nn.Conv2d(embedding_dim, r, kernel_size=1, bias=False) # compresses the embedding dimension
+        self.pw2 = nn.Conv2d(r, embedding_dim, kernel_size=1, bias=False) # expands back to the embedding dimension
+        nn.init.zeros_(self.pw1.weight) # zero init = identity
+        nn.init.zeros_(self.pw2.weight) # zero init = identity
+
+        self.layer_norm = nn.GroupNorm(num_groups=1, num_channels=embedding_dim, affine=False) # LayerNorm2D surrogate
+
+    def forward(self, initial_input_embeddings): # initial_input_embeddings: [B,C,H,W]
+        paths = []
+        g = self.gamma.view(1, -1, 1, 1)
+        b = self.beta.view(1, -1, 1, 1)
+        paths.append(g * initial_input_embeddings + b) # FiLM residual
+        paths.append(self.depthwise_convolution(initial_input_embeddings)) # depthwise residual
+        paths.append(self.pw2(self.pw1(initial_input_embeddings))) # low-rank residual
+        w = torch.softmax(self.path_logits, dim=0) # softmax mixture over enabled paths
+        residual = sum(w[i] * paths[i] for i in range(len(paths))) # sum weighted residuals (match len(paths))
+        residual = self.layer_norm(residual) # light normalization of residual before adding
+
+        return initial_input_embeddings + self.alpha * residual # global, learnable small step
+
 class EncoderDecoder(nn.Module):
     def __init__(self, task, architecture, adaptation_mode, tuning_mode, pixelwise, num_classes, pretrained, lr):
         super().__init__()
@@ -348,49 +468,68 @@ class EncoderDecoder(nn.Module):
         embedding_dim = architecture_properties[architecture]['embedding_dim']
         num_input_bands = architecture_properties[architecture]['num_input_bands']
 
-        if adaptation_mode in ['standard', 'joint_training', 'joint_probing', 'ttt', 'ttt-jp', 'maml', 'mt3', 'mt3_frozen', 'rna', 'multimodal']:
+        if adaptation_mode in ['standard', 'multimodal', 'joint_training', 'joint_probing', 'ttt', 'ttt-adapter', 'ttt-jp', 'maml', 'maml_input_embeddings', 'maml_encode', 'mt3', 'mt3_metabatch', 'mt3_frozen', 'rna', 'rna_input_embeddings']:
             self.task_decoder = TaskDecoder(architecture, adaptation_mode, pixelwise, num_classes)
 
-        if adaptation_mode == 'multimodal':
+        if adaptation_mode in ['multimodal', 'maml_encode']:
             self.task_modality_encoder = TaskModalityEncoder()
-        elif adaptation_mode in ['joint_training', 'joint_probing', 'task_modality_decoder', 'ttt', 'ttt-jp', 'maml', 'mt3', 'mt3_frozen', 'rna']:
+        elif adaptation_mode in ['joint_training', 'joint_probing', 'task_modality_decoder', 'ttt', 'ttt-adapter', 'ttt-jp', 'maml', 'mt3', 'mt3_metabatch', 'mt3_frozen', 'rna']:
             self.task_modality_decoder = TaskModalityDecoder(embedding_dim, num_input_bands)
 
         # if adaptation_mode in ['joint_training']:
-        if adaptation_mode in ['task_modality_decoder', 'ttt', 'ttt-jp', 'maml', 'mt3_frozen', 'rna']:
-            if adaptation_mode in ['task_modality_decoder', 'ttt', 'maml', 'mt3_frozen', 'rna']:
+        if adaptation_mode in ['task_modality_decoder', 'ttt', 'ttt-adapter', 'ttt-jp', 'maml', 'maml_input_embeddings', 'maml_encode', 'mt3_frozen', 'rna', 'rna_input_embeddings']:
+            if adaptation_mode in ['task_modality_decoder', 'ttt', 'ttt-adapter', 'maml', 'mt3_frozen', 'rna']:
                 state_dict = get_state_dict(task, architecture, 'joint_training')
             elif adaptation_mode == 'ttt-jp':
                 state_dict = get_state_dict(task, architecture, 'joint_probing')
+            elif adaptation_mode in ['maml_input_embeddings', 'rna_input_embeddings']:
+                state_dict = get_state_dict(task, architecture, 'standard')
+            elif adaptation_mode == 'maml_encode':
+                state_dict = get_state_dict(task, architecture, 'multimodal')
 
             encoder_state_dict = {key.removeprefix('model.encoder.'): value for key, value in state_dict.items() if key.startswith('model.encoder')} # filters the state_dict to only include the encoder parameters
             self.encoder.load_state_dict(encoder_state_dict)
 
-        if adaptation_mode in ['joint_probing', 'task_modality_decoder', 'ttt', 'ttt-jp', 'maml', 'mt3_frozen', 'rna']:
+        if adaptation_mode in ['joint_probing', 'task_modality_decoder', 'ttt', 'ttt-adapter', 'ttt-jp', 'maml', 'maml_input_embeddings', 'maml_encode', 'mt3_frozen', 'rna', 'rna_input_embeddings']:
             self.encoder.requires_grad_(False) # freezes the encoder
 
         # if adaptation_mode in ['joint_training']:
-        if adaptation_mode in ['ttt', 'ttt-jp', 'maml', 'mt3_frozen', 'rna']:
+        if adaptation_mode in ['ttt', 'ttt-adapter', 'ttt-jp', 'maml', 'maml_input_embeddings', 'maml_encode', 'mt3_frozen', 'rna', 'rna_input_embeddings']:
             task_decoder_state_dict = {key.removeprefix('model.task_decoder.'): value for key, value in state_dict.items() if key.startswith('model.task_decoder')} # filters the state_dict to only include the decoder parameters
             self.task_decoder.load_state_dict(task_decoder_state_dict)
             self.task_decoder.requires_grad_(False) # freezes the task decoder
-            # task_modality_decoder_state_dict = get_state_dict(run_id='u7pagh3z', name='task_modality_decoder')
-            task_modality_decoder_state_dict = {key.removeprefix('model.task_modality_decoder.'): value for key, value in state_dict.items() if key.startswith('model.task_modality_decoder')}
-            self.task_modality_decoder.load_state_dict(task_modality_decoder_state_dict)
+
+            if adaptation_mode not in ['maml_input_embeddings', 'maml_encode', 'rna_input_embeddings']:
+                task_modality_decoder_state_dict = {key.removeprefix('model.task_modality_decoder.'): value for key, value in state_dict.items() if key.startswith('model.task_modality_decoder')}
+                self.task_modality_decoder.load_state_dict(task_modality_decoder_state_dict)
+
+        if adaptation_mode == 'maml_encode':
+            task_modality_encoder_state_dict = {key.removeprefix('model.task_modality_encoder.'): value for key, value in state_dict.items() if key.startswith('model.task_modality_encoder')} # filters the state_dict to only include the task modality encoder parameters
+            self.task_modality_encoder.load_state_dict(task_modality_encoder_state_dict)
+            self.task_modality_encoder.requires_grad_(False) # freezes the task modality encoder
 
         # if adaptation_mode in ['joint_training']:
-        if adaptation_mode in ['ttt', 'ttt-jp', 'maml', 'rna']:
+        if adaptation_mode in ['ttt', 'ttt-adapter', 'ttt-jp', 'maml', 'rna']:
             self.task_modality_decoder.requires_grad_(False) # freezes the task modality decoder
 
-        if adaptation_mode in ['joint_training', 'joint_probing', 'ttt', 'ttt-jp', 'mt3', 'mt3_frozen']:
+        if adaptation_mode in ['joint_training', 'joint_probing', 'ttt', 'ttt-adapter', 'ttt-jp', 'mt3', 'mt3_metabatch', 'mt3_frozen']:
             self.task_modality_decoder_loss = TaskModalityDecoderLoss()
         elif adaptation_mode in ['maml', 'rna']:
             self.modality_reconstruction_loss_calculator = ModalityReconstructionLossCalculator()
 
-        if adaptation_mode in ['maml']:
+        if adaptation_mode == 'ttt-adapter':
+            self.adapter = Adapter(embedding_dim=embedding_dim)
+        elif adaptation_mode in ['maml']:
             self.surrogate_loss_network = SurrogateLossNetwork()
+        elif adaptation_mode in ['maml_input_embeddings']:
+            self.surrogate_loss_network = SurrogateLossNetwork(in_features=embedding_dim+1)
+        elif adaptation_mode == 'maml_encode':
+            self.surrogate_loss_network = SurrogateLossNetwork(in_features=embedding_dim+2048+1)
         elif adaptation_mode == 'rna':
             self.hypernetwork = Hypernetwork(embedding_dim=embedding_dim)
+            self.feature_adapter = FeatureAdapter()
+        elif adaptation_mode == 'rna_input_embeddings':
+            self.hypernetwork = Hypernetwork(embedding_dim=embedding_dim, in_features=embedding_dim+1)
             self.feature_adapter = FeatureAdapter()
 
     def forward(self, images):
@@ -461,7 +600,7 @@ class EncoderDecoder(nn.Module):
                 encoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.encoder.named_parameters()}
                 input_modalities = get_model_input(architecture=self.architecture, images=images)
 
-                for _ in range(51): # iterations
+                for _ in range(2): # iterations
                     input_embeddings = functional_call(self.encoder, encoder_parameters, (input_modalities,))
                     task_prediction = self.task_decoder(input_embeddings) if not self.pixelwise else self.task_decoder(input_embeddings, input_modalities)
                     iteration_predictions.append(task_prediction)
@@ -484,18 +623,55 @@ class EncoderDecoder(nn.Module):
             # import pdb
             # pdb.set_trace()
             # return torch.cat(iteration_predictions, dim=1).t().unsqueeze(-1) # (num_iterations, batch_size, 1)
+        elif self.adaptation_mode == 'ttt-adapter':
+            self.encoder.eval()
+            self.task_decoder.eval()
+            self.task_modality_decoder.eval()
+
+            iteration_predictions = []
+
+            with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
+                adapter_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.adapter.named_parameters()}
+                task_modality_decoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.task_modality_decoder.named_parameters()}
+                input_modalities = get_model_input(architecture=self.architecture, images=images)
+                input_embeddings = self.encoder(input_modalities)
+
+                for _ in range(11): # iterations
+                    adapted_embeddings = functional_call(self.adapter, adapter_parameters, (input_embeddings,))
+                    task_prediction = self.task_decoder(adapted_embeddings) if not self.pixelwise else self.task_decoder(adapted_embeddings, input_modalities)
+                    iteration_predictions.append(task_prediction)
+                    modality_reconstructions = functional_call(self.task_modality_decoder, task_modality_decoder_parameters, (adapted_embeddings, input_modalities))
+                    task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions, images)
+                    task_modality_reconstruction_loss_grads = torch.autograd.grad(task_modality_reconstruction_loss, adapter_parameters.values(), retain_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the adapter parameters
+                    task_modality_reconstruction_loss_task_modality_decoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, task_modality_decoder_parameters.values(), retain_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
+
+                    with torch.no_grad():
+                        adapter_parameters = {name: param - self.lr * grad for (name, param), grad in zip(adapter_parameters.items(), task_modality_reconstruction_loss_grads)}
+                        task_modality_decoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(task_modality_decoder_parameters.items(), task_modality_reconstruction_loss_task_modality_decoder_grads)}
+
+                    adapter_parameters = {name: parameter.detach().requires_grad_() for name, parameter in adapter_parameters.items()} # re-attaches the computation graph for the next iteration
+                    task_modality_decoder_parameters = {name: parameter.detach().requires_grad_() for name, parameter in task_modality_decoder_parameters.items()} # re-attaches the computation graph for the next iteration
+
+            iteration_predictions = torch.cat(iteration_predictions, dim=1)
+
+            if len(iteration_predictions.shape) == 2:
+                iteration_predictions = iteration_predictions.t().unsqueeze(-1) # (num_iterations, batch_size, 1)
+            else:
+                iteration_predictions = iteration_predictions.permute(1,0,2,3).unsqueeze(2) # (num_iterations, batch_size, 1, height, width)
+
+            return iteration_predictions
         elif self.adaptation_mode == 'mt3':
             with sdpa_kernel(SDPBackend.MATH):
                 with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
-                    encoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.encoder.named_parameters()}
+                    encoder_parameters = {name: parameter for name, parameter in self.encoder.named_parameters()}
                     input_modalities = get_model_input(architecture=self.architecture, images=images)
                     initial_input_embeddings = functional_call(self.encoder, encoder_parameters, (input_modalities,))
                     initial_task_prediction = self.task_decoder(initial_input_embeddings) if not self.pixelwise else self.task_decoder(initial_input_embeddings, input_modalities)
-                    task_modality_decoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.task_modality_decoder.named_parameters()}
+                    task_modality_decoder_parameters = {name: parameter for name, parameter in self.task_modality_decoder.named_parameters()}
                     modality_reconstructions = functional_call(self.task_modality_decoder, task_modality_decoder_parameters, (initial_input_embeddings, input_modalities))
                     task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions, images)
-                    task_modality_reconstruction_loss_encoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, encoder_parameters.values(), create_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters                        encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)} # SGD parameter update
-                    task_modality_reconstruction_loss_task_modality_decoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, task_modality_decoder_parameters.values(), create_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters                        encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)} # SGD parameter update
+                    task_modality_reconstruction_loss_encoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, encoder_parameters.values(), create_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
+                    task_modality_reconstruction_loss_task_modality_decoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, task_modality_decoder_parameters.values(), create_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
                     adapted_encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_encoder_grads)}
                     adapted_task_modality_decoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(task_modality_decoder_parameters.items(), task_modality_reconstruction_loss_task_modality_decoder_grads)}
                     adapted_input_embeddings = functional_call(self.encoder, adapted_encoder_parameters, (input_modalities,))
@@ -510,8 +686,49 @@ class EncoderDecoder(nn.Module):
                         iteration_predictions = iteration_predictions.permute(1,0,2,3).unsqueeze(2) # (num_iterations, batch_size, 1, height, width)
 
                     return iteration_predictions, adapted_modality_reconstructions, adapted_task_modality_reconstruction_loss
-                # return initial_task_prediction, adapted_task_prediction, adapted_modality_reconstructions, adapted_task_modality_reconstruction_loss
-            # return torch.cat([initial_task_prediction, adapted_task_prediction], dim=1).t().unsqueeze(-1), adapted_task_modality_reconstruction_loss # (num_iterations+1, batch_size, 1)
+        elif self.adaptation_mode == 'mt3_metabatch':
+            with sdpa_kernel(SDPBackend.MATH):
+                with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
+                    encoder_parameters = {name: parameter for name, parameter in self.encoder.named_parameters()}
+                    task_modality_decoder_parameters = {name: parameter for name, parameter in self.task_modality_decoder.named_parameters()}
+                    input_modalities = get_model_input(architecture=self.architecture, images=images)
+
+                    # Initialize lists to accumulate results across iterations
+                    all_iteration_predictions = []
+                    all_adapted_modality_reconstructions = []
+                    all_adapted_task_modality_reconstruction_losses = []
+
+                    for i in range(len(input_modalities)):
+                        initial_input_embeddings = functional_call(self.encoder, encoder_parameters, (input_modalities,))
+                        initial_task_prediction = self.task_decoder(initial_input_embeddings) if not self.pixelwise else self.task_decoder(initial_input_embeddings, input_modalities)
+                        modality_reconstructions = functional_call(self.task_modality_decoder, task_modality_decoder_parameters, (initial_input_embeddings, input_modalities))
+                        task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions, images)
+                        task_modality_reconstruction_loss_encoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, encoder_parameters.values(), create_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
+                        task_modality_reconstruction_loss_task_modality_decoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, task_modality_decoder_parameters.values(), create_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
+                        adapted_encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_encoder_grads)}
+                        adapted_task_modality_decoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(task_modality_decoder_parameters.items(), task_modality_reconstruction_loss_task_modality_decoder_grads)}
+                        adapted_input_embeddings = functional_call(self.encoder, adapted_encoder_parameters, (input_modalities,))
+                        adapted_task_prediction = self.task_decoder(adapted_input_embeddings) if not self.pixelwise else self.task_decoder(adapted_input_embeddings, input_modalities)
+                        adapted_modality_reconstructions = functional_call(self.task_modality_decoder, adapted_task_modality_decoder_parameters, (adapted_input_embeddings, input_modalities))
+                        adapted_task_modality_reconstruction_loss = self.task_modality_decoder_loss(adapted_modality_reconstructions, images)
+                        iteration_predictions = torch.cat([initial_task_prediction, adapted_task_prediction], dim=1) # dim 0 = batch size, dim 1 = num iterations, optional dim 2 = height, optional dim 3 = width
+
+                        if len(iteration_predictions.shape) == 2:
+                            iteration_predictions = iteration_predictions.t().unsqueeze(-1) # (num_iterations, batch_size, 1)
+                        else:
+                            iteration_predictions = iteration_predictions.permute(1,0,2,3).unsqueeze(2) # (num_iterations, batch_size, 1, height, width)
+
+                        # Accumulate results
+                        all_iteration_predictions.append(iteration_predictions)
+                        all_adapted_modality_reconstructions.append(adapted_modality_reconstructions)
+                        all_adapted_task_modality_reconstruction_losses.append(adapted_task_modality_reconstruction_loss)
+
+                    # Stack all accumulated results
+                    final_iteration_predictions = torch.stack(all_iteration_predictions, dim=0)
+                    final_adapted_modality_reconstructions = all_adapted_modality_reconstructions
+                    final_adapted_task_modality_reconstruction_losses = torch.stack(all_adapted_task_modality_reconstruction_losses, dim=0)
+
+                    return final_iteration_predictions, final_adapted_modality_reconstructions, final_adapted_task_modality_reconstruction_losses
         elif self.adaptation_mode == 'maml':
             self.encoder.eval()
             self.task_decoder.eval()
@@ -543,6 +760,77 @@ class EncoderDecoder(nn.Module):
 
                 # return initial_task_prediction, adapted_task_prediction
             # return torch.cat([initial_task_prediction, adapted_task_prediction], dim=1).t().unsqueeze(-1) # (num_iterations, batch_size, 1)
+        elif self.adaptation_mode == 'maml_input_embeddings':
+            self.encoder.eval()
+            self.task_decoder.eval()
+
+            with sdpa_kernel(SDPBackend.MATH):
+                with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
+                    encoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.encoder.named_parameters()}
+                    input_modalities = get_model_input(architecture=self.architecture, images=images)
+                    initial_input_embeddings = functional_call(self.encoder, encoder_parameters, (input_modalities,))
+                    task_decoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.task_decoder.named_parameters()}
+                    initial_task_prediction = functional_call(self.task_decoder, task_decoder_parameters, (initial_input_embeddings,)) if not self.pixelwise else functional_call(self.task_decoder, task_decoder_parameters, (initial_input_embeddings, input_modalities))
+                    surrogate_loss = self.surrogate_loss_network(initial_input_embeddings, initial_task_prediction)
+                    surrogate_loss_encoder_grads = torch.autograd.grad(surrogate_loss, encoder_parameters.values(), create_graph=True) # computes the gradients of the surrogate loss with respect to the encoder parameters
+                    surrogate_loss_task_decoder_grads = torch.autograd.grad(surrogate_loss, task_decoder_parameters.values(), create_graph=True) # computes the gradients of the surrogate loss with respect to the task decoder parameters
+                    adapted_encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), surrogate_loss_encoder_grads)}
+                    adapted_task_decoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(task_decoder_parameters.items(), surrogate_loss_task_decoder_grads)}
+                    adapted_input_embeddings = functional_call(self.encoder, adapted_encoder_parameters, (input_modalities,))
+                    adapted_task_prediction = functional_call(self.task_decoder, adapted_task_decoder_parameters, (adapted_input_embeddings,)) if not self.pixelwise else functional_call(self.task_decoder, adapted_task_decoder_parameters, (adapted_input_embeddings, input_modalities))
+
+                iteration_predictions = torch.cat([initial_task_prediction, adapted_task_prediction], dim=1) # dim 0 = batch size, dim 1 = num iterations, optional dim 2 = height, optional dim 3 = width
+
+                if len(iteration_predictions.shape) == 2:
+                    iteration_predictions = iteration_predictions.t().unsqueeze(-1) # (num_iterations, batch_size, 1)
+                else:
+                    iteration_predictions = iteration_predictions.permute(1,0,2,3).unsqueeze(2) # (num_iterations, batch_size, 1, height, width)
+
+                return iteration_predictions
+        elif self.adaptation_mode == 'maml_encode':
+            self.encoder.eval()
+            self.task_modality_encoder.eval()
+            self.task_decoder.eval()
+
+            with sdpa_kernel(SDPBackend.MATH):
+                with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
+                    encoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.encoder.named_parameters()}
+                    input_modalities = get_model_input(architecture=self.architecture, images=images)
+                    initial_input_embeddings = functional_call(self.encoder, encoder_parameters, (input_modalities,))
+                    task_modality_encoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.task_modality_encoder.named_parameters()}
+                    initial_modality_embeddings = functional_call(self.task_modality_encoder, task_modality_encoder_parameters, (images,))
+
+                    if initial_modality_embeddings.shape[2] != initial_input_embeddings.shape[2]:
+                        initial_modality_embeddings = nn.Upsample(size=initial_input_embeddings.shape[2], mode='bilinear')(initial_modality_embeddings) # upsamples bilinearly to match the spatial dimensions of the input embeddings
+
+                    concatenated_embeddings = torch.cat([initial_input_embeddings, initial_modality_embeddings], dim=1)
+                    task_decoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.task_decoder.named_parameters()}
+                    initial_task_prediction = functional_call(self.task_decoder, task_decoder_parameters, (concatenated_embeddings,)) if not self.pixelwise else functional_call(self.task_decoder, task_decoder_parameters, (concatenated_embeddings, input_modalities))
+                    surrogate_loss = self.surrogate_loss_network(concatenated_embeddings, initial_task_prediction)
+                    surrogate_loss_encoder_grads = torch.autograd.grad(surrogate_loss, encoder_parameters.values(), create_graph=True) # computes the gradients of the surrogate loss with respect to the encoder parameters
+                    surrogate_loss_task_decoder_grads = torch.autograd.grad(surrogate_loss, task_decoder_parameters.values(), create_graph=True) # computes the gradients of the surrogate loss with respect to the encoder parameters
+                    surrogate_loss_modality_encoder_grads = torch.autograd.grad(surrogate_loss, task_modality_encoder_parameters.values(), create_graph=True) # computes the gradients of the surrogate loss with respect to the encoder parameters
+
+                    adapted_encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), surrogate_loss_encoder_grads)}
+                    adapted_task_modality_encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(task_modality_encoder_parameters.items(), surrogate_loss_modality_encoder_grads)}
+                    adapted_task_decoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(task_decoder_parameters.items(), surrogate_loss_task_decoder_grads)}
+                    adapted_input_embeddings = functional_call(self.encoder, adapted_encoder_parameters, (input_modalities,))
+                    adapted_modality_embeddings = functional_call(self.task_modality_encoder, adapted_task_modality_encoder_parameters, (images,))
+
+                    if adapted_modality_embeddings.shape[2] != adapted_input_embeddings.shape[2]:
+                        adapted_modality_embeddings = nn.Upsample(size=adapted_input_embeddings.shape[2], mode='bilinear')(adapted_modality_embeddings) # upsamples bilinearly to match the spatial dimensions of the input embeddings
+
+                    adapted_concatenated_embeddings = torch.cat([adapted_input_embeddings, adapted_modality_embeddings], dim=1)
+                    adapted_task_prediction = functional_call(self.task_decoder, adapted_task_decoder_parameters, (adapted_concatenated_embeddings,)) if not self.pixelwise else functional_call(self.task_decoder, adapted_task_decoder_parameters, (adapted_concatenated_embeddings, input_modalities))
+
+                iteration_predictions = torch.cat([initial_task_prediction, adapted_task_prediction], dim=1) # dim 0 = batch size, dim 1 = num iterations, optional dim 2 = height, optional dim 3 = width
+
+                if len(iteration_predictions.shape) == 2:
+                    iteration_predictions = iteration_predictions.t().unsqueeze(-1) # (num_iterations, batch_size, 1)
+                else:
+                    iteration_predictions = iteration_predictions.permute(1,0,2,3).unsqueeze(2) # (num_iterations, batch_size, 1, height, width)
+
+                return iteration_predictions
         elif self.adaptation_mode == 'rna':
             self.encoder.eval()
             self.task_decoder.eval()
@@ -552,6 +840,24 @@ class EncoderDecoder(nn.Module):
             initial_input_embeddings = self.encoder(input_modalities)
             initial_task_prediction = self.task_decoder(initial_input_embeddings) if not self.pixelwise else self.task_decoder(initial_input_embeddings, input_modalities)
             adapted_input_embeddings = self.feature_adapter(initial_input_embeddings=initial_input_embeddings, feature_adapter_parameters=self.hypernetwork(modality_reconstruction_losses=self.modality_reconstruction_loss_calculator(modality_reconstructions=self.task_modality_decoder(initial_input_embeddings, input_modalities), images=images), initial_task_prediction=initial_task_prediction))
+            adapted_task_prediction = self.task_decoder(adapted_input_embeddings) if not self.pixelwise else self.task_decoder(adapted_input_embeddings, input_modalities)
+
+            iteration_predictions = torch.cat([initial_task_prediction, adapted_task_prediction], dim=1) # dim 0 = batch size, dim 1 = num iterations, optional dim 2 = height, optional dim 3 = width
+
+            if len(iteration_predictions.shape) == 2:
+                iteration_predictions = iteration_predictions.t().unsqueeze(-1) # (num_iterations, batch_size, 1)
+            else:
+                iteration_predictions = iteration_predictions.permute(1,0,2,3).unsqueeze(2) # (num_iterations, batch_size, 1, height, width)
+
+            return iteration_predictions
+        elif self.adaptation_mode == 'rna_input_embeddings':
+            self.encoder.eval()
+            self.task_decoder.eval()
+
+            input_modalities = get_model_input(architecture=self.architecture, images=images)
+            initial_input_embeddings = self.encoder(input_modalities)
+            initial_task_prediction = self.task_decoder(initial_input_embeddings) if not self.pixelwise else self.task_decoder(initial_input_embeddings, input_modalities)
+            adapted_input_embeddings = self.feature_adapter(initial_input_embeddings=initial_input_embeddings, feature_adapter_parameters=self.hypernetwork(initial_input_embeddings, initial_task_prediction))
             adapted_task_prediction = self.task_decoder(adapted_input_embeddings) if not self.pixelwise else self.task_decoder(adapted_input_embeddings, input_modalities)
 
             iteration_predictions = torch.cat([initial_task_prediction, adapted_task_prediction], dim=1) # dim 0 = batch size, dim 1 = num iterations, optional dim 2 = height, optional dim 3 = width
@@ -596,29 +902,24 @@ class Model(LightningModule):
 
     def configure_models(self):
         pixelwise = True if self.hparams.task == 'biomass' else False
-        num_classes = 100 if self.hparams.task == 'species' else 1
-
+        self.num_classes = 100 if self.hparams.task == 'species' else 1
         self.model = EncoderDecoder(task=self.hparams.task,
                                     architecture=self.hparams.architecture,
                                     adaptation_mode=self.hparams.adaptation_mode,
                                     tuning_mode=self.hparams.tuning_mode,
                                     pixelwise=pixelwise,
-                                    num_classes=num_classes,
+                                    num_classes=self.num_classes,
                                     pretrained=self.hparams.pretrained,
                                     lr=self.hparams.inner_loop_lr)
 
     def configure_metrics(self):
-        if self.hparams.task == 'species':
-            num_labels = 100
-            metrics = MetricCollection({'Recall': MultilabelRecall(num_labels),
-                                        'MAP': MultilabelAveragePrecision(num_labels)})
-        else:
+        if self.hparams.task != 'species':
             metrics = MetricCollection({'RMSE': MeanSquaredError(squared=False),
                                         'MAE': MeanAbsoluteError(),
                                         'ME': MeanError()})
 
-        for split in ['train', 'val', 'random_test', 'geographic_test']:
-            setattr(self, f'{split}_metrics', metrics.clone(prefix=f'{split.replace("_", " ").capitalize()} '))
+            for split in ['train', 'val', 'random_test', 'geographic_test']:
+                setattr(self, f'{split}_metrics', metrics.clone(prefix=f'{split.replace("_", " ").capitalize()} '))
 
     def configure_parameters(self, max_lr):
         if self.hparams.tuning_mode == 'lp':
@@ -717,13 +1018,16 @@ class Model(LightningModule):
 
         if self.hparams.adaptation_mode in ['joint_training', 'joint_probing']:
             prediction, modality_reconstructions, task_modality_reconstruction_loss = prediction
-        elif self.hparams.adaptation_mode in ['ttt', 'ttt-jp', 'maml', 'rna']:
+        elif self.hparams.adaptation_mode in ['ttt', 'ttt-jp', 'ttt-adapter', 'maml', 'maml_input_embeddings', 'maml_encode', 'rna', 'rna_input_embeddings']:
             # initial_task_prediction, prediction = prediction
             iteration_predictions = prediction
             prediction = iteration_predictions[-1]
         elif self.hparams.adaptation_mode == 'mt3':
             iteration_predictions, modality_reconstructions, task_modality_reconstruction_loss = prediction
             prediction = iteration_predictions[-1]
+        elif self.hparams.adaptation_mode == 'mt3_metabatch':
+            iteration_predictions, modality_reconstructions, task_modality_reconstruction_loss = prediction
+            print(iteration_predictions.shape, task_modality_reconstruction_loss.shape)
             # initial_task_prediction, prediction, modality_reconstructions, task_modality_reconstruction_loss = prediction
             # iteration_predictions, task_modality_reconstruction_loss = prediction
             # prediction = iteration_predictions[-1]
@@ -736,7 +1040,7 @@ class Model(LightningModule):
             prediction = prediction[valid_mask]
             target = target[valid_mask]
 
-            if self.hparams.adaptation_mode in ['ttt', 'ttt-jp', 'mt3', 'maml', 'rna']:
+            if self.hparams.adaptation_mode in ['ttt', 'ttt-jp', 'ttt-adapter', 'mt3', 'maml', 'maml_input_embeddings', 'maml_encode', 'rna', 'rna_input_embeddings']:
                 # initial_task_prediction = initial_task_prediction[valid_mask]
                 iteration_predictions = [pred[valid_mask] for pred in iteration_predictions]
 
@@ -745,7 +1049,10 @@ class Model(LightningModule):
                 modality_reconstruction_losses = ModalityReconstructionLossCalculator()(modality_reconstructions, images)
 
                 for modality, loss in modality_reconstruction_losses.items():
-                    self.log(f'{mode.capitalize().replace("_", " ")} {modality} reconstruction loss', loss.nanmean(), add_dataloader_idx=False)
+                    mean_loss = loss.nanmean()
+
+                    if not mean_loss.isnan():
+                        self.log(f'{mode.capitalize().replace("_", " ")} {modality} reconstruction loss', mean_loss, add_dataloader_idx=False)
         elif self.hparams.adaptation_mode == 'task_modality_decoder':
             target = images # task is to reconstruct the modalities
 
@@ -774,11 +1081,13 @@ class Model(LightningModule):
         else:
             num_batches = self.trainer.num_test_batches[dataloader_idx]
 
-        metrics = getattr(self, f'{mode}_metrics')
+        if self.hparams.task != 'species':
+            metrics = getattr(self, f'{mode}_metrics')
 
         if self.hparams.adaptation_mode != 'task_modality_decoder':
-            metrics(prediction, target) # calculates the metrics
-            self.log_dict(metrics, add_dataloader_idx=False) # logs the metrics
+            if self.hparams.task != 'species':
+                metrics(prediction, target) # calculates the metrics
+                self.log_dict(metrics, add_dataloader_idx=False) # logs the metrics
 
             if not hasattr(self, f'{mode}_predictions'):
                 setattr(self, f'{mode}_predictions', []) # initializes to an empty list
@@ -790,21 +1099,24 @@ class Model(LightningModule):
             if batch_idx == num_batches-1: # at the end of the epoch
                 predictions = torch.cat(getattr(self, f'{mode}_predictions'))
                 targets = torch.cat(getattr(self, f'{mode}_targets'))
-                setattr(self, f'{mode}_r2', R2Score()(predictions, targets))
-                self.log(f'{mode.capitalize().replace("_", " ")} R²', getattr(self, f'{mode}_r2'), add_dataloader_idx=False) # logs the R2 score at the end of each epoch
+
+                if self.hparams.task == 'species':
+                    setattr(self, f'{mode}_map', MultilabelAveragePrecision(self.num_classes)(predictions, targets))
+                    self.log(f'{mode.capitalize().replace("_", " ")} MAP', getattr(self, f'{mode}_map'), add_dataloader_idx=False)
+
+                    setattr(self, f'{mode}_recall', MultilabelRecall(self.num_classes)(predictions, targets))
+                    self.log(f'{mode.capitalize().replace("_", " ")} Recall', getattr(self, f'{mode}_recall'), add_dataloader_idx=False)
+                else:
+                    setattr(self, f'{mode}_r2', R2Score()(predictions, targets))
+                    self.log(f'{mode.capitalize().replace("_", " ")} R²', getattr(self, f'{mode}_r2'), add_dataloader_idx=False) # logs the R2 score at the end of each epoch
 
         # log adaptation improvement over iterations
-        if self.hparams.adaptation_mode in ['ttt', 'ttt-jp', 'mt3', 'maml', 'mt3_frozen', 'rna']:
+        if self.hparams.adaptation_mode in ['ttt', 'ttt-jp', 'ttt-adapter', 'mt3', 'maml', 'maml_input_embeddings', 'maml_encode', 'mt3_frozen', 'rna', 'rna_input_embeddings']:
             # losses = torch.stack([nn.MSELoss(reduction='none')(pred, target) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(pred, target) for pred in [initial_task_prediction, prediction]]).squeeze(-1) # (num_iterations+1, batch_size)
             losses = torch.stack([nn.MSELoss(reduction='none')(prediction, target) if self.hparams.task != 'species' else nn.BCEWithLogitsLoss()(prediction, target) for prediction in iteration_predictions]) # (num iterations+1, batch size or num pixels, optional 1)
 
             if len(losses.shape) > 2:
                 losses = losses.squeeze(-1)
-            # if self.hparams.task == 'biomass':
-            #     if len(losses.shape) == 2: # if there are multiple biomass pixels in the batch
-            #         losses = losses.mean(dim=1) # averages the losses over the pixels in a batch
-
-            #     losses = losses.unsqueeze(-1) # (num_iterations+1, 1)
 
             if not hasattr(self, f'{mode}_losses'):
                 setattr(self, f'{mode}_losses', [])
@@ -841,7 +1153,7 @@ class Model(LightningModule):
         self.general_step(batch=batch, batch_idx=batch_idx, mode='random_test' if dataloader_idx==0 else 'geographic_test', dataloader_idx=dataloader_idx)
 
     def on_test_end(self):
-        if self.hparams.adaptation_mode != 'task_modality_decoder':
+        if self.hparams.task != 'species' and self.hparams.adaptation_mode != 'task_modality_decoder':
             self._plot_predictions_vs_targets('random_test')
             self._plot_predictions_vs_targets('geographic_test')
 
@@ -923,3 +1235,41 @@ class Model(LightningModule):
 
         if wandb.run is not None:
             wandb.log({f'{mode.replace("_", " ").capitalize()} loss over iterations': wandb.Image(f'figures/{mode}_loss_over_iterations.png')})
+
+    # def on_train_batch_end(self, outputs, batch, batch_idx):
+    #     if self.hparams.adaptation_mode == 'mt3':
+    #         with torch.no_grad():
+    #             if not hasattr(self, "prev_encoder_params"):
+    #                 self.prev_encoder_params = [p.detach().clone() for p in self.model.encoder.parameters()]
+    #             else:
+    #                 deltas = []
+    #                 for p, prev in zip(self.model.encoder.parameters(), self.prev_encoder_params):
+    #                     deltas.append((p - prev).norm().item())
+    #                 self.log("encoder/param_delta_mean", float(np.mean(deltas)), on_step=True)
+    #                 self.prev_encoder_params = [p.detach().clone() for p in self.model.encoder.parameters()]
+
+    #             if not hasattr(self, "prev_task_modality_decoder_params"):
+    #                 self.prev_task_modality_decoder_params = [p.detach().clone() for p in self.model.task_modality_decoder.parameters()]
+    #             else:
+    #                 deltas = []
+    #                 for p, prev in zip(self.model.task_modality_decoder.parameters(), self.prev_task_modality_decoder_params):
+    #                     deltas.append((p - prev).norm().item())
+    #                 self.log("task_modality_decoder/param_delta_mean", float(np.mean(deltas)), on_step=True)
+    #                 self.prev_task_modality_decoder_params = [p.detach().clone() for p in self.model.task_modality_decoder.parameters()]
+
+    #             if not hasattr(self, "prev_task_decoder_params"):
+    #                 self.prev_task_decoder_params = [p.detach().clone() for p in self.model.task_decoder.parameters()]
+    #             else:
+    #                 deltas = []
+    #                 for p, prev in zip(self.model.task_decoder.parameters(), self.prev_task_decoder_params):
+    #                     deltas.append((p - prev).norm().item())
+    #                 self.log("task_decoder/param_delta_mean", float(np.mean(deltas)), on_step=True)
+    #                 self.prev_task_decoder_params = [p.detach().clone() for p in self.model.task_decoder.parameters()]
+
+    # def on_after_backward(self):
+    #     for name, param in self.named_parameters():
+    #         if param.grad is not None:
+    #             if not torch.isfinite(param.grad).all():
+    #                 print(f"Non-finite gradient detected in {name}")
+    #             elif param.grad.abs().max() > 1e3:
+    #                 print(f"Huge gradient in {name}: max={param.grad.abs().max().item()}")
