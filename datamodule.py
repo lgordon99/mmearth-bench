@@ -12,7 +12,7 @@ import torch
 # ============================================== CLASSES ============================================== #
 
 class DataModule(LightningDataModule):
-    def __init__(self, task, adaptation_mode, batch_size, num_workers, seed):
+    def __init__(self, task, architecture, adaptation_mode, batch_size, num_workers, seed):
         super().__init__()
 
         self.task = task
@@ -20,7 +20,7 @@ class DataModule(LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.seed = seed
-        self.dataset = MMEarthBenchDataset(task=task, adaptation_mode=adaptation_mode)
+        self.dataset = MMEarthBenchDataset(task, architecture, adaptation_mode)
 
         self.setup('init')
 
