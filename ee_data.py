@@ -133,7 +133,7 @@ class EEData:
         print(f'{modality} is missing')
 
     def sentinel2(self):
-        bands = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8A', 'B8', 'B9', 'B11', 'B12', 'MSK_CLDPRB', 'S2CLOUDLESS', 'SCL'] # bands to collect
+        bands = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B8A', 'B9', 'B11', 'B12', 'MSK_CLDPRB', 'S2CLOUDLESS', 'SCL'] # bands to collect
         sentinel2_images = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') # L2A collection
                               .filter(self.date_filter) # gets images in any of the specified date ranges
                               .filterBounds(self.tile) # gets images that have some overlap with the tile
