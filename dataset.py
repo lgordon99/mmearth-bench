@@ -45,16 +45,6 @@ class MMEarthBenchDataset(Dataset):
             self.modality_data = {modality: h5_file[modality][:] for modality in no_data_values.keys()}
 
             if architecture == 'TerraMind':
-                # rgb = self.modality_data['Sentinel2'][:, [3,2,1]]
-                # print(np.count_nonzero(rgb[202] == no_data_values['Sentinel2']))
-                # arr1 = np.where(rgb[202] == no_data_values['Sentinel2'])
-                # output = make_terramind_rgb(np.ma.masked_equal(rgb[202], no_data_values['Sentinel2']))
-                # print(np.count_nonzero(output.filled(no_data_values['Sentinel2']) == no_data_values['Sentinel2']))
-                # arr2 = np.where(output.filled(no_data_values['Sentinel2']) == no_data_values['Sentinel2'])
-                # print(np.array_equal(arr1, arr2))
-                # print(arr1)
-                # print(arr2)
-                # exit()
                 self.modality_data['rgb'] = np.ma.stack([make_terramind_rgb(np.ma.masked_equal(sentinel2[[3,2,1]], no_data_values['Sentinel2'])) for sentinel2 in self.modality_data['Sentinel2']])
                 train_images = self.modality_data['rgb'][self.split_data['train_indices']]
                 axes_to_collapse = tuple(i for i in range(train_images.ndim) if i != 1)
@@ -103,12 +93,23 @@ class MMEarthBenchDataset(Dataset):
                 normalized = (tile_modality_data[modality]['data'] - self.rgb_train_means) / self.rgb_train_stds # normalization
                 tile_modality_data[modality]['data'] = normalized.filled(0) # replaces NaNs with the post-normalization mean
 
-        if self.adaptation_mode in ['multimodal', 'maml_encode']:
+        if self.adaptation_mode in ['multimodal', 'multimodal_joint_training', 'multimodal_mt3', 'maml_encode']:
             # convert categorical modalities to one-hot encoding
-            tile_modality_data['DynamicWorld']['data'] = np.eye(no_data_values['DynamicWorld']+1)[tile_modality_data['DynamicWorld']['data'].astype(int)].squeeze().transpose(2, 0, 1)
-            tile_modality_data['ESA_WorldCover']['data'] = np.eye(no_data_values['ESA_WorldCover']+1)[tile_modality_data['ESA_WorldCover']['data'].astype(int)].squeeze().transpose(2, 0, 1)
-            tile_modality_data['biome']['data'] = np.eye(no_data_values['biome']+1)[tile_modality_data['biome']['data'].astype(int)]
-            tile_modality_data['ecoregion']['data'] = np.eye(no_data_values['ecoregion']+1)[tile_modality_data['ecoregion']['data'].astype(int)]
+            dynamic_world_onehot = np.eye(no_data_values['DynamicWorld']+1)[tile_modality_data['DynamicWorld']['data'].astype(int)].squeeze().transpose(2, 0, 1)
+            esa_worldcover_onehot = np.eye(no_data_values['ESA_WorldCover']+1)[tile_modality_data['ESA_WorldCover']['data'].astype(int)].squeeze().transpose(2, 0, 1)
+            biome_onehot = np.eye(no_data_values['biome']+1)[tile_modality_data['biome']['data'].astype(int)]
+            ecoregion_onehot = np.eye(no_data_values['ecoregion']+1)[tile_modality_data['ecoregion']['data'].astype(int)]
+
+            if self.adaptation_mode == 'multimodal':
+                tile_modality_data['DynamicWorld']['data'] = dynamic_world_onehot
+                tile_modality_data['ESA_WorldCover']['data'] = esa_worldcover_onehot
+                tile_modality_data['biome']['data'] = biome_onehot
+                tile_modality_data['ecoregion']['data'] = ecoregion_onehot
+            elif self.adaptation_mode in ['multimodal_joint_training', 'multimodal_mt3']:
+                tile_modality_data['DynamicWorld_onehot'] = {'data': dynamic_world_onehot}
+                tile_modality_data['ESA_WorldCover_onehot'] = {'data': esa_worldcover_onehot}
+                tile_modality_data['biome_onehot'] = {'data': biome_onehot}
+                tile_modality_data['ecoregion_onehot'] = {'data': ecoregion_onehot}
 
         # convert to tensors
         for modality in tile_modality_data.keys():
