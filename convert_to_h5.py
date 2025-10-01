@@ -115,6 +115,16 @@ def check_h5(task):
             if y == 0:
                 assert aster_dem_reshaped[x][1][z] == -9999 # slope band should be NaN wherever the elevation band is NaN
 
+        eth_gch = tile_data['ETH_GCH']
+        eth_gch_reshaped = eth_gch.reshape(len(eth_gch), 2, 16384)
+        nan_indices = np.argwhere(eth_gch_reshaped == 255)
+
+        for numbers in nan_indices:
+            x, y, z = numbers
+
+            if y == 0:
+                assert eth_gch_reshaped[x][1][z] == 255 # uncertainty band should be NaN wherever the height band is NaN
+
 def plot_missing_modalities(task):
     print(task)
     original_num_tiles = len(utils.read_geojson(f'{data_dir_path}/{task}/{task}_points.geojson')['features'])
