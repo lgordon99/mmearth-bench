@@ -1,17 +1,20 @@
 # ============================================== IMPORTS ============================================== #
 
 from convnextv2 import ConvNeXtV2, load_custom_checkpoint
+from datetime import date
 from lightning.pytorch import LightningModule
 from terratorch import BACKBONE_REGISTRY
 from torch.func import functional_call
 from torch.nn.attention import sdpa_kernel, SDPBackend
+from torchgeo.models import scale_mae, ScaleMAELarge16_Weights
 from torchmetrics import MetricCollection
 from torchmetrics.classification import MultilabelAveragePrecision, MultilabelRecall
 from torchmetrics.regression import MeanSquaredError, R2Score
+from torchvision.datasets.utils import download_url
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-import segmentation_models_pytorch as smp
+import sys
 import timm
 import torch
 import torch.nn as nn
@@ -31,10 +34,14 @@ project = os.environ['PROJECT']
 no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
 biomass_no_data_value = -9999
 image_size = 128
-architecture_properties = {'DINOv3Web': {'num_input_bands': 3, 'embedding_dim': 1024},
+architecture_properties = {'ScaleMAE': {'num_input_bands': 3, 'embedding_dim': 1024},
+                           'DINOv3Web': {'num_input_bands': 3, 'embedding_dim': 1024},
                            'DINOv3Sat': {'num_input_bands': 3, 'embedding_dim': 1024},
                            'MPMAE': {'num_input_bands': 12, 'embedding_dim': 320},
-                           'TerraMind': {'num_input_bands': 18, 'embedding_dim': 768}}
+                           'TerraMind': {'num_input_bands': 18, 'embedding_dim': 768},
+                           'CopernicusFM': {'num_input_bands': 15, 'embedding_dim': 768}}
+sys.path.append(f'{data_dir_path}/pretrained_checkpoints/Copernicus-FM/Copernicus-FM/src')
+from model_vit import vit_base_patch16
 
 # ============================================== FUNCTIONS ============================================== #
 
@@ -52,31 +59,50 @@ def get_state_dict(task, architecture, adaptation_mode):
 
     return ckpt['state_dict']
 
+def get_vv_vh_least_nans(sentinel1):
+    sentinel1_mask_vertical = sentinel1['valid_mask'][:, [0,1,4,5]] # ascending VV, VH; descending VV, VH
+    asc_num_valid_pixels = sentinel1_mask_vertical[:, :2].sum(dim=(1,2,3)) # counts the number of valid pixels in the ascending VV and VH bands
+    desc_num_valid_pixels = sentinel1_mask_vertical[:, 2:].sum(dim=(1,2,3)) # counts the number of valid pixels in the descending VV and VH bands
+    sentinel1_input = torch.stack([sentinel1['data'][i, [0,1]] if asc_num_valid_pixels[i] >= desc_num_valid_pixels[i] else sentinel1['data'][i, [4,5]] for i in range(len(sentinel1_mask_vertical))]) # extracts the VV and VH bands from either the ascending or descending pass, whichever has more valid pixels
+
+    return sentinel1_input
+
 def get_model_input(architecture, images):
-    if 'DINOv3' in architecture:
+    if architecture == 'ScaleMAE' or 'DINOv3' in architecture:
         x = images['Sentinel2']['data'][:, [3,2,1], :, :] # extracts the RGB bands
     elif architecture == 'MPMAE':
         x = images['Sentinel2']['data'].clone()
         x[:, [7, 8]] = x[:, [8, 7]] # swaps bands 8 and 8A
     elif architecture == 'TerraMind':
-        sentinel1_mask_vertical = images['Sentinel1']['valid_mask'][:, [0,1,4,5]] # ascending VV, VH; descending VV, VH
-        asc_num_valid_pixels = sentinel1_mask_vertical[:, :2].sum(dim=(1,2,3)) # counts the number of valid pixels in the ascending VV and VH bands
-        desc_num_valid_pixels = sentinel1_mask_vertical[:, 2:].sum(dim=(1,2,3)) # counts the number of valid pixels in the descending VV and VH bands
-        sentinel1 = [images['Sentinel1']['data'][i, [0,1]] if asc_num_valid_pixels[i] >= desc_num_valid_pixels[i] else images['Sentinel1']['data'][i, [4,5]] for i in range(len(sentinel1_mask_vertical))]
-        x = torch.cat([images['Sentinel2']['data'], torch.stack(sentinel1), images['AsterDEM']['data'][:, 0].unsqueeze(1), images['rgb']['data']], dim=1)
+        x = {'S2L2A': images['Sentinel2']['data'], 'S1GRD': get_vv_vh_least_nans(images['Sentinel1']), 'DEM': images['AsterDEM']['data'][:, 0].unsqueeze(1), 'RGB': images['rgb']['data']}
+    elif architecture == 'CopernicusFM':
+        x = (images['Sentinel2']['data'], get_vv_vh_least_nans(images['Sentinel1']), images['AsterDEM']['data'][:, 0].unsqueeze(1), images['longitude']['data'], images['latitude']['data'], images['time']['data'])
 
     return x
 
 # ============================================== ENCODER CLASSES ============================================== #
+
+class ScaleMAEEncoder(nn.Module):
+    def __init__(self, *_):
+        super().__init__()
+
+        self.model = scale_mae.scalemae_large_patch16(weights=ScaleMAELarge16_Weights.FMOW_RGB, res=10, img_size=image_size)
+
+    def forward(self, images):
+        embeddings = self.model.forward_features(images)[:, 1:].permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
+        num_patches_per_dimension = int(np.sqrt(embeddings.shape[2]))
+        embeddings = embeddings.reshape(embeddings.shape[0], embeddings.shape[1], num_patches_per_dimension, num_patches_per_dimension) # (batch_size, embedding_dim, num_vertical_patches, num_horizontal_patches)
+
+        return embeddings
 
 class _DINOv3BaseEncoder(nn.Module):
     def __init__(self, checkpoint_name, *_):
         super().__init__()
 
         self.model = torch.hub.load(f'{data_dir_path}/pretrained_checkpoints/dinov3',
-                            'dinov3_vitl16',
-                            source='local',
-                            weights=f'{data_dir_path}/pretrained_checkpoints/{checkpoint_name}.pth')
+                                    'dinov3_vitl16',
+                                     source='local',
+                                     weights=f'{data_dir_path}/pretrained_checkpoints/{checkpoint_name}.pth')
 
         # remove unused layer
         if hasattr(self.model, 'local_cls_norm'):
@@ -119,13 +145,47 @@ class TerraMindEncoder(nn.Module):
         self.model = BACKBONE_REGISTRY.build('terramind_v1_base', pretrained=pretrained, modalities=['S2L2A', 'S1GRD', 'DEM', 'RGB'])
 
     def forward(self, images):
-        x = {'S2L2A': images[:, :12], # extracts the 12 bands in Sentinel-2
-             'S1GRD': images[:, 12:14], # extracts the VV and VH bands from either the ascending or descending pass, whichever has more valid pixels
-             'DEM': images[:, 14:15], # extracts the elevation band
-             'RGB': images[:, 15:]} # extracts the RGB bands
-        embeddings = self.model(x)[-1] # extracts the final block's embeddings
+        embeddings = self.model(images)[-1] # extracts the final block's embeddings
         embeddings = embeddings.permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
         embeddings = embeddings.reshape(embeddings.shape[0], embeddings.shape[1], int(np.sqrt(embeddings.shape[2])), int(np.sqrt(embeddings.shape[2]))) # (batch_size, embedding_dim, num_vertical_patches, num_horizontal_patches)
+
+        return embeddings
+
+class CopernicusFMEncoder(nn.Module):
+    def __init__(self, *_):
+        super().__init__()
+
+        self.model = vit_base_patch16(global_pool=False, return_intermediate=True, intermediate_indices=[11]) # 11 corresponds to the last block
+        nn.init.ones_(self.model.norm.weight)
+        nn.init.zeros_(self.model.norm.bias)
+        state_dict = torch.load(f'{data_dir_path}/pretrained_checkpoints/CopernicusFM_ViT_base_varlang_e100.pth')
+        state_dict['norm.weight'] = self.model.norm.weight.clone()
+        state_dict['norm.bias'] = self.model.norm.bias.clone()
+        self.model.load_state_dict(state_dict)
+        self.patch_area = 0.0256 # ( 16 pixels per patch x 10 m per pixel / 1000 m per km ) ** 2 km
+        self.patch_size = 16 # pixels per patch
+        self.sentinel2_wavelengths = [440, 490, 560, 665, 705, 740, 783, 842, 860, 940, 1610, 2190]
+        self.sentinel2_bandwidths = [20, 65, 35, 30, 15, 15, 20, 115, 20, 20, 90, 180]
+        self.sentinel1_wavelengths = [50000000, 50000000]
+        self.sentinel1_bandwidths = [1e9, 1e9]
+        self.dem_time = (date(2015, 1, 1) - date(1970, 1, 1)).days # pretraining was with that date
+        variable_embed_path = './weights/var_embed_llama3.2_1B.pt'
+
+        if not os.path.exists(variable_embed_path):
+            download_url('https://huggingface.co/wangyi111/Copernicus-FM/resolve/main/varname_embed/varname_embed_llama3.2_1B.pt', './weights/', filename='var_embed_llama3.2_1B.pt')
+
+        dem_language_embedding = torch.load(variable_embed_path)['Copernicus Digital Elevation Model']
+        self.register_buffer('dem_language_embedding', dem_language_embedding, persistent=False)
+
+    def forward(self, images):
+        sentinel2, sentinel1, dem, longitude, latitude, time = images
+        sentinel_1_2_metadata = torch.stack([longitude, latitude, time, torch.full_like(longitude, self.patch_area)], dim=1)
+        dem_metadata = torch.stack([longitude, latitude, torch.full_like(longitude, self.dem_time), torch.full_like(longitude, self.patch_area)], dim=1)
+
+        sentinel2_embeddings = self.model.forward_features(sentinel2, sentinel_1_2_metadata, self.sentinel2_wavelengths, self.sentinel2_bandwidths, language_embed=None, input_mode='spectral', kernel_size=self.patch_size)[1][0]
+        sentinel1_embeddings = self.model.forward_features(sentinel1, sentinel_1_2_metadata, self.sentinel1_wavelengths, self.sentinel1_bandwidths, language_embed=None, input_mode='spectral', kernel_size=self.patch_size)[1][0]
+        dem_embeddings = self.model.forward_features(dem, dem_metadata, None, None, language_embed=self.dem_language_embedding, input_mode='variable', kernel_size=self.patch_size)[1][0]
+        embeddings = torch.stack([sentinel2_embeddings, sentinel1_embeddings, dem_embeddings], dim=0).mean(dim=0)
 
         return embeddings
 
@@ -587,18 +647,18 @@ class EncoderDecoder(nn.Module):
         if adaptation_mode in ['multimodal', 'multimodal_joint_training', 'ttt-mjt', 'multimodal_mt3', 'multimodal_sln', 'sln_encode']:
             self.task_modality_encoder = TaskModalityEncoder()
 
-        if adaptation_mode in ['joint_training', 'multimodal_joint_training', 'ttt-jt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-mjt', 'mt3', 'mt3-10', 'mt3-20', 'multimodal_mt3', 'sln', 'sln-10', 'multimodal_sln', 'joint_probing', 'ttt-adapter', 'ttt-jp', 'mt3_metabatch', 'mt3_frozen', 'rna']:
+        if adaptation_mode in ['joint_training', 'multimodal_joint_training', 'ttt-jt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-mjt', 'mt3', 'mt3-10', 'mt3-20', 'multimodal_mt3', 'sln', 'sln-10', 'sln-20', 'multimodal_sln', 'joint_probing', 'ttt-adapter', 'ttt-jp', 'mt3_metabatch', 'mt3_frozen', 'rna']:
             self.task_modality_decoder = TaskModalityDecoder(embedding_dim)
 
         if adaptation_mode in ['joint_training', 'multimodal_joint_training', 'ttt-jt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-mjt', 'mt3', 'mt3-10', 'mt3-20', 'multimodal_mt3', 'sln', 'multimodal_sln', 'joint_probing',  'ttt-adapter', 'ttt-jp', 'mt3_metabatch', 'mt3_frozen']:
             self.task_modality_decoder_loss = TaskModalityDecoderLoss()
 
-        if adaptation_mode in ['sln', 'sln-10', 'multimodal_sln', 'rna']:
+        if adaptation_mode in ['sln', 'sln-10', 'sln-20', 'multimodal_sln', 'rna']:
             self.modality_reconstruction_loss_calculator = ModalityReconstructionLossCalculator()
 
         if adaptation_mode == 'ttt-adapter':
             self.adapter = Adapter(embedding_dim=embedding_dim)
-        elif adaptation_mode in ['sln', 'sln-10']:
+        elif adaptation_mode in ['sln', 'sln-10', 'sln-20']:
             self.surrogate_loss_network = SurrogateLossNetwork()
         elif adaptation_mode in ['multimodal_sln']:
             self.surrogate_loss_network = SurrogateLossNetwork(in_features=embedding_dim+24) # 320 is the embedding dimension of the task modality encoder
@@ -619,7 +679,7 @@ class EncoderDecoder(nn.Module):
                 state_dict = get_state_dict(task, architecture, 'joint_training')
             elif adaptation_mode in ['mt3-10', 'mt3-20']:
                 state_dict = get_state_dict(task, architecture, 'mt3')
-            elif adaptation_mode == 'sln-10':
+            elif adaptation_mode in ['sln-10', 'sln-20']:
                 state_dict = get_state_dict(task, architecture, 'sln')
             elif adaptation_mode == 'ttt-jp':
                 state_dict = get_state_dict(task, architecture, 'joint_probing')
@@ -1017,6 +1077,10 @@ class EncoderDecoder(nn.Module):
                     return iteration_predictions, adapted_modality_reconstructions, adapted_task_modality_reconstruction_loss
         elif self.adaptation_mode == 'sln-10':
             iteration_predictions = self.sln(input_modalities, images, num_iterations=10)
+
+            return iteration_predictions
+        elif self.adaptation_mode == 'sln-20':
+            iteration_predictions = self.sln(input_modalities, images, num_iterations=20)
 
             return iteration_predictions
         # elif self.adaptation_mode == 'sln':
