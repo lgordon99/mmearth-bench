@@ -4,6 +4,7 @@ dataset.py
 
 # ============================================== IMPORTS ============================================== #
 
+from datetime import date
 from torch.utils.data import Dataset
 import h5py
 import json
@@ -51,6 +52,10 @@ class MMEarthBenchDataset(Dataset):
                 collapsed_shape = (train_images.shape[1],) + (1,) * (train_images.ndim - 2)
                 self.rgb_train_means = train_images.mean(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
                 self.rgb_train_stds = train_images.std(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
+            elif architecture == 'CopernicusFM':
+                self.modality_data['longitude'] = h5_file['longitude'][:]
+                self.modality_data['latitude'] = h5_file['latitude'][:]
+                self.modality_data['time'] = np.array([(date(*map(int, sentinel2_date.split('-'))) - date(1970, 1, 1)).days for sentinel2_date in h5_file['sentinel2_date'].asstr()[...]]) # number of days after 1/1/1970
 
             if task == 'species':
                 species_list_strings = [json.loads(lst) for lst in h5_file[task].asstr()[...]] # list of lists containing the names of the species in each tile
@@ -81,7 +86,7 @@ class MMEarthBenchDataset(Dataset):
 
         for modality in tile_modality_data.keys():
             # compute a valid mask for all modalities that can have NaNs
-            if modality not in ['geolocation', 'month', 'rgb']:
+            if modality not in ['geolocation', 'month', 'rgb', 'longitude', 'latitude', 'time']:
                 tile_modality_data[modality]['valid_mask'] = (tile_modality_data[modality]['data'] != no_data_values[modality]).squeeze() # mask for where the data is valid
 
             # normalization
@@ -93,7 +98,7 @@ class MMEarthBenchDataset(Dataset):
                 normalized = (tile_modality_data[modality]['data'] - self.rgb_train_means) / self.rgb_train_stds # normalization
                 tile_modality_data[modality]['data'] = normalized.filled(0) # replaces NaNs with the post-normalization mean
 
-        if self.adaptation_mode in ['multimodal', 'multimodal_joint_training', 'multimodal_mt3', 'maml_encode']:
+        if self.adaptation_mode in ['multimodal', 'multimodal_joint_training', 'ttt-mjt', 'multimodal_mt3', 'multimodal_sln', 'maml_encode']:
             # convert categorical modalities to one-hot encoding
             dynamic_world_onehot = np.eye(no_data_values['DynamicWorld']+1)[tile_modality_data['DynamicWorld']['data'].astype(int)].squeeze().transpose(2, 0, 1)
             esa_worldcover_onehot = np.eye(no_data_values['ESA_WorldCover']+1)[tile_modality_data['ESA_WorldCover']['data'].astype(int)].squeeze().transpose(2, 0, 1)
@@ -105,7 +110,7 @@ class MMEarthBenchDataset(Dataset):
                 tile_modality_data['ESA_WorldCover']['data'] = esa_worldcover_onehot
                 tile_modality_data['biome']['data'] = biome_onehot
                 tile_modality_data['ecoregion']['data'] = ecoregion_onehot
-            elif self.adaptation_mode in ['multimodal_joint_training', 'multimodal_mt3']:
+            elif self.adaptation_mode in ['multimodal_joint_training', 'ttt-mjt', 'multimodal_mt3', 'multimodal_sln']:
                 tile_modality_data['DynamicWorld_onehot'] = {'data': dynamic_world_onehot}
                 tile_modality_data['ESA_WorldCover_onehot'] = {'data': esa_worldcover_onehot}
                 tile_modality_data['biome_onehot'] = {'data': biome_onehot}
