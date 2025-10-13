@@ -1,7 +1,7 @@
 # ============================================== IMPORTS ============================================== #
 
 from lightning.pytorch import seed_everything
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 import hydra
 import os
 import shutil
@@ -22,7 +22,7 @@ def train(cfg):
     print(f'Encoder architecture: {cfg.architecture}')
     print(f'Adaptation mode: {cfg.adaptation_mode}')
 
-    # Set environment variables
+    # set environment variables
     os.environ['DATA_DIR_PATH'] = cfg.data_dir_path
     os.environ['ENTITY'] = cfg.logger.entity
     os.environ['PROJECT'] = cfg.logger.project
@@ -36,8 +36,13 @@ def train(cfg):
 
     for parameter, value in sweep_overridden_parameters.items():
         key_1, key_2 = parameter.split('.')
-
         cfg[key_1][key_2] = value
+
+    if cfg.task == 'species':
+        cfg['trainer']['callbacks'][0]['monitor'] = 'Val MAP'
+
+    if 'ttt' in cfg.adaptation_mode or '-10' in cfg.adaptation_mode or '-20' in cfg.adaptation_mode:
+        cfg['datamodule']['batch_size'] = 1
 
     print(f'Config: {cfg}')
 
@@ -50,14 +55,16 @@ def train(cfg):
     wandb.config.update(OmegaConf.to_container(cfg, resolve=True))
     model = hydra.utils.instantiate(cfg.model)
 
-    if cfg.adaptation_mode == 'tto':
+    if cfg.adaptation_mode == 'task_modality_decoder':
+        trainer.fit(model, datamodule=datamodule)
+    elif 'ttt' in cfg.adaptation_mode or '-10' in cfg.adaptation_mode or '-20' in cfg.adaptation_mode:
         trainer.test(model, datamodule=datamodule)
     else:
         trainer.fit(model, datamodule=datamodule)
         trainer.test(ckpt_path='best', datamodule=datamodule)
 
     wandb.finish()
-    shutil.rmtree(os.getcwd())
+    shutil.rmtree(os.getcwd()) # deletes the hydra-created working directory
 
 if __name__ == '__main__':
     train()
