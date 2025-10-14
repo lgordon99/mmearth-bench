@@ -14,6 +14,7 @@ logger:
   project: mmearth-bench
   name: ${task}_${architecture}_${adaptation_mode}_${env:JOB_ID}
   log_model: true
+  tags: ["omikron"]
 
 trainer:
   _target_: lightning.pytorch.Trainer
@@ -25,7 +26,8 @@ trainer:
   inference_mode: false
   callbacks:
     - _target_: lightning.pytorch.callbacks.ModelCheckpoint
-      monitor: "Val loss"
+      monitor: "Val R2"
+      mode: max
       save_last: true
       dirpath: checkpoints
     - _target_: lightning.pytorch.callbacks.LearningRateMonitor
@@ -34,6 +36,7 @@ trainer:
 datamodule:
   _target_: datamodule.DataModule
   task: ${task}
+  architecture: ${architecture}
   adaptation_mode: ${adaptation_mode}
   batch_size: 64
   num_workers: 1
@@ -46,11 +49,10 @@ model:
   adaptation_mode: ${adaptation_mode}
   tuning_mode: ft
   pretrained: true
-  decay_factor: 0.9
   max_lr: 1e-4
   weight_decay: 0.05
   warmup_epochs: 10
   num_train_batches: null
   min_lr: 1e-6
   epochs: ${epochs}
-  inner_loop_lr: 1e-5
+  inner_loop_lr: 1e-3
