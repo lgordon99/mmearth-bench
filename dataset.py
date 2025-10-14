@@ -16,6 +16,7 @@ import utils
 # ============================================== GLOBAL VARIABLES ============================================== #
 
 data_dir_path = os.environ['DATA_DIR_PATH']
+task_modalities = utils.read_json(f'{data_dir_path}/task_modalities.json')
 no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
 normalization_data = utils.read_json(f'{data_dir_path}/normalization_data.json')
 axes_to_collapse = (1, 2)
@@ -59,7 +60,7 @@ class MMEarthBenchDataset(Dataset):
 
         with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
             self.input_data = {modality: ensure_2d(h5_file[modality][:]) for modality in normalization_data[self.architecture].keys() if modality in h5_file.keys()}
-            self.task_modality_data = {modality: h5_file[modality][:] for modality in no_data_values.keys()}
+            self.task_modality_data = {modality: h5_file[modality][:] for modality in task_modalities}
 
             if architecture == 'TerraMind':
                 self.input_data['RGB'] = np.ma.stack([make_terramind_rgb(np.ma.masked_equal(sentinel2[[3,2,1]], no_data_values['Sentinel2'])) for sentinel2 in self.input_data['Sentinel2']])
@@ -69,9 +70,10 @@ class MMEarthBenchDataset(Dataset):
                 # self.rgb_train_means = train_images.mean(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
                 # self.rgb_train_stds = train_images.std(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
             elif architecture == 'CopernicusFM':
-                # self.task_modality_data['longitude'] = h5_file['longitude'][:]
-                # self.task_modality_data['latitude'] = h5_file['latitude'][:]
-                self.input_data['Time'] = ensure_2d(np.array([(date(*map(int, sentinel2_date.split('-'))) - date(1970, 1, 1)).days for sentinel2_date in h5_file['sentinel2_date'].asstr()[...]])) # number of days after 1/1/1970
+                geolocation = h5_file['geolocation'][:]
+                self.input_data['longitude'] = ensure_2d(geolocation[:, 0])
+                self.input_data['latitude'] = ensure_2d(geolocation[:, 1])
+                self.input_data['time'] = ensure_2d(np.array([(date(*map(int, sentinel2_date.split('-'))) - date(1970, 1, 1)).days for sentinel2_date in h5_file['sentinel2_date'].asstr()[...]])) # number of days after 1/1/1970
 
             if task == 'species':
                 species_list_strings = [json.loads(lst) for lst in h5_file[task].asstr()[...]] # list of lists containing the names of the species in each tile
@@ -109,7 +111,7 @@ class MMEarthBenchDataset(Dataset):
 
         for modality in tile_input_data.keys():
             if len(architecture_normalization_data[modality]['means']) > 0: # if the modality has normalization data
-                masked = np.ma.masked_equal(tile_input_data[modality], no_data_values[modality]) if modality in no_data_values.keys() else tile_input_data[modality]
+                masked = np.ma.masked_equal(tile_input_data[modality], no_data_values[modality]) if modality in task_modalities else tile_input_data[modality]
                 collapsed_shape = (masked.shape[0],) + (1,) * (masked.ndim - 1) # singleton dimensions for the number of spatial dimensions
 
                 # min-max normalization
@@ -121,12 +123,13 @@ class MMEarthBenchDataset(Dataset):
                 # extract the VV and VH bands from either the ascending or descending pass, whichever has more valid pixels
                 if modality == 'Sentinel1':
                     masked = get_vv_vh_least_nans(masked)
-                    collapsed_shape = (masked.shape[0],) + (1,) * (masked.ndim - 1) # singleton dimensions for the number of spatial dimensions
+                    # collapsed_shape = (masked.shape[0],) + (1,) * (masked.ndim - 1) # singleton dimensions for the number of spatial dimensions
 
                 # mean-std normalization
                 normalized = (masked - np.expand_dims(architecture_normalization_data[modality]['means'], axis=axes_to_collapse)) / np.expand_dims(architecture_normalization_data[modality]['stds'], axis=axes_to_collapse)
-                post_normalization_means = normalized.mean(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
-                tile_input_data[modality] = normalized.filled(post_normalization_means)
+                # post_normalization_means = normalized.mean(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
+                # tile_input_data[modality] = normalized.filled(post_normalization_means)
+                tile_input_data[modality] = normalized.filled(0)
 
             tile_input_data[modality] = torch.tensor(tile_input_data[modality], dtype=torch.float32) # converts to tensor
 
@@ -135,7 +138,7 @@ class MMEarthBenchDataset(Dataset):
 
         for modality in tile_task_modality_data.keys():
             # compute a valid mask for all modalities that can have NaNs
-            if modality not in ['geolocation', 'month']:
+            if modality not in ['geolocation_encoding', 'month_encoding']:
                 tile_task_modality_data[modality]['valid_mask'] = (tile_task_modality_data[modality]['data'] != no_data_values[modality]).squeeze() # mask for where the data is valid
 
             # normalization
