@@ -172,7 +172,7 @@ class EEData:
         s2_image = sentinel2_images.first().float() # get the S2 image with the most valid pixels
         self.tile_level_data['sentinel2_date'] = s2_image.date().format('YYYY-MM-dd').getInfo() # date of Sentinel-2 image
         month = int(self.tile_level_data['sentinel2_date'].split('-')[1]) # extracts the month of the Sentinel-2 image
-        self.tile_level_data['month'] = json.dumps([np.cos(np.pi * month / 6), np.sin(np.pi * month / 6)]) # cyclic month encoding
+        self.tile_level_data['month_encoding'] = json.dumps([np.cos(np.pi * month / 6), np.sin(np.pi * month / 6)]) # cyclic month encoding
         self.proj = s2_image.select('B4').projection() # projection of B4 band
         self.crs = self.proj.getInfo()['crs'] # CRS of B4 band
         projected_point_coordinates = ee.Geometry.Point(self.point_coordinates).transform(self.proj).coordinates() # projects the point onto the Sentinel-2 grid
@@ -180,11 +180,11 @@ class EEData:
         nearest_pixel_intersection_y = ee.Number(projected_point_coordinates.get(1)).round() # rounds the latitude to the nearest pixel intersection in the Sentinel-2 grid
         self.tile = ee.Geometry.Rectangle([nearest_pixel_intersection_x.subtract(TILE_SIZE/2), nearest_pixel_intersection_y.subtract(TILE_SIZE/2), nearest_pixel_intersection_x.add(TILE_SIZE/2), nearest_pixel_intersection_y.add(TILE_SIZE/2)], proj=self.proj, geodesic=False) # resets the tile to be centered at the nearest pixel intersection in the Sentinel-2 grid
         self.tile_center = self.tile.centroid(maxError=1)
-        self.tile_level_data['longitude'], self.tile_level_data['latitude'] = self.tile_center.coordinates().getInfo() # gets the lon, lat coordinates of the tile centroid
-        self.tile_level_data['geolocation'] = json.dumps([np.cos(np.deg2rad(self.tile_level_data['longitude'])), # cyclic location encding
-                                                          np.sin(np.deg2rad(self.tile_level_data['longitude'])),
-                                                          np.cos(np.deg2rad(self.tile_level_data['latitude'])),
-                                                          np.sin(np.deg2rad(self.tile_level_data['latitude']))])
+        self.tile_level_data['geolocation'] = json.dumps(self.tile_center.coordinates().getInfo()) # gets the lon, lat coordinates of the tile centroid
+        self.tile_level_data['geolocation_encoding'] = json.dumps([np.cos(np.deg2rad(self.tile_level_data['geolocation'][0])), # cyclic location encding
+                                                                   np.sin(np.deg2rad(self.tile_level_data['geolocation'][0])),
+                                                                   np.cos(np.deg2rad(self.tile_level_data['geolocation'][1])),
+                                                                   np.sin(np.deg2rad(self.tile_level_data['geolocation'][1]))])
         continuous_valued_bands = s2_image.select([band for band in bands if band != 'SCL']).resample('bilinear').reproject(self.proj).unmask(no_data_values['Sentinel2'])
         scl = s2_image.select('SCL').reproject(self.proj).unmask() # unmasks SCL to 0
         s2_image = continuous_valued_bands.addBands(scl) # combines continuous and categorical bands
