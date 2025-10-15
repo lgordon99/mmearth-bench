@@ -16,7 +16,7 @@ import utils
 
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
 pixel_level_modalities = ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETH_GCH', 'DynamicWorld', 'ESA_WorldCover', 'MSK_CLDPRB', 'S2CLOUDLESS', 'SCL']
-tile_level_modalities = ['precipitation', 'temperature', 'geolocation', 'month', 'biome', 'ecoregion', 'latitude', 'longitude', 'MSK_CLDPRB_CLOUDY_PIXEL_FRACTION', 'S2CLOUDLESS_CLOUDY_PIXEL_FRACTION', 'SCL_NO_DATA_PIXEL_FRACTION']
+tile_level_modalities = ['precipitation', 'temperature', 'geolocation', 'geolocation_encoding', 'month_encoding', 'biome', 'ecoregion', 'MSK_CLDPRB_CLOUDY_PIXEL_FRACTION', 'S2CLOUDLESS_CLOUDY_PIXEL_FRACTION', 'SCL_NO_DATA_PIXEL_FRACTION']
 
 # ============================================== FUNCTIONS ============================================== #
 
