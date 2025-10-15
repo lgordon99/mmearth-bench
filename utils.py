@@ -20,6 +20,13 @@ def count_running_jobs():
 
     return job_count
 
+def count_running_tile_jobs():
+    command = subprocess.run(['squeue', '-u', subprocess.getoutput('whoami').strip(), '-t', 'RUNNING', '--format=%.80j'], stdout=subprocess.PIPE, text=True)
+    job_names = command.stdout.replace(' ', '').split('\n')[1:-1]
+    count = len([job_name for job_name in job_names if 'get_tile' in job_name])
+
+    return count
+
 def format_time(seconds):
     days = int(seconds // 86400)  # number of seconds in a day
     seconds %= 86400
