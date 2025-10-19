@@ -12,15 +12,16 @@ import torch
 # ============================================== CLASSES ============================================== #
 
 class DataModule(LightningDataModule):
-    def __init__(self, task, architecture, adaptation_mode, batch_size, num_workers, seed):
+    def __init__(self, task, architecture, adaptation_mode, train_percent, batch_size, num_workers, seed):
         super().__init__()
 
         self.task = task
         self.adaptation_mode = adaptation_mode
+        self.train_percent = train_percent
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.seed = seed
-        self.dataset = MMEarthBenchDataset(task, architecture, adaptation_mode)
+        self.dataset = MMEarthBenchDataset(task, architecture, adaptation_mode, train_percent)
 
         self.setup('init')
 
@@ -34,7 +35,10 @@ class DataModule(LightningDataModule):
 
         for split in splits:
             if self.adaptation_mode != 'task_modality_decoder':
-                setattr(self, f'{split}_dataset', Subset(dataset=self.dataset, indices=self.dataset.split_data[f'{split}_indices']))
+                if split == 'train':
+                    setattr(self, f'{split}_dataset', Subset(dataset=self.dataset, indices=self.dataset.split_data[f'{split}_{self.train_percent}%_indices']))
+                else:
+                    setattr(self, f'{split}_dataset', Subset(dataset=self.dataset, indices=self.dataset.split_data[f'{split}_indices']))
             else:
                 setattr(self, f'{split}_dataset', self.dataset)
 
@@ -44,12 +48,12 @@ class DataModule(LightningDataModule):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True, shuffle=True, generator=torch.Generator().manual_seed(self.seed))
 
     def val_dataloader(self):
-        batch_size = 1 if self.adaptation_mode in ['mt3', 'maml', 'maml_input_embeddings', 'maml_encode', 'rna', 'rna_input_embeddings'] else self.batch_size
+        batch_size = 1 if self.adaptation_mode in ['mt3', 'multimodal_mt3', 'sln', 'multimodal_sln', 'maml_input_embeddings', 'maml_encode', 'rna', 'rna_input_embeddings'] else self.batch_size
 
         return DataLoader(self.val_dataset, batch_size=batch_size, num_workers=self.num_workers, pin_memory=True)
 
     def test_dataloader(self):
-        batch_size = 1 if self.adaptation_mode in ['mt3', 'maml', 'maml_input_embeddings', 'maml_encode', 'rna', 'rna_input_embeddings'] else self.batch_size
+        batch_size = 1 if self.adaptation_mode in ['mt3', 'multimodal_mt3', 'sln', 'multimodal_sln', 'maml_input_embeddings', 'maml_encode', 'rna', 'rna_input_embeddings'] else self.batch_size
 
         random_test_dataloader = DataLoader(self.random_test_dataset, batch_size=batch_size, num_workers=self.num_workers, pin_memory=True)
         geographic_test_dataloader = DataLoader(self.geographic_test_dataset, batch_size=batch_size, num_workers=self.num_workers, pin_memory=True)
