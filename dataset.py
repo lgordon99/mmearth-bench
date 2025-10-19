@@ -49,6 +49,18 @@ def get_vv_vh_least_nans(sentinel1):
 
     return vv_vh
 
+def make_anysat_s1(sentinel1):
+    vv = sentinel1[0]
+    vh = sentinel1[1]
+    ratio = np.ma.minimum(vv / (vh + 1e-6), 10**6)
+
+    # Check that any pixel masked in VV or VH is also masked in ratio
+    original_mask = vv.mask | vh.mask  # Union of masks from both bands
+    if np.any(original_mask):  # Only check if there are any masked pixels
+        assert np.all(ratio.mask[original_mask]), "Pixels masked in VV or VH should also be masked in ratio band"
+
+    return np.ma.vstack([sentinel1, ratio[np.newaxis, :, :]])
+
 # ============================================== CLASSES ============================================== #
 
 class MMEarthBenchDataset(Dataset):
@@ -64,11 +76,6 @@ class MMEarthBenchDataset(Dataset):
 
             if architecture == 'TerraMind':
                 self.input_data['RGB'] = np.ma.stack([make_terramind_rgb(np.ma.masked_equal(sentinel2[[3,2,1]], no_data_values['Sentinel2'])) for sentinel2 in self.input_data['Sentinel2']])
-                # train_images = self.task_modality_data['rgb'][self.split_data['train_indices']]
-                # axes_to_collapse = tuple(i for i in range(train_images.ndim) if i != 1)
-                # collapsed_shape = (train_images.shape[1],) + (1,) * (train_images.ndim - 2)
-                # self.rgb_train_means = train_images.mean(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
-                # self.rgb_train_stds = train_images.std(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
             elif architecture == 'CopernicusFM':
                 geolocation = h5_file['geolocation'][:]
                 self.input_data['longitude'] = ensure_2d(geolocation[:, 0])
@@ -123,12 +130,12 @@ class MMEarthBenchDataset(Dataset):
                 # extract the VV and VH bands from either the ascending or descending pass, whichever has more valid pixels
                 if modality == 'Sentinel1':
                     masked = get_vv_vh_least_nans(masked)
-                    # collapsed_shape = (masked.shape[0],) + (1,) * (masked.ndim - 1) # singleton dimensions for the number of spatial dimensions
+
+                    if self.architecture == 'AnySat':
+                        masked = make_anysat_s1(masked)
 
                 # mean-std normalization
                 normalized = (masked - np.expand_dims(architecture_normalization_data[modality]['means'], axis=axes_to_collapse)) / np.expand_dims(architecture_normalization_data[modality]['stds'], axis=axes_to_collapse)
-                # post_normalization_means = normalized.mean(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
-                # tile_input_data[modality] = normalized.filled(post_normalization_means)
                 tile_input_data[modality] = normalized.filled(0)
 
             tile_input_data[modality] = torch.tensor(tile_input_data[modality], dtype=torch.float32) # converts to tensor
@@ -146,9 +153,6 @@ class MMEarthBenchDataset(Dataset):
                 masked = np.ma.masked_equal(tile_task_modality_data[modality]['data'], no_data_values[modality]) # masks the no-data values
                 normalized = (masked - self.split_data[f'{modality}_train_means']) / self.split_data[f'{modality}_train_stds'] # normalization
                 tile_task_modality_data[modality]['data'] = normalized.filled(0) # replaces NaNs with the post-normalization mean
-            # elif modality == 'rgb':
-            #     normalized = (tile_task_modality_data[modality]['data'] - self.rgb_train_means) / self.rgb_train_stds # normalization
-            #     tile_task_modality_data[modality]['data'] = normalized.filled(0) # replaces NaNs with the post-normalization mean
 
         if self.adaptation_mode in ['multimodal', 'multimodal_joint_training', 'ttt-mjt', 'multimodal_mt3', 'multimodal_sln', 'maml_encode']:
             # convert categorical modalities to one-hot encoding
