@@ -10,7 +10,6 @@ from torchgeo.models import scale_mae, ScaleMAELarge16_Weights
 from torchmetrics import MetricCollection
 from torchmetrics.classification import MultilabelAveragePrecision, MultilabelRecall
 from torchmetrics.regression import MeanSquaredError, R2Score
-from torchvision.datasets.utils import download_url
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -35,19 +34,20 @@ task_modalities = utils.read_json(f'{data_dir_path}/task_modalities.json')
 no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
 biomass_no_data_value = -9999
 image_size = 128
-architecture_properties = {'ScaleMAE': {'num_input_bands': 3, 'embedding_dim': 1024},
-                           'DINOv3Web': {'num_input_bands': 3, 'embedding_dim': 1024},
-                           'DINOv3Sat': {'num_input_bands': 3, 'embedding_dim': 1024},
-                           'MPMAE': {'num_input_bands': 12, 'embedding_dim': 320},
-                           'TerraMind': {'num_input_bands': 18, 'embedding_dim': 768},
-                           'CopernicusFM': {'num_input_bands': 15, 'embedding_dim': 768}}
+architecture_embedding_dims = {'ScaleMAE': 1024,
+                               'DINOv3Web': 1024,
+                               'DINOv3Sat': 1024,
+                               'MPMAE': 320,
+                               'AnySat': 768,
+                               'TerraMind': 768,
+                               'CopernicusFM': 768}
 sys.path.append(f'{data_dir_path}/pretrained_checkpoints/Copernicus-FM/Copernicus-FM/src')
 from model_vit import vit_base_patch16
 
 # ============================================== FUNCTIONS ============================================== #
 
 def get_state_dict(task, architecture, adaptation_mode):
-    runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['xi']}}) # filters to only include runs with the 'xi' tag
+    runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['omikron']}}) # filters to only include runs with a certain tag
     name = '_'.join([task, architecture, adaptation_mode]) # constructs the name of the run
     run = [run for run in runs if run.name.startswith(name)][0] # finds the run with the matching name
 
@@ -60,27 +60,6 @@ def get_state_dict(task, architecture, adaptation_mode):
 
     return ckpt['state_dict']
 
-# def get_vv_vh_least_nans(sentinel1):
-#     sentinel1_mask_vertical = sentinel1['valid_mask'][:, [0,1,4,5]] # ascending VV, VH; descending VV, VH
-#     asc_num_valid_pixels = sentinel1_mask_vertical[:, :2].sum(dim=(1,2,3)) # counts the number of valid pixels in the ascending VV and VH bands
-#     desc_num_valid_pixels = sentinel1_mask_vertical[:, 2:].sum(dim=(1,2,3)) # counts the number of valid pixels in the descending VV and VH bands
-#     sentinel1_input = torch.stack([sentinel1['data'][i, [0,1]] if asc_num_valid_pixels[i] >= desc_num_valid_pixels[i] else sentinel1['data'][i, [4,5]] for i in range(len(sentinel1_mask_vertical))]) # extracts the VV and VH bands from either the ascending or descending pass, whichever has more valid pixels
-
-#     return sentinel1_input
-
-# def get_model_input(architecture, images):
-#     if architecture == 'ScaleMAE' or 'DINOv3' in architecture:
-#         x = images['Sentinel2']['data'][:, [3,2,1], :, :] # extracts the RGB bands
-#     elif architecture == 'MPMAE':
-#         x = images['Sentinel2']['data'].clone()
-#         x[:, [7, 8]] = x[:, [8, 7]] # swaps bands 8 and 8A
-#     elif architecture == 'TerraMind':
-#         x = {'S2L2A': images['Sentinel2']['data'], 'S1GRD': get_vv_vh_least_nans(images['Sentinel1']), 'DEM': images['AsterDEM']['data'][:, 0].unsqueeze(1), 'RGB': images['rgb']['data']}
-#     elif architecture == 'CopernicusFM':
-#         x = (images['Sentinel2']['data'], get_vv_vh_least_nans(images['Sentinel1']), images['AsterDEM']['data'][:, 0].unsqueeze(1), images['longitude']['data'], images['latitude']['data'], images['time']['data'])
-
-#     return x
-
 # ============================================== ENCODER CLASSES ============================================== #
 
 class ScaleMAEEncoder(nn.Module):
@@ -88,6 +67,13 @@ class ScaleMAEEncoder(nn.Module):
         super().__init__()
 
         self.model = scale_mae.scalemae_large_patch16(weights=ScaleMAELarge16_Weights.FMOW_RGB, res=10, img_size=image_size)
+
+        # remove unused parameters
+        if hasattr(self.model, 'head'):
+            del self.model.head
+
+        if hasattr(self.model, 'pos_embed'):
+            del self.model.pos_embed
 
     def forward(self, images):
         embeddings = self.model.forward_features(images['Sentinel2'])[:, 1:].permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
@@ -102,8 +88,8 @@ class _DINOv3BaseEncoder(nn.Module):
 
         self.model = torch.hub.load(f'{data_dir_path}/pretrained_checkpoints/dinov3',
                                     'dinov3_vitl16',
-                                     source='local',
-                                     weights=f'{data_dir_path}/pretrained_checkpoints/{checkpoint_name}.pth')
+                                    source='local',
+                                    weights=f'{data_dir_path}/pretrained_checkpoints/{checkpoint_name}.pth')
 
         # remove unused layer
         if hasattr(self.model, 'local_cls_norm'):
@@ -125,7 +111,7 @@ class DINOv3SatEncoder(_DINOv3BaseEncoder):
         super().__init__(checkpoint_name='dinov3_vitl16_pretrain_sat493m-eadcf0ff')
 
 class MPMAEEncoder(nn.Module):
-    def __init__(self, adaptation_mode, pretrained):
+    def __init__(self, pretrained, adaptation_mode):
         super().__init__()
 
         self.model = ConvNeXtV2(grn_mode='simplified' if ('mt3' in adaptation_mode or 'sln' in adaptation_mode) else 'original')
@@ -139,8 +125,20 @@ class MPMAEEncoder(nn.Module):
 
         return embeddings
 
+class AnySatEncoder(nn.Module):
+    def __init__(self, pretrained, _):
+        super().__init__()
+
+        self.model = torch.hub.load('gastruc/anysat', 'anysat', pretrained=pretrained, flash_attn=False)
+
+    def forward(self, images):
+        x = {'s2': images['Sentinel2'].unsqueeze(1), 's2_dates': torch.zeros(len(images['Sentinel2']), 1), 's1': images['Sentinel1'].unsqueeze(1), 's1_dates': torch.zeros(len(images['Sentinel1']), 1)}
+        embeddings = self.model(x, patch_size=160, output='patch').permute(0, 3, 1, 2) # (batch_size, embedding_dim, num_vertical_patches, num_horizontal_patches)
+
+        return embeddings
+
 class TerraMindEncoder(nn.Module):
-    def __init__(self, adaptation_mode, pretrained):
+    def __init__(self, pretrained, _):
         super().__init__()
 
         self.model = BACKBONE_REGISTRY.build('terramind_v1_base', pretrained=pretrained, modalities=['S2L2A', 'S1GRD', 'DEM', 'RGB'])
@@ -158,12 +156,24 @@ class CopernicusFMEncoder(nn.Module):
         super().__init__()
 
         self.model = vit_base_patch16(global_pool=False, return_intermediate=True, intermediate_indices=[11]) # 11 corresponds to the last block
-        nn.init.ones_(self.model.norm.weight)
-        nn.init.zeros_(self.model.norm.bias)
         state_dict = torch.load(f'{data_dir_path}/pretrained_checkpoints/CopernicusFM_ViT_base_varlang_e100.pth')
         state_dict['norm.weight'] = self.model.norm.weight.clone()
         state_dict['norm.bias'] = self.model.norm.bias.clone()
         self.model.load_state_dict(state_dict)
+
+        # remove unused layer
+        if hasattr(self.model, 'coord_token'):
+            del self.model.coord_token
+
+        if hasattr(self.model, 'scale_token'):
+            del self.model.scale_token
+
+        if hasattr(self.model, 'time_token'):
+            del self.model.time_token
+
+        if hasattr(self.model, 'norm'):
+            del self.model.norm
+
         self.patch_area = 0.0256 # ( 16 pixels per patch x 10 m per pixel / 1000 m per km ) ** 2 km
         self.patch_size = 16 # pixels per patch
         self.sentinel2_wavelengths = [440, 490, 560, 665, 705, 740, 783, 842, 860, 940, 1610, 2190]
@@ -171,13 +181,7 @@ class CopernicusFMEncoder(nn.Module):
         self.sentinel1_wavelengths = [50000000, 50000000]
         self.sentinel1_bandwidths = [1e9, 1e9]
         self.dem_time = (date(2015, 1, 1) - date(1970, 1, 1)).days # pretraining was with that date
-        variable_embed_path = './weights/var_embed_llama3.2_1B.pt'
-
-        if not os.path.exists(variable_embed_path):
-            download_url('https://huggingface.co/wangyi111/Copernicus-FM/resolve/main/varname_embed/varname_embed_llama3.2_1B.pt', './weights/', filename='var_embed_llama3.2_1B.pt')
-
-        dem_language_embedding = torch.load(variable_embed_path)['Copernicus Digital Elevation Model']
-        self.register_buffer('dem_language_embedding', dem_language_embedding, persistent=False)
+        self.register_buffer('dem_language_embedding', torch.load(f'{data_dir_path}/pretrained_checkpoints/Copernicus-FM/var_embed_llama3.2_1B.pt')['Copernicus Digital Elevation Model'], persistent=False)
 
     def forward(self, images):
         longitude = images['longitude']
@@ -242,7 +246,7 @@ class TaskDecoder(nn.Module):
     def __init__(self, architecture, adaptation_mode, pixelwise, num_classes):
         super().__init__()
 
-        embedding_dim = architecture_properties[architecture]['embedding_dim']
+        embedding_dim = architecture_embedding_dims[architecture]
 
         if adaptation_mode in ['multimodal', 'multimodal_joint_training', 'ttt-mjt', 'multimodal_mt3', 'multimodal_sln', 'sln_encode']:
             embedding_dim += 320 # 320 is the embedding dimension of the task modality encoder
@@ -275,11 +279,11 @@ class TaskModalityDecoder(nn.Module):
                                       'ESA_WorldCover': [33, 44],
                                       'precipitation': [44, 47],
                                       'temperature': [47, 56],
-                                      'geolocation': [56, 60],
-                                      'month': [60, 62],
+                                      'geolocation_encoding': [56, 60],
+                                      'month_encoding': [60, 62],
                                       'biome': [62, 76],
                                       'ecoregion': [76, 922]}
-        self.tile_level_modality_names = ['precipitation', 'temperature', 'geolocation', 'month', 'biome', 'ecoregion']
+        self.tile_level_modality_names = ['precipitation', 'temperature', 'geolocation_encoding', 'month_encoding', 'biome', 'ecoregion']
 
     def forward(self, embeddings):
         modality_reconstructions = self.task_modality_decoder(embeddings)
@@ -629,29 +633,29 @@ class Adapter(nn.Module):
         return initial_input_embeddings + self.alpha * residual # global, learnable small step
 
 class EncoderDecoder(nn.Module):
-    def __init__(self, task, architecture, adaptation_mode, tuning_mode, pixelwise, num_classes, pretrained, lr):
+    def __init__(self, task, architecture, adaptation_mode, pixelwise, num_classes, pretrained, lr):
         super().__init__()
 
         self.architecture = architecture
         self.adaptation_mode = adaptation_mode
         self.pixelwise = pixelwise
-        self.encoder = globals()[f'{architecture}Encoder'](adaptation_mode, pretrained)
+        self.encoder = globals()[f'{architecture}Encoder'](pretrained, adaptation_mode)
         self.lr = lr
-        embedding_dim = architecture_properties[architecture]['embedding_dim']
+        embedding_dim = architecture_embedding_dims[architecture]
 
         if adaptation_mode in ['multimodal_joint_training', 'ttt-mjt', 'multimodal_mt3', 'multimodal_sln']:
             embedding_dim += 320 # 320 is the embedding dimension of the task modality encoder
 
-        if 'ttt' in adaptation_mode or '-10' in adaptation_mode or '-20' in adaptation_mode or adaptation_mode in ['standard', 'multimodal', 'joint_training', 'multimodal_joint_training', 'mt3', 'multimodal_mt3', 'sln', 'multimodal_sln', 'joint_probing', 'sln_input_embeddings', 'sln_encode', 'mt3_metabatch', 'mt3_frozen', 'rna', 'rna_input_embeddings']:
+        if 'ttt' in adaptation_mode or '-10' in adaptation_mode or '-20' in adaptation_mode or adaptation_mode in ['FT', 'LP', 'multimodal', 'JT', 'multimodal_joint_training', 'mt3', 'multimodal_mt3', 'sln', 'multimodal_sln', 'joint_probing', 'sln_input_embeddings', 'sln_encode', 'mt3_metabatch', 'mt3_frozen', 'rna', 'rna_input_embeddings']:
             self.task_decoder = TaskDecoder(architecture, adaptation_mode, pixelwise, num_classes)
 
         if adaptation_mode in ['multimodal', 'multimodal_joint_training', 'ttt-mjt', 'multimodal_mt3', 'multimodal_sln', 'sln_encode']:
             self.task_modality_encoder = TaskModalityEncoder()
 
-        if adaptation_mode in ['joint_training', 'multimodal_joint_training', 'ttt-jt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-mjt', 'mt3', 'mt3-10', 'mt3-20', 'multimodal_mt3', 'sln', 'sln-10', 'sln-20', 'multimodal_sln', 'joint_probing', 'ttt-adapter', 'ttt-jp', 'mt3_metabatch', 'mt3_frozen', 'rna']:
+        if adaptation_mode in ['JT', 'multimodal_joint_training', 'ttt-jt', 'uda-ttt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-mjt', 'mt3', 'mt3-10', 'mt3-20', 'multimodal_mt3', 'sln', 'sln-10', 'sln-20', 'multimodal_sln', 'joint_probing', 'ttt-adapter', 'ttt-jp', 'mt3_metabatch', 'mt3_frozen', 'rna']:
             self.task_modality_decoder = TaskModalityDecoder(embedding_dim)
 
-        if adaptation_mode in ['joint_training', 'multimodal_joint_training', 'ttt-jt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-mjt', 'mt3', 'mt3-10', 'mt3-20', 'multimodal_mt3', 'sln', 'multimodal_sln', 'joint_probing',  'ttt-adapter', 'ttt-jp', 'mt3_metabatch', 'mt3_frozen']:
+        if adaptation_mode in ['JT', 'multimodal_joint_training', 'ttt-jt', 'uda-ttt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-mjt', 'mt3', 'mt3-10', 'mt3-20', 'multimodal_mt3', 'sln', 'multimodal_sln', 'joint_probing',  'ttt-adapter', 'ttt-jp', 'mt3_metabatch', 'mt3_frozen']:
             self.task_modality_decoder_loss = TaskModalityDecoderLoss()
 
         if adaptation_mode in ['sln', 'sln-10', 'sln-20', 'multimodal_sln', 'rna']:
@@ -677,7 +681,7 @@ class EncoderDecoder(nn.Module):
         # load model from checkpoint
         if 'ttt' in adaptation_mode or '-10' in adaptation_mode or '-20' in adaptation_mode or adaptation_mode in ['task_modality_decoder', 'sln_input_embeddings', 'sln_encode', 'mt3_frozen', 'rna', 'rna_input_embeddings']:
             if adaptation_mode in ['task_modality_decoder', 'ttt-jt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-adapter', 'mt3_frozen', 'rna']:
-                state_dict = get_state_dict(task, architecture, 'joint_training')
+                state_dict = get_state_dict(task, architecture, 'JT')
             elif adaptation_mode in ['mt3-10', 'mt3-20']:
                 state_dict = get_state_dict(task, architecture, 'mt3')
             elif adaptation_mode in ['sln-10', 'sln-20']:
@@ -686,7 +690,8 @@ class EncoderDecoder(nn.Module):
                 state_dict = get_state_dict(task, architecture, 'joint_probing')
             elif adaptation_mode == 'ttt-mjt':
                 state_dict = get_state_dict(task, architecture, 'multimodal_joint_training')
-            elif adaptation_mode in ['sln_input_embeddings', 'rna_input_embeddings']:
+            elif adaptation_mode in ['uda-ttt', 'sln_input_embeddings', 'rna_input_embeddings']:
+                # state_dict = get_state_dict(task, architecture, 'FT')
                 state_dict = get_state_dict(task, architecture, 'standard')
             elif adaptation_mode == 'sln_encode':
                 state_dict = get_state_dict(task, architecture, 'multimodal')
@@ -696,7 +701,7 @@ class EncoderDecoder(nn.Module):
             self.encoder.load_state_dict(encoder_state_dict)
 
         # freeze encoder
-        if 'ttt' in adaptation_mode or '-10' in adaptation_mode or '-20' in adaptation_mode or adaptation_mode in ['sln_input_embeddings', 'sln_encode', 'mt3_frozen', 'rna', 'rna_input_embeddings', 'joint_probing', 'task_modality_decoder']:
+        if 'ttt' in adaptation_mode or '-10' in adaptation_mode or '-20' in adaptation_mode or adaptation_mode in ['LP', 'sln_input_embeddings', 'sln_encode', 'mt3_frozen', 'rna', 'rna_input_embeddings', 'joint_probing', 'task_modality_decoder']:
             self.encoder.requires_grad_(False) # freezes the encoder
 
         # freeze task decoder
@@ -706,7 +711,7 @@ class EncoderDecoder(nn.Module):
             self.task_decoder.load_state_dict(task_decoder_state_dict)
             self.task_decoder.requires_grad_(False) # freezes the task decoder
 
-            if adaptation_mode not in ['sln_input_embeddings', 'sln_encode', 'rna_input_embeddings']:
+            if adaptation_mode not in ['uda-ttt','sln_input_embeddings', 'sln_encode', 'rna_input_embeddings']:
                 # load task modality decoder weights
                 task_modality_decoder_state_dict = {key.removeprefix('model.task_modality_decoder.'): value for key, value in state_dict.items() if key.startswith('model.task_modality_decoder')}
                 self.task_modality_decoder.load_state_dict(task_modality_decoder_state_dict)
@@ -755,6 +760,17 @@ class EncoderDecoder(nn.Module):
                 task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions=self.task_modality_decoder(input_embeddings), images=images)
                 task_modality_reconstruction_loss_grads = torch.autograd.grad(task_modality_reconstruction_loss, encoder_parameters.values()) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
 
+                # unused_params = []
+                # for name, param in encoder_parameters.items():
+                #     grad = torch.autograd.grad(task_modality_reconstruction_loss, param, retain_graph=True, allow_unused=True)[0]
+                #     if grad is None:
+                #         unused_params.append(name)
+
+                # if unused_params:
+                #     print(f"Found {len(unused_params)} unused parameters:")
+                #     for name in unused_params:
+                #         print(f"  - {name}")
+                # exit()
                 with torch.no_grad():
                     encoder_parameters = {name: (parameter - self.lr * grad).detach().requires_grad_() for (name, parameter), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)}
 
@@ -821,9 +837,14 @@ class EncoderDecoder(nn.Module):
             return iteration_predictions
 
     def forward(self, input_data, task_modality_data):
-        # input_data = get_model_input(architecture=self.architecture, task_modality_data=task_modality_data)
+        if self.adaptation_mode == 'FT':
+            input_embeddings = self.encoder(input_data)
+            task_prediction = self.task_decoder(input_embeddings)
 
-        if self.adaptation_mode == 'standard':
+            return task_prediction
+        elif self.adaptation_mode == 'LP':
+            self.encoder.eval()
+
             input_embeddings = self.encoder(input_data)
             task_prediction = self.task_decoder(input_embeddings)
 
@@ -836,7 +857,7 @@ class EncoderDecoder(nn.Module):
             task_prediction = self.task_decoder(concatenated_embeddings)
 
             return task_prediction
-        elif self.adaptation_mode == 'joint_training':
+        elif self.adaptation_mode == 'JT':
             input_embeddings = self.encoder(input_data)
             task_prediction = self.task_decoder(input_embeddings)
             modality_reconstructions = self.task_modality_decoder(input_embeddings)
@@ -869,11 +890,11 @@ class EncoderDecoder(nn.Module):
             modality_reconstructions = self.task_modality_decoder(input_embeddings, task_modality_data)
 
             return modality_reconstructions
-        elif self.adaptation_mode in ['ttt-jt', 'ttt-jp']:
+        elif self.adaptation_mode in ['ttt-jt', 'uda-ttt', 'ttt-jp']:
             iteration_predictions = self.ttt(input_data, task_modality_data, num_iterations=1)
 
             return iteration_predictions
-        elif self.adaptation_mode == 'ttt-jt-10':
+        elif self.adaptation_mode in ['ttt-jt-10', 'uda-ttt-10']:
             iteration_predictions = self.ttt(input_data, task_modality_data, num_iterations=10)
 
             return iteration_predictions
@@ -1258,18 +1279,12 @@ class EncoderDecoder(nn.Module):
             return torch.cat([initial_task_prediction, adapted_task_prediction], dim=1).t().unsqueeze(-1) # (num_iterations+1, batch_size, 1)
 
 class Model(LightningModule):
-    def __init__(self, task, architecture, adaptation_mode, tuning_mode, pretrained, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, inner_loop_lr):
+    def __init__(self, task, architecture, adaptation_mode, pretrained, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, inner_loop_lr):
         super().__init__()
 
         self.save_hyperparameters()
         self.configure_models()
         self.configure_metrics()
-
-        # Enable UDA mode if "uda" is in adaptation_mode
-        self.uda_mode = 'uda' in adaptation_mode.lower()
-
-        # Store original model state for UDA resets
-        self._original_state_dict = None
 
         if adaptation_mode == 'task_modality_decoder':
             self.criterion = TaskModalityDecoderLoss()
@@ -1279,12 +1294,11 @@ class Model(LightningModule):
             self.criterion = nn.MSELoss()
 
     def configure_models(self):
-        pixelwise = True if self.hparams.task == 'biomass' else False
+        pixelwise = self.hparams.task == 'biomass'
         self.num_classes = 100 if self.hparams.task == 'species' else 1
         self.model = EncoderDecoder(task=self.hparams.task,
                                     architecture=self.hparams.architecture,
                                     adaptation_mode=self.hparams.adaptation_mode,
-                                    tuning_mode=self.hparams.tuning_mode,
                                     pixelwise=pixelwise,
                                     num_classes=self.num_classes,
                                     pretrained=self.hparams.pretrained,
@@ -1318,7 +1332,7 @@ class Model(LightningModule):
         input_data, task_modality_data, target = batch # extracts the images and targets for the batch
         prediction = self(input_data, task_modality_data) # forward pass
 
-        if self.hparams.adaptation_mode in ['joint_training', 'multimodal_joint_training', 'joint_probing']:
+        if self.hparams.adaptation_mode in ['JT', 'multimodal_joint_training', 'joint_probing']:
             prediction, modality_reconstructions, task_modality_reconstruction_loss = prediction
         elif 'ttt' in self.hparams.adaptation_mode or '-10' in self.hparams.adaptation_mode or '-20' in self.hparams.adaptation_mode or self.hparams.adaptation_mode in ['sln_input_embeddings', 'sln_encode', 'rna', 'rna_input_embeddings']:
             iteration_predictions = prediction
@@ -1346,7 +1360,7 @@ class Model(LightningModule):
 
         # LOSS #
 
-        if self.hparams.adaptation_mode in ['joint_training', 'multimodal_joint_training', 'joint_probing', 'mt3', 'sln', 'multimodal_mt3', 'multimodal_sln']:
+        if self.hparams.adaptation_mode in ['JT', 'multimodal_joint_training', 'joint_probing', 'mt3', 'sln', 'multimodal_mt3', 'multimodal_sln']:
             with torch.no_grad():
                 modality_reconstruction_losses = ModalityReconstructionLossCalculator()(modality_reconstructions, task_modality_data)
 
@@ -1366,7 +1380,7 @@ class Model(LightningModule):
 
         loss = self.criterion(prediction, target) # computes the loss
 
-        if self.hparams.adaptation_mode in ['joint_training', 'multimodal_joint_training', 'joint_probing', 'mt3', 'sln', 'multimodal_mt3', 'multimodal_sln']:
+        if self.hparams.adaptation_mode in ['JT', 'multimodal_joint_training', 'joint_probing', 'mt3', 'sln', 'multimodal_mt3', 'multimodal_sln']:
             self.log(f'{mode.capitalize().replace("_", " ")} task modality reconstruction loss', task_modality_reconstruction_loss, add_dataloader_idx=False) # logs the task modality reconstruction loss
             loss += task_modality_reconstruction_loss
 
@@ -1436,19 +1450,15 @@ class Model(LightningModule):
         self.general_step(batch=batch, batch_idx=batch_idx, mode='val')
 
     def test_step(self, batch, batch_idx, dataloader_idx):
-        # Check if this is UDA mode
-        if hasattr(self, 'uda_mode') and self.uda_mode:
-            # For UDA, we need to train on unlabeled test data first
-            if not hasattr(self, f'uda_trained_{dataloader_idx}'):
-                # Reset model to original state before UDA training
-                self._reset_model_to_original_state()
-                self._perform_uda_training(dataloader_idx)
-                setattr(self, f'uda_trained_{dataloader_idx}', True)
+        if 'uda' in self.hparams.adaptation_mode and batch_idx == 0: # if we are in UDA mode and on the first batch
+            if dataloader_idx == 0: # if we are on the first dataloader
+                self.original_state_dict = {k: v.clone() for k, v in self.model.state_dict().items()} # saves the original model state
+            else:
+                self.model.load_state_dict(self.original_state_dict) # loads the original model state
+
+            self._perform_uda_training(dataloader_idx)
 
         self.general_step(batch=batch, batch_idx=batch_idx, mode='random_test' if dataloader_idx==0 else 'geographic_test', dataloader_idx=dataloader_idx)
-
-    # def test_step(self, batch, batch_idx):
-        # self.general_step(batch=batch, batch_idx=batch_idx, mode='test')
 
     def _log_images(self, images, mode):
         images = np.array([np.stack(utils.normalize(image), axis=-1) for image in images])
@@ -1491,111 +1501,49 @@ class Model(LightningModule):
         Perform unsupervised domain adaptation on unlabeled test data for the specified split.
         This trains the encoder and task modality decoder jointly on the test data.
         """
-        # Get the appropriate test dataloader
-        if dataloader_idx == 0:
-            split_name = 'random_test'
-            dataloader = self.trainer.datamodule.random_test_dataloader()
-        else:
-            split_name = 'geographic_test'
-            dataloader = self.trainer.datamodule.geographic_test_dataloader()
 
-        print(f"Starting UDA training on {split_name} split...")
+        dataloader = self.trainer.datamodule.test_dataloader()[dataloader_idx]
+        split_name = 'random_test' if dataloader_idx == 0 else 'geographic_test'
 
-        # Set model to training mode
-        self.train()
+        print(f'Starting UDA training on {split_name.replace("_", " ")} split...')
 
-        # Create optimizer for encoder and task modality decoder
-        uda_parameters = []
-        if hasattr(self.model, 'encoder'):
-            uda_parameters.extend(self.model.encoder.parameters())
-        if hasattr(self.model, 'task_modality_decoder'):
-            uda_parameters.extend(self.model.task_modality_decoder.parameters())
+        # set model components to training mode
+        # self.model.encoder.train()
+        self.model.task_modality_decoder.train()
 
-        if not uda_parameters:
-            print("Warning: No UDA parameters found (encoder or task_modality_decoder)")
-            return
+        # uda_parameters = list(self.model.encoder.parameters()) + list(self.model.task_modality_decoder.parameters())
+        uda_parameters = list(self.model.task_modality_decoder.parameters())
 
-        optimizer = torch.optim.Adam(uda_parameters, lr=self.hparams.max_lr)
+        # ensure all parameters require gradients
+        for param in uda_parameters:
+            param.requires_grad = True
+
+        optimizer = torch.optim.AdamW(uda_parameters, lr=self.hparams.max_lr, weight_decay=self.hparams.weight_decay)
 
         # UDA training loop
-        num_uda_epochs = 5  # You can adjust this
+        num_uda_epochs = 50
+        device = self.device
+
         for epoch in range(num_uda_epochs):
             epoch_loss = 0.0
             num_batches = 0
 
-            for batch_idx, batch in enumerate(dataloader):
-                input_data, task_modality_data, _ = batch  # Ignore targets for UDA
-
-                optimizer.zero_grad()
-
-                # Forward pass for joint training
-                if self.hparams.adaptation_mode in ['joint_training', 'multimodal_joint_training']:
-                    prediction, modality_reconstructions, task_modality_reconstruction_loss = self(input_data, task_modality_data)
-
-                    # Use task modality reconstruction loss for UDA
-                    loss = task_modality_reconstruction_loss
-                else:
-                    # For other modes, use the task prediction loss (but we don't have targets)
-                    # This is a limitation - UDA works best with joint training modes
-                    print(f"Warning: UDA not fully supported for adaptation_mode: {self.hparams.adaptation_mode}")
-                    continue
-
-                # Backward pass
-                loss.backward()
-                optimizer.step()
-
-                epoch_loss += loss.item()
-                num_batches += 1
-
-                # Limit number of batches per epoch for efficiency
-                if num_batches >= 100:  # You can adjust this
-                    break
+            with torch.enable_grad():
+                for _, batch in enumerate(dataloader):
+                    input_data, task_modality_data, _ = batch # ignores targets for UDA
+                    input_data = {modality: data.to(device) for modality, data in input_data.items()} # moves input data to GPU
+                    task_modality_data = {modality: {key: value.to(device) for key, value in dictionary.items()} for modality, dictionary in task_modality_data.items()} # moves task modality data to GPU
+                    optimizer.zero_grad() # zeroes the gradients
+                    input_embeddings = self.model.encoder(input_data) # embeds the input data
+                    modality_reconstructions = self.model.task_modality_decoder(input_embeddings) # reconstructs the task modalities
+                    task_modality_reconstruction_loss = self.model.task_modality_decoder_loss(modality_reconstructions, task_modality_data) # computes the task modality reconstruction loss
+                    task_modality_reconstruction_loss.backward() # computes the gradients of the task modality reconstruction loss with respect to the encoder and task modality decoder parameters
+                    optimizer.step() # updates the encoder and task modality decoder parameters
+                    optimizer.zero_grad() # zeroes the gradients
+                    epoch_loss += task_modality_reconstruction_loss.item()
+                    num_batches += 1
 
             avg_loss = epoch_loss / num_batches if num_batches > 0 else 0.0
-            print(f"UDA Epoch {epoch+1}/{num_uda_epochs} on {split_name}: Loss = {avg_loss:.4f}")
+            print(f'UDA Epoch {epoch+1}/{num_uda_epochs} on {split_name}: Loss = {avg_loss:.4f}')
 
-        # Set model back to eval mode
-        self.eval()
-        print(f"UDA training completed on {split_name} split")
-
-
-    def _save_original_state(self):
-        """Save the current model state as the original state for UDA resets"""
-        if self._original_state_dict is None:
-            self._original_state_dict = {k: v.clone() for k, v in self.model.state_dict().items()}
-            print("Original model state saved for UDA resets")
-
-    def _reset_model_to_original_state(self):
-        """Reset the model to its original state (before any UDA training)"""
-        if self._original_state_dict is None:
-            # If no original state saved, save current state as original
-            self._save_original_state()
-            return
-
-        # Load the original state dict
-        self.model.load_state_dict(self._original_state_dict)
-        print("Model reset to original state")
-
-    def on_test_start(self):
-        """Called at the start of testing - save original state for UDA resets"""
-        if hasattr(self, 'uda_mode') and self.uda_mode:
-            self._save_original_state()
-
-    def on_test_dataloader_start(self, dataloader_idx):
-        """Called when starting a new test dataloader - reset model for UDA"""
-        if hasattr(self, 'uda_mode') and self.uda_mode and dataloader_idx > 0:
-            # Reset model for each new dataloader (except the first one)
-            self._reset_model_to_original_state()
-            # Clear UDA training flags for this dataloader
-            if hasattr(self, f'uda_trained_{dataloader_idx}'):
-                delattr(self, f'uda_trained_{dataloader_idx}')
-            print(f"Model reset for dataloader {dataloader_idx}")
-
-    def reset_for_new_split(self):
-        """Manually reset the model to original state for a new test split"""
-        self._reset_model_to_original_state()
-        # Clear any UDA training flags
-        for attr_name in dir(self):
-            if attr_name.startswith('uda_trained_'):
-                delattr(self, attr_name)
-        print("Model manually reset for new split")
+        print(f'UDA training completed on {split_name} split')
