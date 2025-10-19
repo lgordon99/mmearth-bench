@@ -34,13 +34,16 @@ task_modalities = utils.read_json(f'{data_dir_path}/task_modalities.json')
 no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
 biomass_no_data_value = -9999
 image_size = 128
-architecture_embedding_dims = {'ScaleMAE': 1024,
+architecture_embedding_dims = {'ConvNeXtV2A': 320,
+                               'ScaleMAE': 1024,
                                'DINOv3Web': 1024,
                                'DINOv3Sat': 1024,
                                'MPMAE': 320,
                                'AnySat': 768,
                                'TerraMind': 768,
-                               'CopernicusFM': 768}
+                               'CopernicusFM': 768,
+                               'TerraMindS2': 768,
+                               'CopernicusFMS2': 768}
 sys.path.append(f'{data_dir_path}/pretrained_checkpoints/Copernicus-FM/Copernicus-FM/src')
 from model_vit import vit_base_patch16
 
@@ -61,6 +64,21 @@ def get_state_dict(task, architecture, adaptation_mode):
     return ckpt['state_dict']
 
 # ============================================== ENCODER CLASSES ============================================== #
+
+class ConvNeXtV2AEncoder(nn.Module):
+    def __init__(self, *_):
+        super().__init__()
+
+        self.model = timm.create_model('convnextv2_atto.fcmae', in_chans=3, num_classes=0, global_pool='', pretrained=False)
+
+        for module in self.model.modules():
+            if (dwconv := getattr(module, 'conv_dw', None)) is not None:
+                dwconv.forward = types.MethodType((lambda self, x, *args, **kwargs: type(self).forward(self, x.contiguous(), *args, **kwargs)), dwconv)
+
+    def forward(self, images):
+        embeddings = self.model(images['RGB']) # extracts the final block's embeddings
+
+        return embeddings
 
 class ScaleMAEEncoder(nn.Module):
     def __init__(self, *_):
@@ -83,7 +101,7 @@ class ScaleMAEEncoder(nn.Module):
         return embeddings
 
 class _DINOv3BaseEncoder(nn.Module):
-    def __init__(self, checkpoint_name, *_):
+    def __init__(self, checkpoint_name):
         super().__init__()
 
         self.model = torch.hub.load(f'{data_dir_path}/pretrained_checkpoints/dinov3',
@@ -137,24 +155,52 @@ class AnySatEncoder(nn.Module):
 
         return embeddings
 
-class TerraMindEncoder(nn.Module):
-    def __init__(self, pretrained, _):
+class _TerraMindBaseEncoder(nn.Module):
+    def __init__(self, modalities, pretrained):
         super().__init__()
 
-        self.model = BACKBONE_REGISTRY.build('terramind_v1_base', pretrained=pretrained, modalities=['S2L2A', 'S1GRD', 'DEM', 'RGB'])
+        self.modalities = modalities
+        self.model = BACKBONE_REGISTRY.build('terramind_v1_base', pretrained=pretrained, modalities=modalities)
 
     def forward(self, images):
-        x = {'S2L2A': images['Sentinel2'], 'S1GRD': images['Sentinel1'], 'DEM': images['AsterDEM'], 'RGB': images['RGB']}
+        if self.modalities == ['S2L2A']:
+            x = {'S2L2A': images['Sentinel2']}
+        else:
+            x = {'S2L2A': images['Sentinel2'], 'S1GRD': images['Sentinel1'], 'DEM': images['AsterDEM'], 'RGB': images['RGB']}
+
         embeddings = self.model(x)[-1] # extracts the final block's embeddings
         embeddings = embeddings.permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
         embeddings = embeddings.reshape(embeddings.shape[0], embeddings.shape[1], int(np.sqrt(embeddings.shape[2])), int(np.sqrt(embeddings.shape[2]))) # (batch_size, embedding_dim, num_vertical_patches, num_horizontal_patches)
 
         return embeddings
 
-class CopernicusFMEncoder(nn.Module):
-    def __init__(self, *_):
+class TerraMindEncoder(_TerraMindBaseEncoder):
+    def __init__(self, pretrained, _):
+        super().__init__(modalities=['S2L2A', 'S1GRD', 'DEM', 'RGB'], pretrained=pretrained)
+
+class TerraMindS2Encoder(_TerraMindBaseEncoder):
+    def __init__(self, pretrained, _):
+        super().__init__(modalities=['S2L2A'], pretrained=pretrained)
+
+# class TerraMindEncoder(nn.Module):
+#     def __init__(self, pretrained, _):
+#         super().__init__()
+
+#         self.model = BACKBONE_REGISTRY.build('terramind_v1_base', pretrained=pretrained, modalities=['S2L2A', 'S1GRD', 'DEM', 'RGB'])
+
+#     def forward(self, images):
+#         x = {'S2L2A': images['Sentinel2'], 'S1GRD': images['Sentinel1'], 'DEM': images['AsterDEM'], 'RGB': images['RGB']}
+#         embeddings = self.model(x)[-1] # extracts the final block's embeddings
+#         embeddings = embeddings.permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
+#         embeddings = embeddings.reshape(embeddings.shape[0], embeddings.shape[1], int(np.sqrt(embeddings.shape[2])), int(np.sqrt(embeddings.shape[2]))) # (batch_size, embedding_dim, num_vertical_patches, num_horizontal_patches)
+
+#         return embeddings
+
+class _CopernicusFMBaseEncoder(nn.Module):
+    def __init__(self, modalities):
         super().__init__()
 
+        self.modalities = modalities
         self.model = vit_base_patch16(global_pool=False, return_intermediate=True, intermediate_indices=[11]) # 11 corresponds to the last block
         state_dict = torch.load(f'{data_dir_path}/pretrained_checkpoints/CopernicusFM_ViT_base_varlang_e100.pth')
         state_dict['norm.weight'] = self.model.norm.weight.clone()
@@ -162,19 +208,19 @@ class CopernicusFMEncoder(nn.Module):
         self.model.load_state_dict(state_dict)
 
         # remove unused layer
-        if hasattr(self.model, 'coord_token'):
+        if hasattr(self.model, 'coord_token') and 'longitude' in modalities:
             del self.model.coord_token
 
         if hasattr(self.model, 'scale_token'):
             del self.model.scale_token
 
-        if hasattr(self.model, 'time_token'):
+        if hasattr(self.model, 'time_token') and 'time' in modalities:
             del self.model.time_token
 
         if hasattr(self.model, 'norm'):
             del self.model.norm
 
-        self.patch_area = 0.0256 # ( 16 pixels per patch x 10 m per pixel / 1000 m per km ) ** 2 km
+        self.patch_area = 0.0256 # ( ( 16 pixels per patch x 10 m per pixel / 1000 m per km ) ** 2 ) km^2
         self.patch_size = 16 # pixels per patch
         self.sentinel2_wavelengths = [440, 490, 560, 665, 705, 740, 783, 842, 860, 940, 1610, 2190]
         self.sentinel2_bandwidths = [20, 65, 35, 30, 15, 15, 20, 115, 20, 20, 90, 180]
@@ -184,16 +230,78 @@ class CopernicusFMEncoder(nn.Module):
         self.register_buffer('dem_language_embedding', torch.load(f'{data_dir_path}/pretrained_checkpoints/Copernicus-FM/var_embed_llama3.2_1B.pt')['Copernicus Digital Elevation Model'], persistent=False)
 
     def forward(self, images):
-        longitude = images['longitude']
-        latitude = images['latitude']
-        sentinel_1_2_metadata = torch.stack([longitude, latitude, images['time'], torch.full_like(longitude, self.patch_area)], dim=1).squeeze(-1)
-        dem_metadata = torch.stack([longitude, latitude, torch.full_like(longitude, self.dem_time), torch.full_like(longitude, self.patch_area)], dim=1).squeeze(-1)
+        if self.modalities == ['Sentinel2']:
+            batch_size = len(images['Sentinel2'])
+            device = images['Sentinel2'].device
+            sentinel_1_2_metadata = torch.stack([torch.full((batch_size, 1), float('nan')), torch.full((batch_size, 1), float('nan')), torch.full((batch_size, 1), float('nan')), torch.full((batch_size, 1), self.patch_area)], dim=1).squeeze(-1).to(device)
+        else:
+            longitude = images['longitude']
+            latitude = images['latitude']
+            sentinel_1_2_metadata = torch.stack([longitude, latitude, images['time'], torch.full_like(longitude, self.patch_area)], dim=1).squeeze(-1)
+            dem_metadata = torch.stack([longitude, latitude, torch.full_like(longitude, self.dem_time), torch.full_like(longitude, self.patch_area)], dim=1).squeeze(-1)
+
         sentinel2_embeddings = self.model.forward_features(images['Sentinel2'], sentinel_1_2_metadata, self.sentinel2_wavelengths, self.sentinel2_bandwidths, language_embed=None, input_mode='spectral', kernel_size=self.patch_size)[1][0]
-        sentinel1_embeddings = self.model.forward_features(images['Sentinel1'], sentinel_1_2_metadata, self.sentinel1_wavelengths, self.sentinel1_bandwidths, language_embed=None, input_mode='spectral', kernel_size=self.patch_size)[1][0]
-        dem_embeddings = self.model.forward_features(images['AsterDEM'], dem_metadata, None, None, language_embed=self.dem_language_embedding, input_mode='variable', kernel_size=self.patch_size)[1][0]
-        embeddings = torch.stack([sentinel2_embeddings, sentinel1_embeddings, dem_embeddings], dim=0).mean(dim=0)
+
+        if self.modalities == ['Sentinel2']:
+            embeddings = sentinel2_embeddings
+        else:
+            sentinel1_embeddings = self.model.forward_features(images['Sentinel1'], sentinel_1_2_metadata, self.sentinel1_wavelengths, self.sentinel1_bandwidths, language_embed=None, input_mode='spectral', kernel_size=self.patch_size)[1][0]
+            dem_embeddings = self.model.forward_features(images['AsterDEM'], dem_metadata, None, None, language_embed=self.dem_language_embedding, input_mode='variable', kernel_size=self.patch_size)[1][0]
+            embeddings = torch.stack([sentinel2_embeddings, sentinel1_embeddings, dem_embeddings], dim=0).mean(dim=0) # averages the embeddings of the different modalities
 
         return embeddings
+
+class CopernicusFMEncoder(_CopernicusFMBaseEncoder):
+    def __init__(self, *_):
+        super().__init__(modalities=['Sentinel2', 'Sentinel1', 'AsterDEM', 'longitude', 'latitude', 'time'])
+
+class CopernicusFMS2Encoder(_CopernicusFMBaseEncoder):
+    def __init__(self, *_):
+        super().__init__(modalities=['Sentinel2'])
+
+# class CopernicusFMEncoder(nn.Module):
+#     def __init__(self, *_):
+#         super().__init__()
+
+#         self.model = vit_base_patch16(global_pool=False, return_intermediate=True, intermediate_indices=[11]) # 11 corresponds to the last block
+#         state_dict = torch.load(f'{data_dir_path}/pretrained_checkpoints/CopernicusFM_ViT_base_varlang_e100.pth')
+#         state_dict['norm.weight'] = self.model.norm.weight.clone()
+#         state_dict['norm.bias'] = self.model.norm.bias.clone()
+#         self.model.load_state_dict(state_dict)
+
+#         # remove unused layer
+#         if hasattr(self.model, 'coord_token'):
+#             del self.model.coord_token
+
+#         if hasattr(self.model, 'scale_token'):
+#             del self.model.scale_token
+
+#         if hasattr(self.model, 'time_token'):
+#             del self.model.time_token
+
+#         if hasattr(self.model, 'norm'):
+#             del self.model.norm
+
+#         self.patch_area = 0.0256 # ( 16 pixels per patch x 10 m per pixel / 1000 m per km ) ** 2 km
+#         self.patch_size = 16 # pixels per patch
+#         self.sentinel2_wavelengths = [440, 490, 560, 665, 705, 740, 783, 842, 860, 940, 1610, 2190]
+#         self.sentinel2_bandwidths = [20, 65, 35, 30, 15, 15, 20, 115, 20, 20, 90, 180]
+#         self.sentinel1_wavelengths = [50000000, 50000000]
+#         self.sentinel1_bandwidths = [1e9, 1e9]
+#         self.dem_time = (date(2015, 1, 1) - date(1970, 1, 1)).days # pretraining was with that date
+#         self.register_buffer('dem_language_embedding', torch.load(f'{data_dir_path}/pretrained_checkpoints/Copernicus-FM/var_embed_llama3.2_1B.pt')['Copernicus Digital Elevation Model'], persistent=False)
+
+#     def forward(self, images):
+#         longitude = images['longitude']
+#         latitude = images['latitude']
+#         sentinel_1_2_metadata = torch.stack([longitude, latitude, images['time'], torch.full_like(longitude, self.patch_area)], dim=1).squeeze(-1)
+#         dem_metadata = torch.stack([longitude, latitude, torch.full_like(longitude, self.dem_time), torch.full_like(longitude, self.patch_area)], dim=1).squeeze(-1)
+#         sentinel2_embeddings = self.model.forward_features(images['Sentinel2'], sentinel_1_2_metadata, self.sentinel2_wavelengths, self.sentinel2_bandwidths, language_embed=None, input_mode='spectral', kernel_size=self.patch_size)[1][0]
+#         sentinel1_embeddings = self.model.forward_features(images['Sentinel1'], sentinel_1_2_metadata, self.sentinel1_wavelengths, self.sentinel1_bandwidths, language_embed=None, input_mode='spectral', kernel_size=self.patch_size)[1][0]
+#         dem_embeddings = self.model.forward_features(images['AsterDEM'], dem_metadata, None, None, language_embed=self.dem_language_embedding, input_mode='variable', kernel_size=self.patch_size)[1][0]
+#         embeddings = torch.stack([sentinel2_embeddings, sentinel1_embeddings, dem_embeddings], dim=0).mean(dim=0)
+
+#         return embeddings
 
 class TaskModalityEncoder(nn.Module):
     def __init__(self):
@@ -1317,9 +1425,10 @@ class Model(LightningModule):
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.model.parameters(), lr=self.hparams.max_lr, weight_decay=self.hparams.weight_decay)
-        warmup_steps = self.hparams.warmup_epochs * self.hparams.num_train_batches
+        effective_num_train_batches = self.hparams.num_train_batches / self.trainer.accumulate_grad_batches # number of batches after gradient accumulation
+        warmup_steps = self.hparams.warmup_epochs * effective_num_train_batches
         warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=self.hparams.min_lr/self.hparams.max_lr, total_iters=warmup_steps)
-        cooldown_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(self.hparams.epochs-self.hparams.warmup_epochs)*self.hparams.num_train_batches, eta_min=self.hparams.min_lr)
+        cooldown_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(self.hparams.epochs-self.hparams.warmup_epochs)*effective_num_train_batches, eta_min=self.hparams.min_lr)
         scheduler = optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, cooldown_scheduler], milestones=[warmup_steps])
 
         return {'optimizer': optimizer,
