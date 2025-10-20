@@ -21,6 +21,7 @@ def train(cfg):
     print(f'Task: {cfg.task}')
     print(f'Encoder architecture: {cfg.architecture}')
     print(f'Adaptation mode: {cfg.adaptation_mode}')
+    print(f'Train percent: {cfg.train_percent}')
 
     # set environment variables
     os.environ['DATA_DIR_PATH'] = cfg.data_dir_path
@@ -41,7 +42,12 @@ def train(cfg):
     if cfg.task == 'species':
         cfg['trainer']['callbacks'][0]['monitor'] = 'Val MAP'
 
+    if cfg.architecture == 'AnySat':
+        cfg['trainer']['accumulate_grad_batches'] = 8
+        cfg['datamodule']['batch_size'] = 8
+
     if 'ttt' in cfg.adaptation_mode or '-10' in cfg.adaptation_mode or '-20' in cfg.adaptation_mode:
+        cfg['trainer']['accumulate_grad_batches'] = 1
         cfg['datamodule']['batch_size'] = 1
 
     print(f'Config: {cfg}')
