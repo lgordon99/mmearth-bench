@@ -10,6 +10,7 @@ from torchgeo.models import scale_mae, ScaleMAELarge16_Weights
 from torchmetrics import MetricCollection
 from torchmetrics.classification import MultilabelAveragePrecision, MultilabelRecall
 from torchmetrics.regression import MeanSquaredError, R2Score
+import math
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -230,17 +231,18 @@ class _CopernicusFMBaseEncoder(nn.Module):
         self.register_buffer('dem_language_embedding', torch.load(f'{data_dir_path}/pretrained_checkpoints/Copernicus-FM/var_embed_llama3.2_1B.pt')['Copernicus Digital Elevation Model'], persistent=False)
 
     def forward(self, images):
+        sentinel2 = images['Sentinel2']
+
         if self.modalities == ['Sentinel2']:
-            batch_size = len(images['Sentinel2'])
-            device = images['Sentinel2'].device
-            sentinel_1_2_metadata = torch.stack([torch.full((batch_size, 1), float('nan')), torch.full((batch_size, 1), float('nan')), torch.full((batch_size, 1), float('nan')), torch.full((batch_size, 1), self.patch_area)], dim=1).squeeze(-1).to(device)
+            batch_size = len(sentinel2)
+            sentinel_1_2_metadata = torch.stack([torch.full((batch_size, 1), float('nan')), torch.full((batch_size, 1), float('nan')), torch.full((batch_size, 1), float('nan')), torch.full((batch_size, 1), self.patch_area)], dim=1).squeeze(-1).to(sentinel2.device)
         else:
             longitude = images['longitude']
             latitude = images['latitude']
             sentinel_1_2_metadata = torch.stack([longitude, latitude, images['time'], torch.full_like(longitude, self.patch_area)], dim=1).squeeze(-1)
             dem_metadata = torch.stack([longitude, latitude, torch.full_like(longitude, self.dem_time), torch.full_like(longitude, self.patch_area)], dim=1).squeeze(-1)
 
-        sentinel2_embeddings = self.model.forward_features(images['Sentinel2'], sentinel_1_2_metadata, self.sentinel2_wavelengths, self.sentinel2_bandwidths, language_embed=None, input_mode='spectral', kernel_size=self.patch_size)[1][0]
+        sentinel2_embeddings = self.model.forward_features(sentinel2, sentinel_1_2_metadata, self.sentinel2_wavelengths, self.sentinel2_bandwidths, language_embed=None, input_mode='spectral', kernel_size=self.patch_size)[1][0]
 
         if self.modalities == ['Sentinel2']:
             embeddings = sentinel2_embeddings
@@ -754,16 +756,16 @@ class EncoderDecoder(nn.Module):
         if adaptation_mode in ['multimodal_joint_training', 'ttt-mjt', 'multimodal_mt3', 'multimodal_sln']:
             embedding_dim += 320 # 320 is the embedding dimension of the task modality encoder
 
-        if 'ttt' in adaptation_mode or '-10' in adaptation_mode or '-20' in adaptation_mode or adaptation_mode in ['FT', 'LP', 'multimodal', 'JT', 'multimodal_joint_training', 'mt3', 'multimodal_mt3', 'sln', 'multimodal_sln', 'joint_probing', 'sln_input_embeddings', 'sln_encode', 'mt3_metabatch', 'mt3_frozen', 'rna', 'rna_input_embeddings']:
+        if 'ttt' in adaptation_mode or '-10' in adaptation_mode or '-20' in adaptation_mode or adaptation_mode in ['FT', 'LP', 'multimodal', 'JT', 'UDA-SS', 'multimodal_joint_training', 'mt3', 'multimodal_mt3', 'sln', 'multimodal_sln', 'joint_probing', 'sln_input_embeddings', 'sln_encode', 'mt3_metabatch', 'mt3_frozen', 'rna', 'rna_input_embeddings']:
             self.task_decoder = TaskDecoder(architecture, adaptation_mode, pixelwise, num_classes)
 
         if adaptation_mode in ['multimodal', 'multimodal_joint_training', 'ttt-mjt', 'multimodal_mt3', 'multimodal_sln', 'sln_encode']:
             self.task_modality_encoder = TaskModalityEncoder()
 
-        if adaptation_mode in ['JT', 'multimodal_joint_training', 'ttt-jt', 'uda-ttt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-mjt', 'mt3', 'mt3-10', 'mt3-20', 'multimodal_mt3', 'sln', 'sln-10', 'sln-20', 'multimodal_sln', 'joint_probing', 'ttt-adapter', 'ttt-jp', 'mt3_metabatch', 'mt3_frozen', 'rna']:
+        if adaptation_mode in ['JT', 'UDA-SS', 'multimodal_joint_training', 'ttt-jt', 'uda-ttt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-mjt', 'mt3', 'mt3-10', 'mt3-20', 'multimodal_mt3', 'sln', 'sln-10', 'sln-20', 'multimodal_sln', 'joint_probing', 'ttt-adapter', 'ttt-jp', 'mt3_metabatch', 'mt3_frozen', 'rna']:
             self.task_modality_decoder = TaskModalityDecoder(embedding_dim)
 
-        if adaptation_mode in ['JT', 'multimodal_joint_training', 'ttt-jt', 'uda-ttt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-mjt', 'mt3', 'mt3-10', 'mt3-20', 'multimodal_mt3', 'sln', 'multimodal_sln', 'joint_probing',  'ttt-adapter', 'ttt-jp', 'mt3_metabatch', 'mt3_frozen']:
+        if adaptation_mode in ['JT', 'UDA-SS', 'multimodal_joint_training', 'ttt-jt', 'uda-ttt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-mjt', 'mt3', 'mt3-10', 'mt3-20', 'multimodal_mt3', 'sln', 'multimodal_sln', 'joint_probing',  'ttt-adapter', 'ttt-jp', 'mt3_metabatch', 'mt3_frozen']:
             self.task_modality_decoder_loss = TaskModalityDecoderLoss()
 
         if adaptation_mode in ['sln', 'sln-10', 'sln-20', 'multimodal_sln', 'rna']:
@@ -965,7 +967,7 @@ class EncoderDecoder(nn.Module):
             task_prediction = self.task_decoder(concatenated_embeddings)
 
             return task_prediction
-        elif self.adaptation_mode == 'JT':
+        elif self.adaptation_mode in ['JT', 'UDA-SS']:
             input_embeddings = self.encoder(input_data)
             task_prediction = self.task_decoder(input_embeddings)
             modality_reconstructions = self.task_modality_decoder(input_embeddings)
@@ -1425,7 +1427,7 @@ class Model(LightningModule):
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.model.parameters(), lr=self.hparams.max_lr, weight_decay=self.hparams.weight_decay)
-        effective_num_train_batches = self.hparams.num_train_batches / self.trainer.accumulate_grad_batches # number of batches after gradient accumulation
+        effective_num_train_batches = math.ceil(self.hparams.num_train_batches / self.trainer.accumulate_grad_batches) # number of batches after gradient accumulation
         warmup_steps = self.hparams.warmup_epochs * effective_num_train_batches
         warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=self.hparams.min_lr/self.hparams.max_lr, total_iters=warmup_steps)
         cooldown_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(self.hparams.epochs-self.hparams.warmup_epochs)*effective_num_train_batches, eta_min=self.hparams.min_lr)
@@ -1438,10 +1440,10 @@ class Model(LightningModule):
         return self.model(input_data, task_modality_data)
 
     def general_step(self, batch, batch_idx, mode, dataloader_idx=0):
-        input_data, task_modality_data, target = batch # extracts the images and targets for the batch
+        input_data, task_modality_data, target, domain = batch # extracts the images and targets for the batch
         prediction = self(input_data, task_modality_data) # forward pass
 
-        if self.hparams.adaptation_mode in ['JT', 'multimodal_joint_training', 'joint_probing']:
+        if self.hparams.adaptation_mode in ['JT', 'UDA-SS', 'multimodal_joint_training', 'joint_probing']:
             prediction, modality_reconstructions, task_modality_reconstruction_loss = prediction
         elif 'ttt' in self.hparams.adaptation_mode or '-10' in self.hparams.adaptation_mode or '-20' in self.hparams.adaptation_mode or self.hparams.adaptation_mode in ['sln_input_embeddings', 'sln_encode', 'rna', 'rna_input_embeddings']:
             iteration_predictions = prediction
@@ -1459,6 +1461,12 @@ class Model(LightningModule):
         #     iteration_predictions = prediction
         #     prediction = iteration_predictions[-1]
 
+        if self.hparams.adaptation_mode == 'UDA-SS':
+            # filter predictions and targets to only include labeled source samples
+            labeled_source_mask = torch.tensor([d == 'labeled_source' for d in domain]) # creates mask for labeled source samples
+            prediction = prediction[labeled_source_mask]
+            target = target[labeled_source_mask]
+
         if self.hparams.task == 'biomass':
             valid_mask = target != biomass_no_data_value # mask for the NaN pixels in the target
             prediction = prediction[valid_mask]
@@ -1469,7 +1477,7 @@ class Model(LightningModule):
 
         # LOSS #
 
-        if self.hparams.adaptation_mode in ['JT', 'multimodal_joint_training', 'joint_probing', 'mt3', 'sln', 'multimodal_mt3', 'multimodal_sln']:
+        if self.hparams.adaptation_mode in ['JT', 'UDA-SS', 'multimodal_joint_training', 'joint_probing', 'mt3', 'sln', 'multimodal_mt3', 'multimodal_sln']:
             with torch.no_grad():
                 modality_reconstruction_losses = ModalityReconstructionLossCalculator()(modality_reconstructions, task_modality_data)
 
@@ -1489,7 +1497,7 @@ class Model(LightningModule):
 
         loss = self.criterion(prediction, target) # computes the loss
 
-        if self.hparams.adaptation_mode in ['JT', 'multimodal_joint_training', 'joint_probing', 'mt3', 'sln', 'multimodal_mt3', 'multimodal_sln']:
+        if self.hparams.adaptation_mode in ['JT', 'UDA-SS', 'multimodal_joint_training', 'joint_probing', 'mt3', 'sln', 'multimodal_mt3', 'multimodal_sln']:
             self.log(f'{mode.capitalize().replace("_", " ")} task modality reconstruction loss', task_modality_reconstruction_loss, add_dataloader_idx=False) # logs the task modality reconstruction loss
             loss += task_modality_reconstruction_loss
 
