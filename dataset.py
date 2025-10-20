@@ -189,4 +189,11 @@ class MMEarthBenchDataset(Dataset):
         if self.task == 'biomass': # for biomass
             task_data = np.expand_dims(task_data, axis=0)
 
-        return tile_input_data, tile_task_modality_data, torch.tensor(task_data, dtype=torch.float32)
+        if index in self.split_data['train_100%_indices']:
+            domain = 'labeled_source'
+        elif index in self.split_data['val_indices'] + self.split_data['random_test_indices']:
+            domain = 'unlabeled_source'
+        elif index in self.split_data['geographic_test_indices']:
+            domain = 'target'
+
+        return tile_input_data, tile_task_modality_data, torch.tensor(task_data, dtype=torch.float32), domain
