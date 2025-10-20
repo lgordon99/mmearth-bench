@@ -6,20 +6,21 @@ hydra:
   job:
     chdir: true
   run:
-    dir: /tmp/${task}_${architecture}_${env:JOB_ID}
+    dir: /tmp/${task}_${architecture}_${adaptation_mode}_${train_percent}_${env:JOB_ID}
 
 logger:
   _target_: lightning.pytorch.loggers.wandb.WandbLogger
   entity: luciagordon-harvard-university
   project: mmearth-bench
-  name: ${task}_${architecture}_${adaptation_mode}_${env:JOB_ID}
+  name: ${task}_${architecture}_${adaptation_mode}_${train_percent}_${env:JOB_ID}
   log_model: true
-  tags: ["omikron"]
+  tags: ["pi"]
 
 trainer:
   _target_: lightning.pytorch.Trainer
   max_epochs: ${epochs}
   logger: ${logger}
+  accumulate_grad_batches: 1
   log_every_n_steps: 1
   num_sanity_val_steps: 0
   deterministic: true
@@ -38,6 +39,7 @@ datamodule:
   task: ${task}
   architecture: ${architecture}
   adaptation_mode: ${adaptation_mode}
+  train_percent: ${train_percent}
   batch_size: 64
   num_workers: 1
   seed: ${seed}
@@ -47,7 +49,6 @@ model:
   task: ${task}
   architecture: ${architecture}
   adaptation_mode: ${adaptation_mode}
-  tuning_mode: ft
   pretrained: true
   max_lr: 1e-4
   weight_decay: 0.05
