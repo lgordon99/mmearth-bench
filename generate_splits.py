@@ -14,6 +14,7 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import pandas as pd
 import random
 import utils
 
@@ -76,13 +77,10 @@ def generate_splits(task):
         # calculate normalization statistics
         for split in subset_splits:
             for modality in ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETH_GCH', 'precipitation', 'temperature']:
-                # train_images = h5_file[modality][:][split_data['train_indices']]
                 train_images = h5_file[modality][:][split_data[f'{split}_indices']]
                 masked = np.ma.masked_equal(train_images, no_data_values[modality])
                 axes_to_collapse = tuple(i for i in range(masked.ndim) if i != 1) # collapse all dimensions except the channel dimension
                 collapsed_shape = (masked.shape[1],) + (1,) * (masked.ndim - 2) # 0th dimension is the number of channels and singleton dimensions for the number of spatial dimensions
-                # split_data[f'{modality}_train_means'] = masked.mean(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
-                # split_data[f'{modality}_train_stds'] = masked.std(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
                 split_data[f'{modality}_{split}_means'] = masked.mean(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
                 split_data[f'{modality}_{split}_stds'] = masked.std(axis=axes_to_collapse).reshape(collapsed_shape).tolist()
 
@@ -166,6 +164,7 @@ def generate_splits(task):
             txt_file.write(f'Min count of a species in random test: {min(species_counts["random_test"].values())}\n')
             txt_file.write(f'Min count of a species in geographic test: {min(species_counts["geographic_test"].values())}\n')
 
+def plot_dataset_split(task):
     # plot dataset split on world map
     fig = plt.figure(figsize=(15, 10))
     ax = plt.axes(projection=ccrs.PlateCarree())
@@ -175,22 +174,77 @@ def generate_splits(task):
     ax.add_feature(cfeature.LAND, color='lightgray', alpha=0.3)
     ax.add_feature(cfeature.OCEAN, color='lightblue', alpha=0.3)
 
-    split_properties = {'train_100%': {'color': 'blue', 'label': 'Training'},
-                        'val': {'color': 'green', 'label': 'Validation'},
-                        'random_test': {'color': 'orange', 'label': 'Random test'},
-                        'geographic_test': {'color': 'red', 'label': 'Geographic test'}}
+    split_properties = {'train_100%': {'color': 'red', 'label': 'Training 100%'},
+                        'val': {'color': 'blue', 'label': 'Validation'},
+                        'random_test': {'color': '#51A687', 'label': 'Random test'},
+                        'geographic_test': {'color': '#06402B', 'label': 'Geographic test'}}
+    gdfs = []
 
     for split in splits:
         gdf = gpd.read_file(f'{data_dir_path}/{task}/split_tiles/{task}_{split}_tiles.geojson').to_crs(epsg=3857)
         gdf['geometry'] = gdf.geometry.centroid.to_crs(epsg=4326)
-        gdf.plot(ax=ax, color=split_properties[split]['color'], marker='s', markersize=20, label=split_properties[split]['label'])
+        gdf['split'] = split
+        gdfs.append(gdf)
+
+    combined_gdf = pd.concat(gdfs, ignore_index=True).sample(frac=1, random_state=42)
+
+    for _, row in combined_gdf.iterrows():
+        split = row['split']
+        ax.scatter(row.geometry.x, row.geometry.y,
+                color=split_properties[split]['color'],
+                marker='s', s=5, label=split_properties[split]['label'] if split not in ax.get_legend_handles_labels()[1] else "")
 
     ax.legend(handles=[Line2D([0], [0], marker='s', color='w', markerfacecolor=split_properties[mode]['color'], markersize=15, label=split_properties[mode]['label']) for mode in split_properties.keys()],
               loc='lower left',
               fontsize=12)
     plt.title(f'{task.replace("_", " ").title().replace("Ph", "pH")} Dataset Split', fontsize=16, fontweight='bold')
     plt.tight_layout()
-    plt.savefig(f'{data_dir_path}/{task}/{task}_split_map.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{data_dir_path}/{task}/{task}_split_map_2.png', dpi=300, bbox_inches='tight')
+
+def plot_all_splits():
+    tasks = ['biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH', 'species']
+    cmap = plt.cm.viridis
+    split_properties = {'train_100%': {'color': cmap(0), 'label': 'Training 100%'},
+                        'val': {'color': cmap(0.25), 'label': 'Validation'},
+                        'random_test': {'color': cmap(0.5), 'label': 'Random test'},
+                        'geographic_test': {'color': cmap(0.75), 'label': 'Geographic test'}}
+
+    fig, axes = plt.subplots(1, 5, figsize=(25, 5), subplot_kw={'projection': ccrs.PlateCarree()})
+
+    for i, task in enumerate(tasks):
+        ax = axes[i]
+        ax.set_global() # shows the whole world
+        ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
+        ax.add_feature(cfeature.BORDERS, linewidth=0.3, linestyle=':')
+        ax.add_feature(cfeature.LAND, color='lightgray', alpha=0.3)
+        ax.add_feature(cfeature.OCEAN, color='lightblue', alpha=0.3)
+
+        gdfs = []
+
+        for split in splits:
+            gdf = gpd.read_file(f'{data_dir_path}/{task}/split_tiles/{task}_{split}_tiles.geojson').to_crs(epsg=3857)
+            gdf['geometry'] = gdf.geometry.centroid.to_crs(epsg=4326)
+            gdf['split'] = split
+            gdfs.append(gdf)
+
+        combined_gdf = pd.concat(gdfs, ignore_index=True).sample(frac=1, random_state=42)
+
+        for _, row in combined_gdf.iterrows():
+            split = row['split']
+            ax.scatter(row.geometry.x, row.geometry.y,
+                    color=split_properties[split]['color'],
+                    marker='s', s=0.1, label=split_properties[split]['label'] if split not in ax.get_legend_handles_labels()[1] else "")
+
+        ax.set_title(f'{task.replace("_", " ").title().replace("Ph", "pH")}', fontsize=16)
+
+    legend_elements = [Line2D([0], [0], marker='s', color='w', markerfacecolor=split_properties[mode]['color'], markersize=15, label=split_properties[mode]['label']) for mode in split_properties.keys()]
+
+    fig.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 0.13), ncol=4, fontsize=16, frameon=False, handletextpad=0.2)
+    plt.tight_layout()
+    plt.savefig(f'{data_dir_path}/split_maps.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{data_dir_path}/split_maps.pdf', dpi=300, bbox_inches='tight')
 
 if __name__ == '__main__':
     generate_splits(task=argv[1])
+    plot_dataset_split(task=argv[1])
+    plot_all_splits()
