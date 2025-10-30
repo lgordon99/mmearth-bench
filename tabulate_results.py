@@ -111,7 +111,8 @@ def tabulate_results_RQ2_task(task):
 
     # Create LaTeX table
     cols = df_fmt.columns.tolist()
-    header_line = ' & '.join(['\\textbf{Architecture}'] + [f'\\textbf{{{c}}}' for c in cols]) + r' \\'
+    # Escape % in headers to avoid LaTeX comments
+    header_line = ' & '.join(['\\textbf{Architecture}'] + ['\\textbf{{{}}}'.format(c.replace('%', '\\%')) for c in cols]) + r' \\'
     latex = df_fmt.to_latex(index=True,
                             header=False,
                             index_names=False,
@@ -130,63 +131,77 @@ def tabulate_results_RQ2_task(task):
 
 def tabulate_results_RQ3_task(task):
     adaptation_mode = 'FT'
-    train_percent = 100  # Use full training data for RQ3
+    train_percents = [5, 50, 100]
     architectures = ['AnySatS2', 'AnySat', 'TerraMindS2', 'TerraMind', 'CopernicusFMS2', 'CopernicusFM']
 
-    # Create data structure: {architecture: {metric_type: metric_value}}
-    data = {architecture: {'Random test': np.nan, 'Geographic test': np.nan} for architecture in architectures}
+    # Build a wide table with columns per (split, train%) pair
+    # Columns will be: Random 5%, Geographic 5%, Random 50%, Geographic 50%, Random 100%, Geographic 100%
+    metric = 'R2' if task != 'species' else 'MAP'
+    # Column order grouped by split
+    random_cols = [f'Random {tp}%' for tp in train_percents]
+    geographic_cols = [f'Geographic {tp}%' for tp in train_percents]
+    col_names = random_cols + geographic_cols
+
+    data = {architecture: {col: np.nan for col in col_names} for architecture in architectures}
 
     for architecture in architectures:
-        name = '_'.join([task, architecture, adaptation_mode, str(train_percent)]) + '_'
-        run = next((run for run in runs if run.name.startswith(name)), None)
-        metric = 'R2' if task != 'species' else 'MAP'
+        for tp in train_percents:
+            name = '_'.join([task, architecture, adaptation_mode, str(tp)]) + '_'
+            run = next((run for run in runs if run.name.startswith(name)), None)
+            if run:
+                rand_val = run.summary_metrics.get(f'Random test {metric}', np.nan)
+                geo_val = run.summary_metrics.get(f'Geographic test {metric}', np.nan)
+            else:
+                rand_val = np.nan
+                geo_val = np.nan
 
-        if run:
-            random_test_metric = run.summary_metrics.get(f'Random test {metric}', np.nan)
-            geographic_test_metric = run.summary_metrics.get(f'Geographic test {metric}', np.nan)
-        else:
-            random_test_metric = np.nan
-            geographic_test_metric = np.nan
+            data[architecture][f'Random {tp}%'] = rand_val
+            data[architecture][f'Geographic {tp}%'] = geo_val
 
-        data[architecture]['Random test'] = random_test_metric
-        data[architecture]['Geographic test'] = geographic_test_metric
-
-    # Create DataFrame with architectures as rows and test types as columns
-    df = pd.DataFrame.from_dict(data, orient='index')
+    # DataFrame with architectures as rows and the wide columns
+    df = pd.DataFrame.from_dict(data, orient='index')[col_names]
     df.index.name = 'Architecture'
 
-    # Use the same rounding for selection and display
+    # Round for display and compute highlight mask per column
     display_decimals = 2
     df_disp = df.round(display_decimals)
 
-    # --- highlight best per column (after rounding) ---
     mask = pd.DataFrame(False, index=df_disp.index, columns=df_disp.columns, dtype=bool)
     for col in df_disp.columns:
         best = df_disp[col].max(skipna=True)
         eq = df_disp[col].eq(best).fillna(False)
         mask[col] = eq
 
-    # Format from the rounded values
+    # Format
     df_fmt = df_disp.apply(lambda col: col.map(lambda x: '--' if pd.isna(x) else f'{x:.{display_decimals}f}'))
     bold = '\\textbf{' + df_fmt + '}'
     df_fmt = df_fmt.where(~mask, bold)
 
-    # Create LaTeX table
-    cols = df_fmt.columns.tolist()
-    header_line = ' & '.join(['\\textbf{Architecture}'] + [f'\\textbf{{{c}}}' for c in cols]) + r' \\'
+    # LaTeX table with grouped headers
     latex = df_fmt.to_latex(index=True,
                             header=False,
                             index_names=False,
                             escape=False,
-                            column_format='l' + 'r'*len(cols))
-    latex = latex.replace('\\toprule', '\\toprule\n' + header_line + '\n\\midrule', 1)
+                            column_format='l' + 'r'*len(col_names))
+    # Build group header: Random and Geographic each spanning 3 columns
+    group_header = (
+        '\\textbf{Architecture} & '
+        + '\\multicolumn{3}{c}{\\textbf{Random}} & '
+        + '\\multicolumn{3}{c}{\\textbf{Geographic}} \\\\\n'
+        + '\\multicolumn{1}{c}{} & '
+        + ' & '.join(['\\textbf{5\\%}', '\\textbf{50\\%}', '\\textbf{100\\%}',
+                       '\\textbf{5\\%}', '\\textbf{50\\%}', '\\textbf{100\\%}'])
+        + r' \\'
+    )
+    # Insert the grouped header without additional cmidrules to avoid extra horizontal lines
+    latex = latex.replace('\\toprule', '\\toprule\n' + group_header + '\n', 1)
 
     caption_metric = r"R$^2$" if task != 'species' else "MAP"
     latex = ("\\begin{table}[ht]\n\\centering\n" +
-            latex +
-            f"\\caption{{{task.replace('_', ' ').capitalize().replace('ph', 'pH')} test {caption_metric} by architecture and test split}}\n" +
-            f"\\label{{tab:{task}_rq3}}\n" +
-            "\\end{table}\n")
+             latex +
+             f"\\caption{{{task.replace('_', ' ').capitalize().replace('ph', 'pH')} {caption_metric} by architecture, split, and training percent}}\n" +
+             f"\\label{{tab:{task}_rq3}}\n" +
+             "\\end{table}\n")
 
     return latex
 
@@ -349,13 +364,13 @@ def plot_rq1_relative_performance():
 
         metric = 'R2' if task != 'species' else 'MAP'
         ax.set_ylabel(f'Δ {metric}', fontsize=AXIS_LABEL_FONTSIZE)
-        ax.set_title(f'{task.replace("_", " ").capitalize().replace("ph", "pH")}', fontsize=AXIS_LABEL_FONTSIZE)
+        # No per-subplot titles
         ax.grid(True, alpha=0.3)
         ax.set_xticks(train_percents)
         ax.tick_params(axis='both', labelsize=AXIS_LABEL_FONTSIZE)
         ax.set_ylim(y_range)  # Set consistent y-axis range across all tasks
 
-    fig.suptitle('Change in Random Test Metric from Randomly Initialized ConvNeXtV2A', fontsize=16, y=0.98) # adds main title
+    # No figure title
 
     legend_elements = []
     marker_groups = {
@@ -550,7 +565,7 @@ def plot_rq1_performance():
 
         metric = 'R2' if task != 'species' else 'MAP'
         ax.set_ylabel(f'{metric}', fontsize=AXIS_LABEL_FONTSIZE)
-        ax.set_title(f'{task.replace("_", " ").capitalize().replace("ph", "pH")}', fontsize=AXIS_LABEL_FONTSIZE)
+        # No per-subplot titles
         ax.grid(True, alpha=0.3)
         ax.set_xticks(train_percents)
         ax.tick_params(axis='both', labelsize=AXIS_LABEL_FONTSIZE)
@@ -560,7 +575,7 @@ def plot_rq1_performance():
         else:
             ax.set_ylim(y_range)  # Set consistent y-axis range across other tasks
 
-    fig.suptitle('Random Test Metric Performance by Architecture and Training Data Percentage', fontsize=16, y=0.98) # adds main title
+    # No figure title
     plt.subplots_adjust(top=0.85, bottom=0.4)
     plt.tight_layout()
     fig.subplots_adjust(top=0.85, bottom=0.4)
@@ -669,10 +684,11 @@ def plot_rq2_performance():
 
     df = pd.DataFrame(all_data) # converts the data to a DataFrame
 
-    fig, axes = plt.subplots(1, 5, figsize=(16, 5)) # creates a figure with 1 row and 5 columns, one per task with reduced horizontal space
+    # Stack plots vertically: 5 rows x 1 column
+    fig, axes = plt.subplots(5, 1, figsize=(8, 14), sharex=True)
 
     for i, task in enumerate(tasks):
-        ax = axes[i] # gets the axis for the current task
+        ax = axes[i]
         task_data = df[df['task'] == task]
 
         # Calculate y-axis range for this specific task
@@ -733,122 +749,26 @@ def plot_rq2_performance():
                     ax.plot(1, geographic_value, marker, color=color, linestyle=linestyle,
                            markersize=6, linewidth=2, alpha=0.8, label=architecture if i == 0 else "")
 
-        if i == 2:
+        # Only label x-axis on the bottom subplot
+        if i == len(tasks) - 1:
             ax.set_xlabel('Test Split', fontsize=AXIS_LABEL_FONTSIZE)
 
         metric = 'R2' if task != 'species' else 'MAP'
         ax.set_ylabel(f'{metric}', fontsize=AXIS_LABEL_FONTSIZE)
-        ax.set_title(f'{task.replace("_", " ").capitalize().replace("ph", "pH")}', fontsize=AXIS_LABEL_FONTSIZE)
+        # No per-subplot titles
         ax.grid(True, alpha=0.3)
         ax.set_xticks([0, 1])
         ax.set_xticklabels(['Random', 'Geographic'])
+        # Hide x tick labels for all but bottom
+        if i < len(tasks) - 1:
+            ax.tick_params(axis='x', labelbottom=False)
         ax.tick_params(axis='both', labelsize=AXIS_LABEL_FONTSIZE)
         ax.set_ylim(y_range)  # Set consistent y-axis range across all tasks
 
-    fig.suptitle('Performance Comparison: Random vs Geographic Test Splits', fontsize=16, y=0.98) # adds main title
-
-    # ------------------------------------------------
-    # Custom Legend Grouped by Marker Type (same as RQ1)
-    # ------------------------------------------------
-
-    marker_groups = {
-        'o': [], # Circle: Baseline
-        's': [], # Square: MAE/Self-Supervised
-        '^': []  # Triangle: Foundation Models
-    }
-
-    # 1. Group handles by marker type
-    for j, architecture in enumerate(architectures):
-        # Determine properties
-        if architecture == 'ConvNeXtV2A':
-            color = 'black'
-            marker = 'o'
-        elif architecture in ['MPMAE', 'Satlas']:
-            color = ARCHITECTURE_COLORS[architecture]
-            marker = 's'
-        elif architecture in ['TerraMind', 'CopernicusFM', 'ConvNeXtV2AMultimodal']:
-            color = ARCHITECTURE_COLORS[architecture]
-            marker = '^'
-        else:
-            # Fallback for any other architecture
-            color = ARCHITECTURE_COLORS[architecture]
-            marker = 'o'
-
-        # Create the Line2D handle
-        # Set markerfacecolor/markeredgecolor for clarity in the legend
-        handle = plt.Line2D([0], [0], marker=marker, color=color, linestyle='-',
-                            markersize=8, label=architecture,
-                            markerfacecolor=color)
-
-        # Handle the baseline 'o' which should be solid black
-        if architecture == 'ConvNeXtV2A':
-            handle.set_markerfacecolor('black')
-            handle.set_markeredgecolor('black')
-
-        # Use a consistent key for grouping
-        if architecture in ['MPMAE', 'Satlas']:
-            marker_groups['s'].append(handle)
-        elif architecture in ['TerraMind', 'CopernicusFM', 'ConvNeXtV2AMultimodal']:
-            marker_groups['^'].append(handle)
-        else: # ConvNeXtV2A and others fall into 'o'
-            marker_groups['o'].append(handle)
-
-    # Get all handles
-    group_o = marker_groups['o']
-    group_s = marker_groups['s']
-    group_t = marker_groups['^']
-
-    # Group titles for display
-    titles = ['RGB', 'S2', 'Multimodal']
-
-    # 2. Calculate positioning for three horizontally centered columns
-
-    # Set a consistent vertical anchor point near the top of the bottom margin
-    anchor_y_top = 0.30
-
-    # Calculate precise centering for three columns with closer spacing
-    # Use smaller spacing for tighter grouping
-    column_spacing = 0.11
-
-    # 3. Plot each group as a separate legend call (tightly centered)
-
-    # Legend 1 (Marker 'o') - RGB (left)
-    leg1 = fig.legend(handles=group_o,
-                    loc='upper center',
-                    bbox_to_anchor=(0.5 - column_spacing, anchor_y_top),
-                    ncol=1,
-                    fontsize=LEGEND_FONTSIZE,
-                    title=titles[0],
-                    title_fontsize=LEGEND_FONTSIZE,
-                    frameon=False)
-    fig.add_artist(leg1)
-
-    # Legend 2 (Marker 's') - S2 (center)
-    if group_s:
-        leg2 = fig.legend(handles=group_s,
-                        loc='upper center',
-                        bbox_to_anchor=(0.5, anchor_y_top),
-                        ncol=1,
-                        fontsize=LEGEND_FONTSIZE,
-                        title=titles[1],
-                        title_fontsize=LEGEND_FONTSIZE,
-                        frameon=False)
-        fig.add_artist(leg2)
-
-    # Legend 3 (Marker '^') - Multimodal (right)
-    if group_t:
-        leg3 = fig.legend(handles=group_t,
-                        loc='upper center',
-                        bbox_to_anchor=(0.5 + column_spacing, anchor_y_top),
-                        ncol=1,
-                        fontsize=LEGEND_FONTSIZE,
-                        title=titles[2],
-                        title_fontsize=LEGEND_FONTSIZE,
-                        frameon=False)
-        fig.add_artist(leg3)
+    # No figure title
 
     plt.tight_layout()
-    plt.subplots_adjust(top=0.85, bottom=0.4) # makes room for the main title and the multiple legends below
+    plt.subplots_adjust(top=0.93, bottom=0.07)
     plt.savefig(f'RQ2_plot.png', dpi=300, bbox_inches='tight')
     plt.savefig(f'RQ2_plot.pdf', dpi=300, bbox_inches='tight')
 
@@ -935,14 +855,14 @@ def plot_rq3_performance():
 
         metric = 'R2' if task != 'species' else 'MAP'
         ax.set_ylabel(f'{metric}', fontsize=AXIS_LABEL_FONTSIZE)
-        ax.set_title(f'{task.replace("_", " ").capitalize().replace("ph", "pH")}', fontsize=AXIS_LABEL_FONTSIZE)
+        # No per-subplot titles
         ax.grid(True, alpha=0.3)
         ax.set_xticks([0, 1])
         ax.set_xticklabels(['Sentinel-2', 'Multimodal'])
         ax.tick_params(axis='both', labelsize=AXIS_LABEL_FONTSIZE)
         ax.set_ylim(y_range)  # Set consistent y-axis range across all tasks
 
-    fig.suptitle('Sentinel-2 vs. Multimodal Performance Comparison (Random Test)', fontsize=16, y=0.98) # adds main title
+    # No figure title
 
     # Create simple legend for the two base architectures - use consistent colors from RQ1/RQ2
     legend_elements = [
@@ -956,14 +876,19 @@ def plot_rq3_performance():
     plt.savefig(f'RQ3_plot.png', dpi=300, bbox_inches='tight')
     plt.savefig(f'RQ3_plot.pdf', dpi=300, bbox_inches='tight')
 
-def plot_tta_improvement():
-    """Plot box plot showing improvement over JT for JT-TTT and JT-TTT-Geo across tasks"""
+def plot_tta_improvement(test_split='Random'):
+    """Plot box plot showing improvement over JT for JT-TTT and JT-TTT-Geo across tasks
+
+    Args:
+        test_split: 'Random' or 'Geographic' test split to analyze
+    """
 
     # Collect improvement data for each task and adaptation mode across all architectures
     all_improvements = []
 
     for task in tasks:
         metric = 'R2' if task != 'species' else 'MAP'
+        metric_name = f'{test_split} test {metric}'
 
         # Get JT baseline performance for each architecture
         jt_baseline = {}
@@ -971,7 +896,7 @@ def plot_tta_improvement():
             run_name = '_'.join([task, architecture, 'JT', str(100)]) + '_'
             run = next((run for run in runs if run.name.startswith(run_name)), None)
             if run:
-                jt_baseline[architecture] = run.summary_metrics.get(f'Random test {metric}')
+                jt_baseline[architecture] = run.summary_metrics.get(metric_name)
 
         # Calculate improvements for JT-TTT and JT-TTT-Geo for each architecture
         for adaptation_mode in ['JT-TTT', 'JT-TTT-Geo']:
@@ -980,7 +905,7 @@ def plot_tta_improvement():
                     run_name = '_'.join([task, architecture, adaptation_mode, str(100)]) + '_'
                     run = next((run for run in runs if run.name.startswith(run_name)), None)
                     if run:
-                        performance = run.summary_metrics.get(f'Random test {metric}')
+                        performance = run.summary_metrics.get(metric_name)
                         if performance is not None and not np.isnan(performance) and not np.isnan(jt_baseline[architecture]):
                             improvement = performance - jt_baseline[architecture]
                             all_improvements.append({
@@ -1025,7 +950,7 @@ def plot_tta_improvement():
         ax.axhline(y=0, color='gray', linestyle='--', linewidth=1, alpha=0.5)
 
         task_label = task.replace('_', ' ').capitalize().replace('ph', 'pH')
-        ax.set_title(task_label, fontsize=AXIS_LABEL_FONTSIZE)
+        # No per-subplot titles
 
         if i == 0:
             metric = 'R2' if task != 'species' else 'MAP'
@@ -1034,10 +959,10 @@ def plot_tta_improvement():
         ax.grid(True, alpha=0.3, axis='y')
         ax.tick_params(axis='both', labelsize=12)
 
-    fig.suptitle('Improvement over JT across Tasks (Averaged over Architectures)', fontsize=16, y=0.98)
+    # No figure title
     plt.tight_layout()
-    plt.savefig('TTA_improvement_boxplot.png', dpi=300, bbox_inches='tight')
-    plt.savefig('TTA_improvement_boxplot.pdf', dpi=300, bbox_inches='tight')
+    plt.savefig(f'TTA_improvement_boxplot_{test_split.lower()}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'TTA_improvement_boxplot_{test_split.lower()}.pdf', dpi=300, bbox_inches='tight')
 
 def plot_tta_improvement_by_model():
     """Plot box plot showing improvement over JT for JT-TTT and JT-TTT-Geo across architectures"""
@@ -1112,7 +1037,7 @@ def plot_tta_improvement_by_model():
         ax.set_xticks(positions)
         ax.set_xticklabels(['JT-TTT', 'JT-TTT-Geo'], rotation=0)
         ax.axhline(y=0, color='gray', linestyle='--', linewidth=1, alpha=0.5)
-        ax.set_title(architecture, fontsize=AXIS_LABEL_FONTSIZE)
+        # No per-subplot titles
 
         if i == 0:
             ax.set_ylabel(f'Δ R² (vs JT)', fontsize=AXIS_LABEL_FONTSIZE)
@@ -1120,7 +1045,7 @@ def plot_tta_improvement_by_model():
         ax.grid(True, alpha=0.3, axis='y')
         ax.tick_params(axis='both', labelsize=12)
 
-    fig.suptitle('Improvement over JT across Architectures (Averaged over Tasks)', fontsize=16, y=0.98)
+    # No figure title
     plt.tight_layout()
     plt.savefig('TTA_improvement_by_model_boxplot.png', dpi=300, bbox_inches='tight')
     plt.savefig('TTA_improvement_by_model_boxplot.pdf', dpi=300, bbox_inches='tight')
@@ -1197,6 +1122,8 @@ def analyze_rq3_performance_drops():
     ci_upper = mean_pct_drop + z_critical * se_pct_drop
 
     # Print results
+    print("\nRQ3 ANALYSIS - MULTIMODAL vs S2-ONLY MODELS")
+    print("=" * 60)
     print("RQ3 Performance Drop Analysis (Multimodal → S2-only Models)")
     print("=" * 80)
     print(f"Training data: 100% (full training data)")
@@ -1281,6 +1208,8 @@ def analyze_rq2_performance_drops():
     ci_upper = mean_pct_drop + z_critical * se_pct_drop
 
     # Print results
+    print("\nRQ2 ANALYSIS - TEST SPLIT COMPARISON")
+    print("=" * 60)
     print("RQ2 Performance Drop Analysis (Random → Geographic Test Split)")
     print("=" * 80)
     print(f"Training data: 100% (full training data)")
@@ -1334,8 +1263,11 @@ def analyze_performance_drops(test_split='Random'):
     df = pd.DataFrame(all_data)
 
     # Calculate percentage performance drops for each task-architecture combination
-    pct_drops_100_to_50 = []
-    pct_drops_100_to_5 = []
+    # Separate ConvNeXtV2A from other architectures
+    pct_drops_100_to_50_convnext = []
+    pct_drops_100_to_5_convnext = []
+    pct_drops_100_to_50_pretrained = []
+    pct_drops_100_to_5_pretrained = []
 
     for task in tasks:
         for architecture in architectures:
@@ -1351,55 +1283,86 @@ def analyze_performance_drops(test_split='Random'):
                     pct_drop_100_to_50 = (perf_100 - perf_50) / perf_100 * 100
                     pct_drop_100_to_5 = (perf_100 - perf_5) / perf_100 * 100
 
-                    pct_drops_100_to_50.append(pct_drop_100_to_50)
-                    pct_drops_100_to_5.append(pct_drop_100_to_5)
+                    # Separate by architecture type
+                    if architecture == 'ConvNeXtV2A':
+                        pct_drops_100_to_50_convnext.append(pct_drop_100_to_50)
+                        pct_drops_100_to_5_convnext.append(pct_drop_100_to_5)
+                    else:
+                        pct_drops_100_to_50_pretrained.append(pct_drop_100_to_50)
+                        pct_drops_100_to_5_pretrained.append(pct_drop_100_to_5)
 
     # Calculate summary statistics with uncertainty
-    pct_drops_100_to_50 = np.array(pct_drops_100_to_50)
-    pct_drops_100_to_5 = np.array(pct_drops_100_to_5)
+    # Helper function to calculate statistics
+    def calc_stats(drops):
+        drops_arr = np.array(drops)
+        if len(drops_arr) == 0:
+            return None, None, None, None, 0
+        mean = np.mean(drops_arr)
+        se = np.std(drops_arr, ddof=1) / np.sqrt(len(drops_arr)) if len(drops_arr) > 1 else 0
+        z_critical = 1.96
+        ci_lower = mean - z_critical * se
+        ci_upper = mean + z_critical * se
+        return mean, se, ci_lower, ci_upper, len(drops_arr)
 
-    # Mean and standard error
-    mean_pct_drop_50 = np.mean(pct_drops_100_to_50)
-    se_pct_drop_50 = np.std(pct_drops_100_to_50, ddof=1) / np.sqrt(len(pct_drops_100_to_50))
+    # ConvNeXtV2A statistics (averaged over tasks)
+    mean_50_conv, se_50_conv, ci_50_lower_conv, ci_50_upper_conv, n_50_conv = calc_stats(pct_drops_100_to_50_convnext)
+    mean_5_conv, se_5_conv, ci_5_lower_conv, ci_5_upper_conv, n_5_conv = calc_stats(pct_drops_100_to_5_convnext)
 
-    mean_pct_drop_5 = np.mean(pct_drops_100_to_5)
-    se_pct_drop_5 = np.std(pct_drops_100_to_5, ddof=1) / np.sqrt(len(pct_drops_100_to_5))
-
-    # 95% confidence intervals (using normal approximation for simplicity)
-    n = len(pct_drops_100_to_50)
-    z_critical = 1.96  # 95% confidence interval for normal distribution
-
-    ci_50_lower = mean_pct_drop_50 - z_critical * se_pct_drop_50
-    ci_50_upper = mean_pct_drop_50 + z_critical * se_pct_drop_50
-
-    ci_5_lower = mean_pct_drop_5 - z_critical * se_pct_drop_5
-    ci_5_upper = mean_pct_drop_5 + z_critical * se_pct_drop_5
+    # Pretrained architectures statistics (averaged over tasks and architectures)
+    mean_50_pre, se_50_pre, ci_50_lower_pre, ci_50_upper_pre, n_50_pre = calc_stats(pct_drops_100_to_50_pretrained)
+    mean_5_pre, se_5_pre, ci_5_lower_pre, ci_5_upper_pre, n_5_pre = calc_stats(pct_drops_100_to_5_pretrained)
 
     # Print results
+    if test_split == 'Random':
+        print("\nRQ1 ANALYSIS - TRAINING DATA REDUCTION")
+        print("=" * 60)
+    print(f"\n{test_split.upper()} TEST SPLIT ANALYSIS")
+    print("=" * 50)
     print(f"Percentage Performance Drop Analysis ({test_split} Test Split)")
-    print("=" * 80)
     print(f"Training data reduction: 100% → 50% and 100% → 5%")
-    print(f"Number of task-architecture combinations: {n}")
     print()
-    print("100% → 50% training data:")
-    print(f"  Mean percentage drop: {mean_pct_drop_50:.2f}% ± {se_pct_drop_50:.2f}%")
-    print(f"  95% CI: [{ci_50_lower:.2f}%, {ci_50_upper:.2f}%]")
+
+    print("ConvNeXtV2A (Randomly Initialized Baseline) - Averaged over Tasks:")
+    print(f"  Number of tasks: {n_50_conv}")
+    print("  100% → 50% training data:")
+    if mean_50_conv is not None:
+        print(f"    Mean percentage drop: {mean_50_conv:.2f}% ± {se_50_conv:.2f}%")
+        print(f"    95% CI: [{ci_50_lower_conv:.2f}%, {ci_50_upper_conv:.2f}%]")
+    else:
+        print("    No data available")
+    print("  100% → 5% training data:")
+    if mean_5_conv is not None:
+        print(f"    Mean percentage drop: {mean_5_conv:.2f}% ± {se_5_conv:.2f}%")
+        print(f"    95% CI: [{ci_5_lower_conv:.2f}%, {ci_5_upper_conv:.2f}%]")
+    else:
+        print("    No data available")
     print()
-    print("100% → 5% training data:")
-    print(f"  Mean percentage drop: {mean_pct_drop_5:.2f}% ± {se_pct_drop_5:.2f}%")
-    print(f"  95% CI: [{ci_5_lower:.2f}%, {ci_5_upper:.2f}%]")
-    print()
-    print("Additional statistics:")
-    print(f"  Standard deviation (100%→50%): {np.std(pct_drops_100_to_50, ddof=1):.2f}%")
-    print(f"  Standard deviation (100%→5%): {np.std(pct_drops_100_to_5, ddof=1):.2f}%")
-    print(f"  Range (100%→50%): [{np.min(pct_drops_100_to_50):.2f}%, {np.max(pct_drops_100_to_50):.2f}%]")
-    print(f"  Range (100%→5%): [{np.min(pct_drops_100_to_5):.2f}%, {np.max(pct_drops_100_to_5):.2f}%]")
+
+    print("Pretrained Models (All Other Architectures) - Averaged over Tasks and Architectures:")
+    print(f"  Number of task-architecture combinations: {n_50_pre}")
+    print("  100% → 50% training data:")
+    if mean_50_pre is not None:
+        print(f"    Mean percentage drop: {mean_50_pre:.2f}% ± {se_50_pre:.2f}%")
+        print(f"    95% CI: [{ci_50_lower_pre:.2f}%, {ci_50_upper_pre:.2f}%]")
+    else:
+        print("    No data available")
+    print("  100% → 5% training data:")
+    if mean_5_pre is not None:
+        print(f"    Mean percentage drop: {mean_5_pre:.2f}% ± {se_5_pre:.2f}%")
+        print(f"    95% CI: [{ci_5_lower_pre:.2f}%, {ci_5_upper_pre:.2f}%]")
+    else:
+        print("    No data available")
     print()
 
     return {
-        'pct_drop_100_to_50': {'mean': mean_pct_drop_50, 'se': se_pct_drop_50, 'ci': (ci_50_lower, ci_50_upper)},
-        'pct_drop_100_to_5': {'mean': mean_pct_drop_5, 'se': se_pct_drop_5, 'ci': (ci_5_lower, ci_5_upper)},
-        'n_combinations': n,
+        'convnext': {
+            'pct_drop_100_to_50': {'mean': mean_50_conv, 'se': se_50_conv, 'ci': (ci_50_lower_conv, ci_50_upper_conv), 'n': n_50_conv},
+            'pct_drop_100_to_5': {'mean': mean_5_conv, 'se': se_5_conv, 'ci': (ci_5_lower_conv, ci_5_upper_conv), 'n': n_5_conv}
+        },
+        'pretrained': {
+            'pct_drop_100_to_50': {'mean': mean_50_pre, 'se': se_50_pre, 'ci': (ci_50_lower_pre, ci_50_upper_pre), 'n': n_50_pre},
+            'pct_drop_100_to_5': {'mean': mean_5_pre, 'se': se_5_pre, 'ci': (ci_5_lower_pre, ci_5_upper_pre), 'n': n_5_pre}
+        },
         'test_split': test_split
     }
 
@@ -1408,32 +1371,20 @@ def tabulate_results(rq_number):
         file.write('\n'.join([globals()[f'tabulate_results_RQ{rq_number}_task'](task) for task in tasks]))
 
 if __name__ == '__main__':
-    # tabulate_results(1)
-    # tabulate_results(2)
-    # tabulate_results(3)
+    tabulate_results(1)
+    tabulate_results(2)
+    tabulate_results(3)
     tabulate_tta_results()
-    # plot_rq1_performance()
+    plot_rq1_performance()
     # plot_rq1_relative_performance()
-    # plot_rq2_performance()
-    # plot_rq3_performance()
-    plot_tta_improvement()
+    plot_rq2_performance()
+    plot_rq3_performance()
+    plot_tta_improvement('Random')
+    plot_tta_improvement('Geographic')
     plot_tta_improvement_by_model()
 
     # Analyze performance drops for both test splits
-    print("RQ1 ANALYSIS - TRAINING DATA REDUCTION")
-    print("=" * 60)
-    print("\nRANDOM TEST SPLIT ANALYSIS")
-    print("=" * 50)
     random_results = analyze_performance_drops('Random')
-
-    print("\nGEOGRAPHIC TEST SPLIT ANALYSIS")
-    print("=" * 50)
     geographic_results = analyze_performance_drops('Geographic')
-
-    print("\nRQ2 ANALYSIS - TEST SPLIT COMPARISON")
-    print("=" * 60)
     rq2_results = analyze_rq2_performance_drops()
-
-    print("\nRQ3 ANALYSIS - MULTIMODAL vs S2-ONLY MODELS")
-    print("=" * 60)
     rq3_results = analyze_rq3_performance_drops()
