@@ -576,87 +576,20 @@ def plot_rq1_performance():
             ax.set_ylim(y_range)  # Set consistent y-axis range across other tasks
 
     # No figure title
-    plt.subplots_adjust(top=0.85, bottom=0.4)
     plt.tight_layout()
-    fig.subplots_adjust(top=0.85, bottom=0.4)
+    plt.subplots_adjust(left=0.25, right=0.98, bottom=0.12, top=0.95)
 
-    marker_groups = {'o': [], 's': [], '^': []}
+    # Single-column legend to the left of plots
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels,
+               loc='center left',
+               bbox_to_anchor=(0.02, 0.5),
+               ncol=1,
+               fontsize=LEGEND_FONTSIZE,
+               frameon=False)
 
-    for j, architecture in enumerate(architectures):
-        if architecture == 'ConvNeXtV2A':
-            color = 'black'
-            marker = 'o'
-        elif architecture in ['MPMAE', 'Satlas']:
-            color = ARCHITECTURE_COLORS[architecture]
-            marker = 's'
-        elif architecture in ['TerraMind', 'CopernicusFM', 'ConvNeXtV2AMultimodal']:
-            color = ARCHITECTURE_COLORS[architecture]
-            marker = '^'
-        else:
-            color = ARCHITECTURE_COLORS[architecture]
-            marker = 'o'
-
-        handle = plt.Line2D([0], [0], marker=marker, color=color, linestyle='-',
-                            markersize=8, label=architecture,
-                            markerfacecolor=color)
-
-        # Handle the baseline 'o' which should be solid black
-        if architecture == 'ConvNeXtV2A':
-            handle.set_markerfacecolor('black')
-            handle.set_markeredgecolor('black')
-
-        # Use a consistent key for grouping
-        if architecture in ['MPMAE', 'Satlas']:
-            marker_groups['s'].append(handle)
-        elif architecture in ['TerraMind', 'CopernicusFM', 'ConvNeXtV2AMultimodal']:
-            marker_groups['^'].append(handle)
-        else: # ConvNeXtV2A and others fall into 'o'
-            marker_groups['o'].append(handle)
-
-    group_o = marker_groups['o']
-    group_s = marker_groups['s']
-    group_t = marker_groups['^']
-    titles = ['RGB', 'S2', 'Multimodal']
-    anchor_y_top = 0.30
-    column_spacing = 0.11
-
-    # Legend 1 (Marker 'o') - RGB (left)
-    leg1 = fig.legend(handles=group_o,
-                    loc='upper center',
-                    bbox_to_anchor=(0.5 - column_spacing, anchor_y_top),
-                    ncol=1,
-                    fontsize=LEGEND_FONTSIZE,
-                    title=titles[0],
-                    title_fontsize=LEGEND_FONTSIZE,
-                    frameon=False)
-    fig.add_artist(leg1)
-
-    # Legend 2 (Marker 's') - S2 (center)
-    if group_s:
-        leg2 = fig.legend(handles=group_s,
-                        loc='upper center',
-                        bbox_to_anchor=(0.5, anchor_y_top),
-                        ncol=1,
-                        fontsize=LEGEND_FONTSIZE,
-                        title=titles[1],
-                        title_fontsize=LEGEND_FONTSIZE,
-                        frameon=False)
-        fig.add_artist(leg2)
-
-    # Legend 3 (Marker '^') - Multimodal (right)
-    if group_t:
-        leg3 = fig.legend(handles=group_t,
-                        loc='upper center',
-                        bbox_to_anchor=(0.5 + column_spacing, anchor_y_top),
-                        ncol=1,
-                        fontsize=LEGEND_FONTSIZE,
-                        title=titles[2],
-                        title_fontsize=LEGEND_FONTSIZE,
-                        frameon=False)
-        fig.add_artist(leg3)
-
-    plt.savefig(f'RQ1_plot.png', dpi=300, bbox_inches='tight')
-    plt.savefig(f'RQ1_plot.pdf', dpi=300, bbox_inches='tight')
+    plt.savefig('RQ1_plot.png', dpi=300, bbox_inches='tight')
+    plt.savefig('RQ1_plot.pdf', dpi=300, bbox_inches='tight')
 
 def plot_rq2_performance():
     adaptation_mode = 'FT'
