@@ -215,11 +215,13 @@ def tabulate_results_RQ3_task(task):
 
     return latex
 
-def tabulate_results_task(task):
+def tabulate_TTT_results_task(task):
     adaptation_modes = ['JT', 'JT-TTT', 'JT-TTT-Geo']
     splits = ['Random', 'Geographic']
     metric = 'R2' if task != 'species' else 'MAP'
     data = {split: {mode: {architecture: np.nan for architecture in architectures_tables} for mode in adaptation_modes} for split in splits}
+    # runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['lr1e-2,modgradnorm,max5itmean']}})
+    # runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['lr1e-2,5itmean']}})
 
     for architecture in architectures_tables:
         for adaptation_mode in adaptation_modes:
@@ -287,7 +289,7 @@ def tabulate_results_task(task):
 
 def tabulate_tta_results():
     tasks = ['biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH', 'species']
-    latex = '\n'.join([tabulate_results_task(task) for task in tasks])
+    latex = '\n'.join([tabulate_TTT_results_task(task) for task in tasks])
 
     with open('latex.tex', 'w') as file:
         file.write(latex)
@@ -669,29 +671,21 @@ def plot_rq2_performance():
             rv = random_data['metric'].iloc[0] if not random_data.empty else None
             gv = geographic_data['metric'].iloc[0] if not geographic_data.empty else None
 
-            if rv is not None and gv is not None:
-                ax.plot([0, 1], [rv, gv], color=color, linestyle=linestyle, linewidth=2, alpha=0.8)
-                ax.plot(0, rv, marker, color=color, linestyle=linestyle, markersize=6, linewidth=2, alpha=0.8,
-                        label=display_arch_name(architecture) if i == 0 else "")
-                ax.plot(1, gv, marker, color=color, linestyle=linestyle, markersize=6, linewidth=2, alpha=0.8)
-            elif rv is not None:
-                ax.plot(0, rv, marker, color=color, linestyle=linestyle, markersize=6, linewidth=2, alpha=0.8,
-                        label=display_arch_name(architecture) if i == 0 else "")
-            elif gv is not None:
-                ax.plot(1, gv, marker, color=color, linestyle=linestyle, markersize=6, linewidth=2, alpha=0.8,
-                        label=display_arch_name(architecture) if i == 0 else "")
+            ax.plot([0, 1], [rv, gv], color=color, linestyle=linestyle, linewidth=3, alpha=0.8)
+            ax.plot(0, rv, marker, color=color, linestyle=linestyle, markersize=10, linewidth=3, alpha=0.8, label=display_arch_name(architecture) if i == 0 else "")
+            ax.plot(1, gv, marker, color=color, linestyle=linestyle, markersize=10, linewidth=3, alpha=0.8)
 
         if i == 2:
-            ax.set_xlabel('Test Split', fontsize=AXIS_LABEL_FONTSIZE+8)
+            ax.set_xlabel('Test Split', fontsize=AXIS_LABEL_FONTSIZE+10)
 
         if i == 0:
-            ax.set_ylabel('Performance', fontsize=AXIS_LABEL_FONTSIZE+8)
+            ax.set_ylabel('Performance', fontsize=AXIS_LABEL_FONTSIZE+10)
 
-        ax.set_title(f"{task.replace('_', ' ').capitalize().replace('ph', 'pH')}", fontsize=AXIS_LABEL_FONTSIZE+8)
+        ax.set_title(f"{task.replace('_', ' ').capitalize().replace('nitrogen', 'N').replace('organic carbon', 'OC').replace('ph', 'pH')}", fontsize=AXIS_LABEL_FONTSIZE+10)
         ax.grid(True, alpha=0.3)
         ax.set_xticks([0, 1])
         ax.set_xticklabels(['R', 'G'])
-        ax.tick_params(axis='both', labelsize=AXIS_LABEL_FONTSIZE+8)
+        ax.tick_params(axis='both', labelsize=AXIS_LABEL_FONTSIZE+10)
         ax.set_ylim(y_range)
 
     plt.tight_layout()
@@ -742,7 +736,7 @@ def plot_rq3_performance():
 
     # Set column titles (task names) at top row only
     for j, task in enumerate(tasks):
-        axes[0, j].set_title(f"{task.replace('_', ' ').capitalize().replace('ph', 'pH')}", fontsize=AXIS_LABEL_FONTSIZE)
+        axes[0, j].set_title(f"{task.replace('_', ' ').capitalize().replace('nitrogen', 'N').replace('organic carbon', 'OC').replace('ph', 'pH')}", fontsize=AXIS_LABEL_FONTSIZE+10)
 
     # Plot for each split and task
     for row_idx, split in enumerate(['Random', 'Geographic']):
@@ -770,47 +764,42 @@ def plot_rq3_performance():
                     ax.plot(sub['train_percent'], sub['metric'],
                             linestyle=cfg['linestyle'], color=color, marker=cfg['marker'],
                             label=(f"{display_arch_name(base)} {cfg['label_suffix']}").strip() if (row_idx == 0 and col_idx == 0) else None,
-                            linewidth=2, markersize=6, alpha=0.9)
+                            linewidth=3, markersize=10, alpha=0.9)
 
-            # Axis cosmetics (no per-axes x label; we'll add a single shared x-label later)
-            metric = 'R2' if task != 'species' else 'MAP'
-            ax.set_ylabel(f'{metric}', fontsize=AXIS_LABEL_FONTSIZE)
+            # Axis cosmetics - remove individual y-axis labels
+            ax.set_ylabel('')  # Remove y-axis label from each subplot
             ax.grid(True, alpha=0.3)
             ax.set_xticks(train_percents)
-            ax.tick_params(axis='both', labelsize=AXIS_LABEL_FONTSIZE)
+            ax.tick_params(axis='both', labelsize=AXIS_LABEL_FONTSIZE+10)
             # Remove x tick labels for top row only
             if row_idx == 0:
                 ax.set_xticklabels([])
             ax.set_ylim(y_range)
 
-    # Single legend on the left
-    handles, labels = axes[0, 0].get_legend_handles_labels()
-    fig.legend(handles, labels,
-               loc='center left',
-               bbox_to_anchor=(0.005, 0.5),
-               ncol=1,
-               fontsize=LEGEND_FONTSIZE,
-               title='Model',
-               title_fontsize=LEGEND_FONTSIZE,
-               frameon=False)
-
     plt.tight_layout()
-    # Increase horizontal spacing per request
-    plt.subplots_adjust(left=0.22, right=0.98, top=0.90, bottom=0.12, wspace=0.80, hspace=0.35)
+    # Adjust left margin to make room for single y-axis label
+    plt.subplots_adjust(left=0.12, right=0.98, top=0.90, bottom=0.25, wspace=0.50, hspace=0.3)
+
+    # Single y-axis label "Performance" centered vertically between the two rows, to the left of first column
+    first_col_top = axes[0, 0].get_position()
+    first_col_bottom = axes[1, 0].get_position()
+    y_center = (first_col_top.y0 + first_col_bottom.y1) / 2.0  # Vertical center between the two rows
+    fig.text(first_col_top.x0 - 0.08, y_center, 'Performance', ha='center', va='center', rotation=90, fontsize=AXIS_LABEL_FONTSIZE+10)
 
     # Row titles centered above the middle subplot in each row (with extra space above subplots)
     mid_top_pos = axes[0, 2].get_position()
     geo_top_pos = axes[1, 2].get_position()
-    fig.text(mid_top_pos.x0 + (mid_top_pos.x1 - mid_top_pos.x0) / 2.0, mid_top_pos.y1 + 0.05,
-             'Random', ha='center', va='bottom', fontsize=AXIS_LABEL_FONTSIZE)
-    fig.text(geo_top_pos.x0 + (geo_top_pos.x1 - geo_top_pos.x0) / 2.0, geo_top_pos.y1 + 0.02,
-             'Geographic', ha='center', va='bottom', fontsize=AXIS_LABEL_FONTSIZE)
+    fig.text(mid_top_pos.x0 + (mid_top_pos.x1 - mid_top_pos.x0) / 2.0, mid_top_pos.y1 + 0.07, 'Random', ha='center', va='bottom', fontsize=AXIS_LABEL_FONTSIZE+10)
+    fig.text(geo_top_pos.x0 + (geo_top_pos.x1 - geo_top_pos.x0) / 2.0, geo_top_pos.y1 + 0.01, 'Geographic', ha='center', va='bottom', fontsize=AXIS_LABEL_FONTSIZE+10)
 
     # Single x-axis label centered under the middle bottom subplot
     mid_bottom_pos = axes[1, 2].get_position()
-    fig.text(mid_bottom_pos.x0 + (mid_bottom_pos.x1 - mid_bottom_pos.x0) / 2.0,
-             mid_bottom_pos.y0 - 0.08,
-             'Training Data %', ha='center', va='top', fontsize=AXIS_LABEL_FONTSIZE)
+    x_label_y = mid_bottom_pos.y0 - 0.1
+    fig.text(mid_bottom_pos.x0 + (mid_bottom_pos.x1 - mid_bottom_pos.x0) / 2.0, x_label_y, 'Training Data %', ha='center', va='top', fontsize=AXIS_LABEL_FONTSIZE+10)
+
+    # Legend below the x-axis label
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, x_label_y - 0.20), ncol=len(handles), columnspacing=0.7, handletextpad=0.3, fontsize=LEGEND_FONTSIZE+10, frameon=False)
     plt.savefig('RQ3_plot.png', dpi=300, bbox_inches='tight')
     plt.savefig('RQ3_plot.pdf', dpi=300, bbox_inches='tight')
 
@@ -1009,188 +998,7 @@ def plot_tta_improvement():
     plt.savefig('TTA_plot.png', dpi=300, bbox_inches='tight')
     plt.savefig('TTA_plot.pdf', dpi=300, bbox_inches='tight')
 
-def analyze_rq3_performance_drops(test_split='Random'):
-    """Calculate percentage performance drops when going from Multimodal to S2-only models,
-    averaged over models and tasks with uncertainty estimates (RQ3 analysis).
-    Set test_split to 'Random' or 'Geographic'."""
-
-    adaptation_mode = 'FT'
-    train_percent = 100  # Use full training data for RQ3
-    rq3_architectures = ['TerraMindS2', 'TerraMind', 'CopernicusFMS2', 'CopernicusFM']
-
-    # Collect all performance data
-    all_data = []
-
-    for task in tasks:
-        metric = 'R2' if task != 'species' else 'MAP'
-        metric_name = f'{test_split} test {metric}'
-
-        for architecture in rq3_architectures:
-            run = next((run for run in runs if run.name.startswith(f'{task}_{architecture}_{adaptation_mode}_{train_percent}_')), None)
-            test_metric = run.summary_metrics.get(metric_name) if run else np.nan
-
-            if test_metric is not None and not np.isnan(test_metric):
-                # Determine if this is S2 or Multimodal version
-                if architecture.endswith('S2'):
-                    version = 'S2'
-                    base_name = architecture[:-2]  # Remove 'S2' suffix
-                else:
-                    version = 'Multimodal'
-                    base_name = architecture
-
-                all_data.append({
-                    'task': task,
-                    'architecture': base_name,
-                    'version': version,
-                    'metric': test_metric
-                })
-
-    df = pd.DataFrame(all_data)
-
-    # Calculate percentage performance drops for each task-architecture combination
-    pct_drops_multimodal_to_s2 = []
-
-    for task in tasks:
-        for base_arch in ['TerraMind', 'CopernicusFM']:
-            task_arch_data = df[(df['task'] == task) & (df['architecture'] == base_arch)]
-
-            if len(task_arch_data) >= 2:  # Need both S2 and Multimodal versions
-                multimodal_data = task_arch_data[task_arch_data['version'] == 'Multimodal']
-                s2_data = task_arch_data[task_arch_data['version'] == 'S2']
-
-                if not multimodal_data.empty and not s2_data.empty:
-                    multimodal_perf = multimodal_data['metric'].iloc[0]
-                    s2_perf = s2_data['metric'].iloc[0]
-
-                    if not (np.isnan(multimodal_perf) or np.isnan(s2_perf)) and multimodal_perf > 0:
-                        # Calculate percentage drop: (Multimodal - S2) / Multimodal * 100
-                        pct_drop = (multimodal_perf - s2_perf) / multimodal_perf * 100
-                        pct_drops_multimodal_to_s2.append(pct_drop)
-
-    # Calculate summary statistics with uncertainty
-    pct_drops_multimodal_to_s2 = np.array(pct_drops_multimodal_to_s2)
-
-    # Mean and standard error
-    mean_pct_drop = np.mean(pct_drops_multimodal_to_s2)
-    se_pct_drop = np.std(pct_drops_multimodal_to_s2, ddof=1) / np.sqrt(len(pct_drops_multimodal_to_s2))
-
-    # 95% confidence intervals (using normal approximation for simplicity)
-    n = len(pct_drops_multimodal_to_s2)
-    z_critical = 1.96  # 95% confidence interval for normal distribution
-
-    ci_lower = mean_pct_drop - z_critical * se_pct_drop
-    ci_upper = mean_pct_drop + z_critical * se_pct_drop
-
-    # Print results
-    print("\nRQ3 ANALYSIS - MULTIMODAL vs S2-ONLY MODELS")
-    print("=" * 60)
-    print("RQ3 Performance Drop Analysis (Multimodal → S2-only Models)")
-    print("=" * 80)
-    print(f"Training data: 100% (full training data)")
-    print(f"Test split: {test_split}")
-    print(f"Number of task-architecture combinations: {n}")
-    print()
-    print("Multimodal → S2-only models:")
-    print(f"  Mean percentage drop: {mean_pct_drop:.2f}% ± {se_pct_drop:.2f}%")
-    print(f"  95% CI: [{ci_lower:.2f}%, {ci_upper:.2f}%]")
-    print()
-    print("Additional statistics:")
-    print(f"  Standard deviation: {np.std(pct_drops_multimodal_to_s2, ddof=1):.2f}%")
-    print(f"  Range: [{np.min(pct_drops_multimodal_to_s2):.2f}%, {np.max(pct_drops_multimodal_to_s2):.2f}%]")
-    print()
-
-    return {
-        'pct_drop_multimodal_to_s2': {'mean': mean_pct_drop, 'se': se_pct_drop, 'ci': (ci_lower, ci_upper)},
-        'n_combinations': n,
-        'test_split': test_split
-    }
-
-def analyze_rq2_performance_drops():
-    """Calculate percentage performance drops when going from Random to Geographic test splits,
-    averaged over models and tasks with uncertainty estimates (RQ2 analysis)."""
-
-    adaptation_mode = 'FT'
-    train_percent = 100  # Use full training data for RQ2
-
-    # Collect all performance data
-    all_data = []
-
-    for task in tasks:
-        metric = 'R2' if task != 'species' else 'MAP'
-        random_metric_name = f'Random test {metric}'
-        geographic_metric_name = f'Geographic test {metric}'
-
-        for architecture in architectures_plots:
-            run = next((run for run in runs if run.name.startswith(f'{task}_{architecture}_{adaptation_mode}_{train_percent}_')), None)
-
-            if run:
-                random_metric = run.summary_metrics.get(random_metric_name)
-                geographic_metric = run.summary_metrics.get(geographic_metric_name)
-
-                if (random_metric is not None and not np.isnan(random_metric) and
-                    geographic_metric is not None and not np.isnan(geographic_metric)):
-                    all_data.append({
-                        'task': task,
-                        'architecture': architecture,
-                        'random_metric': random_metric,
-                        'geographic_metric': geographic_metric
-                    })
-
-    df = pd.DataFrame(all_data)
-
-    # Calculate percentage performance drops for each task-architecture combination
-    drops_convnext = []
-    drops_pretrained = []
-
-    for task in tasks:
-        for architecture in architectures_plots:
-            task_arch_data = df[(df['task'] == task) & (df['architecture'] == architecture)]
-            if task_arch_data.empty:
-                continue
-            random_perf = task_arch_data['random_metric'].iloc[0]
-            geographic_perf = task_arch_data['geographic_metric'].iloc[0]
-            if np.isnan(random_perf) or np.isnan(geographic_perf) or random_perf <= 0:
-                continue
-            pct_drop = (random_perf - geographic_perf) / random_perf * 100
-            if architecture == 'ConvNeXtV2A':
-                drops_convnext.append(pct_drop)
-            else:
-                drops_pretrained.append(pct_drop)
-
-    def calc_stats(drops):
-        arr = np.array(drops)
-        if len(arr) == 0:
-            return None, None, None, None, 0
-        mean = float(np.mean(arr))
-        se = float(np.std(arr, ddof=1) / np.sqrt(len(arr))) if len(arr) > 1 else 0.0
-        z = 1.96
-        return mean, se, mean - z * se, mean + z * se, len(arr)
-
-    mean_conv, se_conv, ci_l_conv, ci_u_conv, n_conv = calc_stats(drops_convnext)
-    mean_pre, se_pre, ci_l_pre, ci_u_pre, n_pre = calc_stats(drops_pretrained)
-
-    # Print results (split baseline vs pretrained)
-    print("\nRQ2 ANALYSIS - TEST SPLIT COMPARISON")
-    print("=" * 60)
-    print("RQ2 Performance Drop Analysis (Random → Geographic Test Split)")
-    print("=" * 80)
-    print("ConvNeXtV2A (averaged over tasks):")
-    if n_conv > 0:
-        print(f"  n={n_conv}  mean: {mean_conv:.2f}% ± {se_conv:.2f}%  95% CI: [{ci_l_conv:.2f}%, {ci_u_conv:.2f}%]")
-    else:
-        print("  No data available")
-    print("Pretrained models (all others, averaged over tasks and architectures):")
-    if n_pre > 0:
-        print(f"  n={n_pre}  mean: {mean_pre:.2f}% ± {se_pre:.2f}%  95% CI: [{ci_l_pre:.2f}%, {ci_u_pre:.2f}%]")
-    else:
-        print("  No data available")
-
-    return {
-        'convnext': {'mean': mean_conv, 'se': se_conv, 'ci': (ci_l_conv, ci_u_conv), 'n': n_conv},
-        'pretrained': {'mean': mean_pre, 'se': se_pre, 'ci': (ci_l_pre, ci_u_pre), 'n': n_pre}
-    }
-
-def analyze_performance_drops(test_split='Random'):
+def calculate_rq1_stats(test_split='Random'):
     """Calculate percentage performance drops when reducing training data from 100% to 50% and 100% to 5%,
     averaged over models and tasks with uncertainty estimates.
 
@@ -1327,25 +1135,329 @@ def analyze_performance_drops(test_split='Random'):
         'test_split': test_split
     }
 
+def calculate_rq2_stats():
+    """Calculate percentage performance drops when going from Random to Geographic test splits,
+    averaged over models and tasks with uncertainty estimates (RQ2 analysis)."""
+
+    adaptation_mode = 'FT'
+    train_percent = 100  # Use full training data for RQ2
+
+    # Collect all performance data
+    all_data = []
+
+    for task in tasks:
+        metric = 'R2' if task != 'species' else 'MAP'
+        random_metric_name = f'Random test {metric}'
+        geographic_metric_name = f'Geographic test {metric}'
+
+        for architecture in architectures_plots:
+            run = next((run for run in runs if run.name.startswith(f'{task}_{architecture}_{adaptation_mode}_{train_percent}_')), None)
+
+            if run:
+                random_metric = run.summary_metrics.get(random_metric_name)
+                geographic_metric = run.summary_metrics.get(geographic_metric_name)
+
+                if (random_metric is not None and not np.isnan(random_metric) and
+                    geographic_metric is not None and not np.isnan(geographic_metric)):
+                    all_data.append({
+                        'task': task,
+                        'architecture': architecture,
+                        'random_metric': random_metric,
+                        'geographic_metric': geographic_metric
+                    })
+
+    df = pd.DataFrame(all_data)
+
+    # Calculate percentage performance drops for each task-architecture combination
+    drops_convnext = []
+    drops_pretrained = []
+
+    for task in tasks:
+        for architecture in architectures_plots:
+            task_arch_data = df[(df['task'] == task) & (df['architecture'] == architecture)]
+            if task_arch_data.empty:
+                continue
+            random_perf = task_arch_data['random_metric'].iloc[0]
+            geographic_perf = task_arch_data['geographic_metric'].iloc[0]
+            if np.isnan(random_perf) or np.isnan(geographic_perf) or random_perf <= 0:
+                continue
+            pct_drop = (random_perf - geographic_perf) / random_perf * 100
+            if architecture == 'ConvNeXtV2A':
+                drops_convnext.append(pct_drop)
+            else:
+                drops_pretrained.append(pct_drop)
+
+    def calc_stats(drops):
+        arr = np.array(drops)
+        if len(arr) == 0:
+            return None, None, None, None, 0
+        mean = float(np.mean(arr))
+        se = float(np.std(arr, ddof=1) / np.sqrt(len(arr))) if len(arr) > 1 else 0.0
+        z = 1.96
+        return mean, se, mean - z * se, mean + z * se, len(arr)
+
+    mean_conv, se_conv, ci_l_conv, ci_u_conv, n_conv = calc_stats(drops_convnext)
+    mean_pre, se_pre, ci_l_pre, ci_u_pre, n_pre = calc_stats(drops_pretrained)
+
+    # Print results (split baseline vs pretrained)
+    print("\nRQ2 ANALYSIS - TEST SPLIT COMPARISON")
+    print("=" * 60)
+    print("RQ2 Performance Drop Analysis (Random → Geographic Test Split)")
+    print("=" * 80)
+    print("ConvNeXtV2A (averaged over tasks):")
+    if n_conv > 0:
+        print(f"  n={n_conv}  mean: {mean_conv:.2f}% ± {se_conv:.2f}%  95% CI: [{ci_l_conv:.2f}%, {ci_u_conv:.2f}%]")
+    else:
+        print("  No data available")
+    print("Pretrained models (all others, averaged over tasks and architectures):")
+    if n_pre > 0:
+        print(f"  n={n_pre}  mean: {mean_pre:.2f}% ± {se_pre:.2f}%  95% CI: [{ci_l_pre:.2f}%, {ci_u_pre:.2f}%]")
+    else:
+        print("  No data available")
+
+    return {
+        'convnext': {'mean': mean_conv, 'se': se_conv, 'ci': (ci_l_conv, ci_u_conv), 'n': n_conv},
+        'pretrained': {'mean': mean_pre, 'se': se_pre, 'ci': (ci_l_pre, ci_u_pre), 'n': n_pre}
+    }
+
+def calculate_rq3_stats(test_split='Random'):
+    """Calculate percentage performance drops when going from Multimodal to S2-only models,
+    averaged over models and tasks with uncertainty estimates (RQ3 analysis).
+    Set test_split to 'Random' or 'Geographic'."""
+
+    adaptation_mode = 'FT'
+    train_percent = 100  # Use full training data for RQ3
+    rq3_architectures = ['TerraMindS2', 'TerraMind', 'CopernicusFMS2', 'CopernicusFM']
+
+    # Collect all performance data
+    all_data = []
+
+    for task in tasks:
+        metric = 'R2' if task != 'species' else 'MAP'
+        metric_name = f'{test_split} test {metric}'
+
+        for architecture in rq3_architectures:
+            run = next((run for run in runs if run.name.startswith(f'{task}_{architecture}_{adaptation_mode}_{train_percent}_')), None)
+            test_metric = run.summary_metrics.get(metric_name) if run else np.nan
+
+            if test_metric is not None and not np.isnan(test_metric):
+                # Determine if this is S2 or Multimodal version
+                if architecture.endswith('S2'):
+                    version = 'S2'
+                    base_name = architecture[:-2]  # Remove 'S2' suffix
+                else:
+                    version = 'Multimodal'
+                    base_name = architecture
+
+                all_data.append({
+                    'task': task,
+                    'architecture': base_name,
+                    'version': version,
+                    'metric': test_metric
+                })
+
+    df = pd.DataFrame(all_data)
+
+    # Calculate percentage performance drops for each task-architecture combination
+    pct_drops_multimodal_to_s2 = []
+
+    for task in tasks:
+        for base_arch in ['TerraMind', 'CopernicusFM']:
+            task_arch_data = df[(df['task'] == task) & (df['architecture'] == base_arch)]
+
+            if len(task_arch_data) >= 2:  # Need both S2 and Multimodal versions
+                multimodal_data = task_arch_data[task_arch_data['version'] == 'Multimodal']
+                s2_data = task_arch_data[task_arch_data['version'] == 'S2']
+
+                if not multimodal_data.empty and not s2_data.empty:
+                    multimodal_perf = multimodal_data['metric'].iloc[0]
+                    s2_perf = s2_data['metric'].iloc[0]
+
+                    if not (np.isnan(multimodal_perf) or np.isnan(s2_perf)) and multimodal_perf > 0:
+                        # Calculate percentage drop: (Multimodal - S2) / Multimodal * 100
+                        pct_drop = (multimodal_perf - s2_perf) / multimodal_perf * 100
+                        pct_drops_multimodal_to_s2.append(pct_drop)
+
+    # Calculate summary statistics with uncertainty
+    pct_drops_multimodal_to_s2 = np.array(pct_drops_multimodal_to_s2)
+
+    # Mean and standard error
+    mean_pct_drop = np.mean(pct_drops_multimodal_to_s2)
+    se_pct_drop = np.std(pct_drops_multimodal_to_s2, ddof=1) / np.sqrt(len(pct_drops_multimodal_to_s2))
+
+    # 95% confidence intervals (using normal approximation for simplicity)
+    n = len(pct_drops_multimodal_to_s2)
+    z_critical = 1.96  # 95% confidence interval for normal distribution
+
+    ci_lower = mean_pct_drop - z_critical * se_pct_drop
+    ci_upper = mean_pct_drop + z_critical * se_pct_drop
+
+    # Print results
+    print("\nRQ3 ANALYSIS - MULTIMODAL vs S2-ONLY MODELS")
+    print("=" * 60)
+    print("RQ3 Performance Drop Analysis (Multimodal → S2-only Models)")
+    print("=" * 80)
+    print(f"Training data: 100% (full training data)")
+    print(f"Test split: {test_split}")
+    print(f"Number of task-architecture combinations: {n}")
+    print()
+    print("Multimodal → S2-only models:")
+    print(f"  Mean percentage drop: {mean_pct_drop:.2f}% ± {se_pct_drop:.2f}%")
+    print(f"  95% CI: [{ci_lower:.2f}%, {ci_upper:.2f}%]")
+    print()
+    print("Additional statistics:")
+    print(f"  Standard deviation: {np.std(pct_drops_multimodal_to_s2, ddof=1):.2f}%")
+    print(f"  Range: [{np.min(pct_drops_multimodal_to_s2):.2f}%, {np.max(pct_drops_multimodal_to_s2):.2f}%]")
+    print()
+
+    return {
+        'pct_drop_multimodal_to_s2': {'mean': mean_pct_drop, 'se': se_pct_drop, 'ci': (ci_lower, ci_upper)},
+        'n_combinations': n,
+        'test_split': test_split
+    }
+
 def tabulate_results(rq_number):
     with open(f'latex_{tag}_RQ{rq_number}.tex', 'w') as file:
         file.write('\n'.join([globals()[f'tabulate_results_RQ{rq_number}_task'](task) for task in tasks]))
 
+def tabulate_tta_per_model():
+    """Create a table showing average improvement (averaged over tasks) of MT-TTT and MT-TTT-Geo over JT.
+    Rows are MT-TTT and MT-TTT-Geo, columns are architectures. Includes standard error.
+    """
+    adaptation_modes = ['JT-TTT', 'JT-TTT-Geo']
+
+    # Collect improvement data for each architecture and adaptation mode
+    improvement_data = {architecture: {mode: [] for mode in adaptation_modes}
+                        for architecture in architectures_plots}
+
+    for architecture in architectures_plots:
+        # Get JT baseline performance for each task
+        jt_baseline = {}
+        for task in tasks:
+            metric = 'R2' if task != 'species' else 'MAP'
+            run_name = '_'.join([task, architecture, 'JT', str(100)]) + '_'
+            run = next((run for run in runs if run.name.startswith(run_name)), None)
+            if run:
+                jt_baseline[task] = run.summary_metrics.get(f'Random test {metric}')
+
+        # Calculate improvements for JT-TTT and JT-TTT-Geo for each task
+        for adaptation_mode in adaptation_modes:
+            for task in tasks:
+                if task in jt_baseline and jt_baseline[task] is not None:
+                    metric = 'R2' if task != 'species' else 'MAP'
+                    run_name = '_'.join([task, architecture, adaptation_mode, str(100)]) + '_'
+                    run = next((run for run in runs if run.name.startswith(run_name)), None)
+                    if run:
+                        performance = run.summary_metrics.get(f'Random test {metric}')
+                        if performance is not None and not np.isnan(performance) and not np.isnan(jt_baseline[task]):
+                            improvement = performance - jt_baseline[task]
+                            improvement_data[architecture][adaptation_mode].append(improvement)
+
+    # Calculate mean and standard error for each architecture-mode combination
+    data_dict = {}
+    for mode in adaptation_modes:
+        data_dict[mode] = {}
+        for architecture in architectures_plots:
+            improvements = improvement_data[architecture][mode]
+            if len(improvements) > 0:
+                mean = np.mean(improvements)
+                # Standard error: std / sqrt(n)
+                se = np.std(improvements, ddof=1) / np.sqrt(len(improvements)) if len(improvements) > 1 else 0.0
+                data_dict[mode][architecture] = {'mean': mean, 'se': se, 'n': len(improvements)}
+            else:
+                data_dict[mode][architecture] = {'mean': np.nan, 'se': np.nan, 'n': 0}
+
+    # Create DataFrame with mean ± SE format - transposed structure
+    display_decimals = 3
+    formatted_data = {}
+
+    # Determine which values should be bolded (highest in each row = highest across methods for each architecture)
+    bold_flags = {}
+    for architecture in architectures_plots:
+        jt_ttt_mean = data_dict['JT-TTT'][architecture]['mean']
+        jt_ttt_geo_mean = data_dict['JT-TTT-Geo'][architecture]['mean']
+
+        bold_flags[architecture] = {'JT-TTT': False, 'JT-TTT-Geo': False}
+
+        # Compare means, handling NaN values
+        if not np.isnan(jt_ttt_mean) and not np.isnan(jt_ttt_geo_mean):
+            if jt_ttt_mean > jt_ttt_geo_mean:
+                bold_flags[architecture]['JT-TTT'] = True
+            elif jt_ttt_geo_mean > jt_ttt_mean:
+                bold_flags[architecture]['JT-TTT-Geo'] = True
+        elif not np.isnan(jt_ttt_mean):
+            bold_flags[architecture]['JT-TTT'] = True
+        elif not np.isnan(jt_ttt_geo_mean):
+            bold_flags[architecture]['JT-TTT-Geo'] = True
+
+    # Format data with architecture as rows, methods as columns
+    for architecture in architectures_plots:
+        formatted_data[architecture] = {}
+        for mode in adaptation_modes:
+            stats = data_dict[mode][architecture]
+            if stats['n'] > 0 and not np.isnan(stats['mean']):
+                mean_str = f"{stats['mean']:.{display_decimals}f}"
+                se_str = f"{stats['se']:.{display_decimals}f}"
+                # Bold inside math mode using \mathbf if needed
+                if bold_flags[architecture][mode]:
+                    formatted_data[architecture][mode] = f"$\\mathbf{{{mean_str} \\pm {se_str}}}$"
+                else:
+                    formatted_data[architecture][mode] = f"${mean_str} \\pm {se_str}$"
+            else:
+                formatted_data[architecture][mode] = "--"
+
+    # Create DataFrame - architectures as rows, methods as columns
+    df = pd.DataFrame(formatted_data).T  # Transpose to get architectures as rows
+    df = df.reindex(architectures_plots)  # Ensure correct row order
+    # Columns should be the adaptation modes (display names)
+    display_name_mapping = {'JT-TTT': 'MT-TTT', 'JT-TTT-Geo': 'MT-TTT-Geo'}
+    df.columns = [display_name_mapping[mode] for mode in adaptation_modes]
+    # Rename index to use display names for architectures
+    df.index = [display_arch_name(arch) for arch in architectures_plots]
+
+    # Create LaTeX table
+    header_line = ' & '.join(['\\textbf{Model}'] + [f'\\textbf{{{c}}}' for c in df.columns]) + r' \\'
+    latex = df.to_latex(index=True,
+                        header=False,  # Set to False since we're manually adding the header
+                        index_names=False,
+                        escape=False,
+                        column_format='l' + 'r' * len(df.columns),
+                        na_rep='--')
+
+    # Insert custom header after toprule
+    lines = latex.split('\n')
+    toprule_idx = next(i for i, line in enumerate(lines) if '\\toprule' in line)
+    # Insert header line and midrule after toprule
+    lines.insert(toprule_idx + 1, header_line)
+    lines.insert(toprule_idx + 2, '\\midrule')
+    latex = '\n'.join(lines)
+
+    # Add table environment
+    latex = ("\\begin{table}[ht]\n\\centering\n" +
+            latex +
+            "\\caption{Average improvement over JT (averaged over tasks) for MT-TTT and MT-TTT-Geo by architecture. Values shown as mean $\\pm$ standard error across all tasks.}\n" +
+            "\\label{tab:tta_improvement_averages}\n" +
+            "\\end{table}\n")
+
+    with open('tta_by_model.tex', 'w') as file:
+        file.write(latex)
+
 if __name__ == '__main__':
-    tabulate_results(1)
-    tabulate_results(2)
-    tabulate_results(3)
+    # tabulate_results(1)
+    # tabulate_results(2)
+    # tabulate_results(3)
     tabulate_tta_results()
+    tabulate_tta_per_model()
     # plot_rq1_performance()
     # plot_rq1_relative_performance()
-    plot_rq2_performance()
+    # plot_rq2_performance()
     # plot_rq3_performance()
     plot_tta_improvement()
     # plot_tta_improvement_by_model()
 
     # # Analyze performance drops for both test splits
-    # random_results = analyze_performance_drops('Random')
-    # geographic_results = analyze_performance_drops('Geographic')
-    # rq2_results = analyze_rq2_performance_drops()
-    # rq3_results_random = analyze_rq3_performance_drops('Random')
-    # rq3_results_geographic = analyze_rq3_performance_drops('Geographic')
+    # random_results = calculate_rq1_stats('Random')
+    # geographic_results = calculate_rq1_stats('Geographic')
+    # rq2_results = calculate_rq2_stats()
+    # rq3_results_random = calculate_rq3_stats('Random')
+    # rq3_results_geographic = calculate_rq3_stats('Geographic')
