@@ -74,10 +74,12 @@ class MMEarthBenchDataset(Dataset):
         with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
             self.task_modality_data = {modality: h5_file[modality][:] for modality in task_modalities}
 
-            if architecture != 'ConvNeXtV2A':
+            if 'ConvNeXtV2A' not in architecture:
                 self.input_data = {modality: ensure_2d(h5_file[modality][:]) for modality in normalization_data[self.architecture].keys() if modality in h5_file.keys()}
 
-            if architecture == 'TerraMind':
+            if architecture == 'AnySat':
+                self.input_data['date'] = ensure_2d(np.array([date(*map(int, sentinel2_date.split('-'))).timetuple().tm_yday - 1 for sentinel2_date in h5_file['sentinel2_date'].asstr()[...]])) # day of year
+            elif architecture == 'TerraMind':
                 self.input_data['RGB'] = np.ma.stack([make_terramind_rgb(np.ma.masked_equal(sentinel2[[3,2,1]], no_data_values['Sentinel2'])) for sentinel2 in self.input_data['Sentinel2']])
             elif architecture == 'CopernicusFM':
                 geolocation = h5_file['geolocation'][:]
@@ -96,6 +98,9 @@ class MMEarthBenchDataset(Dataset):
                         self.task_data[tile_idx][species_idx] = 1 # marks the species as present in the tile
             else:
                 self.task_data = h5_file[task][:]
+
+            if 'TTT-Geo' in adaptation_mode or adaptation_mode == 'MT3_metabatch':
+                self.geolocation = h5_file['geolocation'][:]
 
         self.tile_count = len(self.task_modality_data['Sentinel2']) # number of tiles for the task
 
@@ -126,17 +131,19 @@ class MMEarthBenchDataset(Dataset):
             # normalization
             if modality in ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETH_GCH', 'precipitation', 'temperature']: # continuous modalities without an encoding
                 masked = np.ma.masked_equal(tile_task_modality_data[modality]['data'], no_data_values[modality]) # masks the no-data values
-                normalized = (masked - self.split_data[f'{modality}_train_{self.train_percent}%_means']) / self.split_data[f'{modality}_train_{self.train_percent}%_stds'] # normalization
+                means = json.loads(json.dumps(self.split_data[f'{modality}_train_{self.train_percent}%_means']).replace('null', '0'))
+                stds = json.loads(json.dumps(self.split_data[f'{modality}_train_{self.train_percent}%_stds']).replace('null', '1'))
+                normalized = (masked - means) / stds # normalization
                 tile_task_modality_data[modality]['data'] = normalized.filled(0) # replaces NaNs with the post-normalization mean
 
-        if self.adaptation_mode in ['multimodal', 'multimodal_joint_training', 'ttt-mjt', 'multimodal_mt3', 'multimodal_sln', 'maml_encode']:
+        if self.architecture == 'ConvNeXtV2AMultimodal' or self.adaptation_mode in ['multimodal', 'multimodal_joint_training', 'ttt-mjt', 'multimodal_mt3', 'multimodal_sln', 'maml_encode']:
             # convert categorical modalities to one-hot encoding
             dynamic_world_onehot = np.eye(no_data_values['DynamicWorld']+1)[tile_task_modality_data['DynamicWorld']['data'].astype(int)].squeeze().transpose(2, 0, 1)
             esa_worldcover_onehot = np.eye(no_data_values['ESA_WorldCover']+1)[tile_task_modality_data['ESA_WorldCover']['data'].astype(int)].squeeze().transpose(2, 0, 1)
             biome_onehot = np.eye(no_data_values['biome']+1)[tile_task_modality_data['biome']['data'].astype(int)]
             ecoregion_onehot = np.eye(no_data_values['ecoregion']+1)[tile_task_modality_data['ecoregion']['data'].astype(int)]
 
-            if self.adaptation_mode == 'multimodal':
+            if self.architecture == 'ConvNeXtV2AMultimodal' or self.adaptation_mode == 'multimodal':
                 tile_task_modality_data['DynamicWorld']['data'] = dynamic_world_onehot
                 tile_task_modality_data['ESA_WorldCover']['data'] = esa_worldcover_onehot
                 tile_task_modality_data['biome']['data'] = biome_onehot
@@ -154,6 +161,9 @@ class MMEarthBenchDataset(Dataset):
         # input data for the tile
         if self.architecture == 'ConvNeXtV2A':
             tile_input_data = {'RGB': tile_task_modality_data['Sentinel2']['data'][[3, 2, 1]]}
+        elif self.architecture == 'ConvNeXtV2AMultimodal':
+            tile_input_data = tile_task_modality_data.copy()
+            tile_task_modality_data = {'Sentinel2': {'data': tile_task_modality_data['Sentinel2']['data']}} # solely for the purpose of logging images
         else:
             tile_input_data = {modality: data[index] for modality, data in self.input_data.items()}
             architecture_normalization_data = normalization_data[self.architecture]
@@ -179,6 +189,10 @@ class MMEarthBenchDataset(Dataset):
 
                     # mean-std normalization
                     normalized = (masked - np.expand_dims(architecture_normalization_data[modality]['means'], axis=axes_to_collapse)) / np.expand_dims(architecture_normalization_data[modality]['stds'], axis=axes_to_collapse)
+
+                    if self.architecture == 'Satlas':
+                        normalized = np.ma.clip(normalized, 0, 1) # clips values to [0, 1]
+
                     tile_input_data[modality] = normalized.filled(0)
 
                 tile_input_data[modality] = torch.tensor(tile_input_data[modality], dtype=torch.float32) # converts to tensor
