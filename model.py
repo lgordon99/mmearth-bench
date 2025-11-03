@@ -578,61 +578,64 @@ class TaskModalityDecoderLoss(nn.Module):
 
         return mean_loss
 
-# class ModalityReconstructionPerformanceCalculator(nn.Module):
-#     def __init__(self):
-#         super().__init__()
+class ModalityReconstructionPerformanceCalculator(nn.Module):
+    def __init__(self):
+        super().__init__()
 
-#         self.metrics = nn.ModuleDict({modality: MulticlassAccuracy(num_classes=no_data_values[modality], ignore_index=no_data_values[modality]) if modality in categorical_modalities else R2Score() for modality in task_modalities})
+        self.metrics = nn.ModuleDict({modality: MulticlassAccuracy(num_classes=no_data_values[modality], ignore_index=no_data_values[modality]) if modality in categorical_modalities else R2Score() for modality in task_modalities})
 
-#     def forward(self, modality_reconstructions, task_modality_data):
-#         modality_reconstruction_performances = {}
+    def forward(self, modality_reconstructions, task_modality_data):
+        modality_reconstruction_performances = {}
 
-#         for modality, reconstruction in modality_reconstructions.items():
-#             device = reconstruction.device
-#             modality_target = task_modality_data[modality]['data'].to(device)
+        for modality, reconstruction in modality_reconstructions.items():
+            device = reconstruction.device
+            modality_target = task_modality_data[modality]['data'].to(device)
 
-#             if modality in categorical_modalities:
-#                 if modality in ['DynamicWorld', 'ESA_WorldCover']:
-#                     modality_target = modality_target.squeeze(1).long()
-#             else: # continuous-valued modality
-#                 if modality not in ['geolocation_encoding', 'month_encoding']:
-#                     valid_mask = task_modality_data[modality]['valid_mask']
-#                     reconstruction = reconstruction[valid_mask]
-#                     modality_target = modality_target[valid_mask]
+            if modality in categorical_modalities:
+                if modality in ['DynamicWorld', 'ESA_WorldCover']:
+                    modality_target = modality_target.squeeze(1).long()
+            else: # continuous-valued modality
+                if modality not in ['geolocation_encoding', 'month_encoding']:
+                    valid_mask = task_modality_data[modality]['valid_mask']
+                    reconstruction = reconstruction[valid_mask]
+                    modality_target = modality_target[valid_mask]
 
-#             modality_reconstruction_performances[modality] = self.metrics[modality](reconstruction, modality_target)
+            modality_reconstruction_performances[modality] = self.metrics[modality](reconstruction, modality_target)
 
-#         return modality_reconstruction_performances
+        return modality_reconstruction_performances
 
-# class TaskModalityDecoderWeightedLoss(nn.Module):
-#     def __init__(self):
-#         super().__init__()
+class TaskModalityDecoderWeightedLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
 
-#         self.modality_reconstruction_loss_calculator = ModalityReconstructionLossCalculator()
-#         self.modality_reconstruction_performance_calculator = ModalityReconstructionPerformanceCalculator()
+        self.modality_reconstruction_loss_calculator = ModalityReconstructionLossCalculator()
+        self.modality_reconstruction_performance_calculator = ModalityReconstructionPerformanceCalculator()
 
-#     def forward(self, modality_reconstructions, task_modality_data):
-#         modality_reconstruction_losses = self.modality_reconstruction_loss_calculator(modality_reconstructions, task_modality_data)
-#         modality_reconstruction_performances = self.modality_reconstruction_performance_calculator(modality_reconstructions, task_modality_data)
-#         weights = {}
+    def forward(self, modality_reconstructions, task_modality_data):
+        modality_reconstruction_losses = self.modality_reconstruction_loss_calculator(modality_reconstructions, task_modality_data)
+        modality_reconstruction_performances = self.modality_reconstruction_performance_calculator(modality_reconstructions, task_modality_data)
+        weights = {}
 
-#         for modality, performance in modality_reconstruction_performances.items():
-#             # print(modality, performance.item())
-#             if performance <= 0:
-#                 weights[modality] = 0
-#             else:
-#                 weights[modality] = performance
+        for modality, performance in modality_reconstruction_performances.items():
+            # print(f'{modality}: performance = {performance.mean().item()}, loss = {modality_reconstruction_losses[modality].mean().item()}')
+            if performance > 0:
+            # if performance <= 0:
+                weights[modality] = 0
+            else:
+                # weights[modality] = performance
+                weights[modality] = 1
 
-#         weights_values = torch.tensor(list(weights.values()), device=performance.device)
-#         # print(weights_values.shape)
-#         normalized_weights = weights_values / weights_values.sum()
-#         # print("Normalized weights:", normalized_weights)
-#         # print(torch.stack(list(modality_reconstruction_losses.values()), dim=1).shape)
-#         weighted_losses = torch.stack(list(modality_reconstruction_losses.values()), dim=1) * normalized_weights
-#         # print(weighted_losses.shape)
-#         mean_loss = weighted_losses.nansum() # computes the weighted sum loss across all modalities and tiles, ignoring NaNs
+        weights_values = torch.tensor(list(weights.values()), device=performance.device)
+        # # print(weights_values.shape)
+        normalized_weights = weights_values / weights_values.sum()
+        # # print("Normalized weights:", normalized_weights)
+        # # print(torch.stack(list(modality_reconstruction_losses.values()), dim=1).shape)
+        weighted_losses = torch.stack(list(modality_reconstruction_losses.values()), dim=1) * normalized_weights
+        # # print(weighted_losses.shape)
+        mean_loss = weighted_losses.nansum() # computes the weighted sum loss across all modalities and tiles, ignoring NaNs
+        # mean_loss = torch.stack(list(modality_reconstruction_losses.values()), dim=1).nanmean() # computes the mean loss across all modalities and tiles, ignoring NaNs
 
-#         return mean_loss
+        return mean_loss
 
 # class TaskModalityDecoderLoss(nn.Module):
 #     def __init__(self):
@@ -826,55 +829,55 @@ class SurrogateLossNetwork(nn.Module):
 
 #         return gamma * initial_input_embeddings + beta
 
-# class Adapter(nn.Module):
-#     """
-#     Unified residual adapter for [B,C,H,W] features.
-#     Blocks:
-#       - FiLM: per-channel scale/shift
-#       - Depthwise: 3x3 depthwise conv (spatially local)
-#       - LowRank: 1x1 -> r -> 1x1 bottleneck (channel mixing)
+class Adapter(nn.Module):
+    """
+    Unified residual adapter for [B,C,H,W] features.
+    Blocks:
+      - FiLM: per-channel scale/shift
+      - Depthwise: 3x3 depthwise conv (spatially local)
+      - LowRank: 1x1 -> r -> 1x1 bottleneck (channel mixing)
 
-#     y = z + alpha * ( w_film * FiLM(z) + w_dw * DW(z) + w_lr * LR(z) )
+    y = z + alpha * ( w_film * FiLM(z) + w_dw * DW(z) + w_lr * LR(z) )
 
-#     All paths are identity-initialized (zero) so the adapter starts as no-op.
-#     """
-#     def __init__(self, embedding_dim):
-#         super().__init__()
+    All paths are identity-initialized (zero) so the adapter starts as no-op.
+    """
+    def __init__(self, embedding_dim):
+        super().__init__()
 
-#         self.embedding_dim = embedding_dim
-#         self.alpha = nn.Parameter(torch.tensor(1e-3)) # global strength (learnable, starts small)
-#         self.path_logits = nn.Parameter(torch.zeros(3)) # per-path mixture weights (learnable, start equal)
+        self.embedding_dim = embedding_dim
+        self.alpha = nn.Parameter(torch.tensor(1e-1)) # global strength (learnable, starts small)
+        self.path_logits = nn.Parameter(torch.zeros(3)) # per-path mixture weights (learnable, start equal)
 
-#         # --- FiLM path ---
-#         self.gamma = nn.Parameter(torch.zeros(embedding_dim)) # per-channel scale
-#         self.beta  = nn.Parameter(torch.zeros(embedding_dim)) # per-channel shift
+        # --- FiLM path ---
+        self.gamma = nn.Parameter(torch.zeros(embedding_dim)) # per-channel scale
+        self.beta  = nn.Parameter(torch.zeros(embedding_dim)) # per-channel shift
 
-#         # --- Depthwise path ---
-#         self.depthwise_convolution = nn.Conv2d(embedding_dim, embedding_dim, kernel_size=3, padding=1, groups=embedding_dim, bias=True)
-#         nn.init.zeros_(self.depthwise_convolution.weight) # zero init = identity
-#         nn.init.zeros_(self.depthwise_convolution.bias) # zero init = identity
+        # --- Depthwise path ---
+        self.depthwise_convolution = nn.Conv2d(embedding_dim, embedding_dim, kernel_size=3, padding=1, groups=embedding_dim, bias=True)
+        nn.init.zeros_(self.depthwise_convolution.weight) # zero init = identity
+        nn.init.zeros_(self.depthwise_convolution.bias) # zero init = identity
 
-#         # --- Low-rank path (1x1 bottleneck) ---
-#         r = max(1, min(8, embedding_dim))
-#         self.pw1 = nn.Conv2d(embedding_dim, r, kernel_size=1, bias=False) # compresses the embedding dimension
-#         self.pw2 = nn.Conv2d(r, embedding_dim, kernel_size=1, bias=False) # expands back to the embedding dimension
-#         nn.init.zeros_(self.pw1.weight) # zero init = identity
-#         nn.init.zeros_(self.pw2.weight) # zero init = identity
+        # --- Low-rank path (1x1 bottleneck) ---
+        r = max(1, min(8, embedding_dim))
+        self.pw1 = nn.Conv2d(embedding_dim, r, kernel_size=1, bias=False) # compresses the embedding dimension
+        self.pw2 = nn.Conv2d(r, embedding_dim, kernel_size=1, bias=False) # expands back to the embedding dimension
+        nn.init.zeros_(self.pw1.weight) # zero init = identity
+        nn.init.zeros_(self.pw2.weight) # zero init = identity
 
-#         self.layer_norm = nn.GroupNorm(num_groups=1, num_channels=embedding_dim, affine=False) # LayerNorm2D surrogate
+        self.layer_norm = nn.GroupNorm(num_groups=1, num_channels=embedding_dim, affine=False) # LayerNorm2D surrogate
 
-#     def forward(self, initial_input_embeddings): # initial_input_embeddings: [B,C,H,W]
-#         paths = []
-#         g = self.gamma.view(1, -1, 1, 1)
-#         b = self.beta.view(1, -1, 1, 1)
-#         paths.append(g * initial_input_embeddings + b) # FiLM residual
-#         paths.append(self.depthwise_convolution(initial_input_embeddings)) # depthwise residual
-#         paths.append(self.pw2(self.pw1(initial_input_embeddings))) # low-rank residual
-#         w = torch.softmax(self.path_logits, dim=0) # softmax mixture over enabled paths
-#         residual = sum(w[i] * paths[i] for i in range(len(paths))) # sum weighted residuals (match len(paths))
-#         residual = self.layer_norm(residual) # light normalization of residual before adding
+    def forward(self, initial_input_embeddings): # initial_input_embeddings: [B,C,H,W]
+        paths = []
+        g = self.gamma.view(1, -1, 1, 1)
+        b = self.beta.view(1, -1, 1, 1)
+        paths.append(g * initial_input_embeddings + b) # FiLM residual
+        paths.append(self.depthwise_convolution(initial_input_embeddings)) # depthwise residual
+        paths.append(self.pw2(self.pw1(initial_input_embeddings))) # low-rank residual
+        w = torch.softmax(self.path_logits, dim=0) # softmax mixture over enabled paths
+        residual = sum(w[i] * paths[i] for i in range(len(paths))) # sum weighted residuals (match len(paths))
+        residual = self.layer_norm(residual) # light normalization of residual before adding
 
-#         return initial_input_embeddings + self.alpha * residual # global, learnable small step
+        return initial_input_embeddings + self.alpha * residual # global, learnable small step
 
 class EncoderDecoder(nn.Module):
     def __init__(self, task, architecture, adaptation_mode, pixelwise, num_classes, pretrained, lr):
@@ -902,16 +905,19 @@ class EncoderDecoder(nn.Module):
             self.task_modality_decoder = TaskModalityDecoder(self.embedding_dim)
 
         # if 'TTT' in adaptation_mode or adaptation_mode in ['JT', 'TTT', 'UDA-SS', 'TTT-UDA-SS', 'multimodal_joint_training', 'ttt-jt', 'uda-ttt', 'ttt-jt-10', 'ttt-jt-20', 'ttt-mjt', 'MT3', 'MT3-10', 'MT3-20', 'multimodal_MT3', 'sln', 'multimodal_sln', 'joint_probing',  'ttt-adapter', 'ttt-jp', 'MT3_metabatch', 'MT3_frozen']:
-        if 'TTT' in adaptation_mode or adaptation_mode == 'JT':
-            self.task_modality_decoder_loss = TaskModalityDecoderLoss()
-        # elif adaptation_mode == 'TTT':
-        #     self.task_modality_decoder_loss = TaskModalityDecoderWeightedLoss()
+        if 'TTT' in adaptation_mode or adaptation_mode in ['JT', 'MT3_metabatch']:
+            # self.task_modality_decoder_loss = TaskModalityDecoderLoss()
+            self.modality_reconstruction_loss_calculator = ModalityReconstructionLossCalculator()
+
+            # self.task_modality_decoder_loss = TaskModalityDecoderWeightedLoss()
 
         # if adaptation_mode in ['sln', 'sln-10', 'sln-20', 'multimodal_sln', 'rna']:
         #     self.modality_reconstruction_loss_calculator = ModalityReconstructionLossCalculator()
 
-        # if adaptation_mode == 'ttt-adapter':
-        #     self.adapter = Adapter(embedding_dim=self.embedding_dim)
+        if '-adapter' in adaptation_mode:
+            self.adapter = Adapter(embedding_dim=self.embedding_dim)
+            self.adapter.requires_grad_(False) # freezes the adapter
+
         # elif adaptation_mode in ['sln', 'sln-10', 'sln-20']:
         #     self.surrogate_loss_network = SurrogateLossNetwork()
         # elif adaptation_mode in ['multimodal_sln']:
@@ -997,7 +1003,9 @@ class EncoderDecoder(nn.Module):
         if 'TTT' in adaptation_mode:
             self.task_modality_decoder.requires_grad_(False) # freezes the task modality decoder
             self.mode = 'val'
-            self.val_best_num_iterations = 50
+            # self.val_best_num_iterations = 50
+            self.val_best_num_iterations = 5
+
             # self.iteration_performances = []
 
         # # freeze task modality encoder
@@ -1048,13 +1056,44 @@ class EncoderDecoder(nn.Module):
 
                     del task_prediction
 
-                task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions=self.task_modality_decoder(input_embeddings), task_modality_data=task_modality_data)
+                modality_reconstructions = self.task_modality_decoder(input_embeddings)
                 del input_embeddings
-                task_modality_reconstruction_loss_grads = torch.autograd.grad(task_modality_reconstruction_loss, encoder_parameters.values()) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
-                del task_modality_reconstruction_loss
-                grad_norm = torch.linalg.vector_norm(torch.stack([g.detach().float().norm() for g in task_modality_reconstruction_loss_grads]))
-                max_norm = 1
-                scale = (max_norm / (grad_norm + 1e-6)).clamp(max=1.0)
+                modality_reconstruction_losses = self.modality_reconstruction_loss_calculator(modality_reconstructions, task_modality_data)
+                del modality_reconstructions
+                gradients_per_modality = []
+
+                for modality_loss in modality_reconstruction_losses.values():
+                    if not modality_loss.isnan().all():
+                        gradients_per_modality.append(torch.autograd.grad(modality_loss.nanmean(), encoder_parameters.values(), retain_graph=True))
+
+                del modality_reconstruction_losses
+                normalized_gradients_per_modality = []
+
+                for modality_grads in gradients_per_modality:
+                    grad_norm = torch.linalg.vector_norm(torch.cat([g.flatten() for g in modality_grads]))
+                    normalized_gradients_per_modality.append(tuple(g / (grad_norm + 1e-6) for g in modality_grads))
+
+                del gradients_per_modality
+                del grad_norm
+                averaged_grads = []
+
+                for param_idx in range(len(normalized_gradients_per_modality[0])):
+                    # Stack and average gradients for this parameter
+                    param_grads_across_modalities = [normalized_gradients_per_modality[m][param_idx] for m in range(len(normalized_gradients_per_modality))]
+                    averaged_grad = torch.stack(param_grads_across_modalities).mean(dim=0) # average element-wise
+                    averaged_grads.append(averaged_grad)
+
+                del normalized_gradients_per_modality
+                task_modality_reconstruction_loss_grads = tuple(averaged_grads)
+                del averaged_grads
+                # task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions=self.task_modality_decoder(input_embeddings), task_modality_data=task_modality_data)
+                # del input_embeddings
+                # task_modality_reconstruction_loss_grads = torch.autograd.grad(task_modality_reconstruction_loss, encoder_parameters.values()) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
+                # del task_modality_reconstruction_loss
+                # grad_norm = torch.linalg.vector_norm(torch.stack([g.detach().float().norm() for g in task_modality_reconstruction_loss_grads]))
+                # max_norm = 1
+                # scale = (max_norm / (grad_norm + 1e-6)).clamp(max=1.0)
+                # scale = 1
 
                 # unused_params = []
                 # for name, param in encoder_parameters.items():
@@ -1068,7 +1107,54 @@ class EncoderDecoder(nn.Module):
                 #         print(f"  - {name}")
                 # exit()
                 with torch.no_grad():
-                    encoder_parameters = {name: (parameter - self.lr * scale * grad).detach().requires_grad_() for (name, parameter), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)}
+                    # encoder_parameters = {name: (parameter - self.lr * scale * grad).detach().requires_grad_() for (name, parameter), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)}
+                    encoder_parameters = {name: (parameter - self.lr * grad).detach().requires_grad_() for (name, parameter), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)}
+
+                # del task_modality_reconstruction_loss_grads, grad_norm, scale
+                del task_modality_reconstruction_loss_grads
+
+    def ttt_adapter(self, input_data, task_modality_data, num_iterations, return_all_iterations):
+        self.encoder.eval()
+        self.task_decoder.eval()
+        self.task_modality_decoder.eval()
+        self.adapter.eval()
+
+        if return_all_iterations:
+            iteration_predictions = []
+
+        with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
+            adapter_parameters = {name: parameter.detach().requires_grad_() for name, parameter in self.adapter.named_parameters()}
+            input_embeddings = self.encoder(input_data)
+
+            for i in range(num_iterations+1): # iterations
+                adapted_embeddings = functional_call(self.adapter, adapter_parameters, (input_embeddings,))
+
+                if i > 0:
+                    with torch.no_grad():
+                        task_prediction = self.task_decoder(adapted_embeddings)
+
+                    if return_all_iterations:
+                        iteration_predictions.append(task_prediction)
+
+                    if i == num_iterations:
+                        if return_all_iterations:
+                            return torch.stack(iteration_predictions)
+                        else:
+                            return task_prediction
+
+                    del task_prediction
+
+                task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions=self.task_modality_decoder(adapted_embeddings), task_modality_data=task_modality_data)
+                del adapted_embeddings
+                task_modality_reconstruction_loss_grads = torch.autograd.grad(task_modality_reconstruction_loss, adapter_parameters.values()) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
+                del task_modality_reconstruction_loss
+                grad_norm = torch.linalg.vector_norm(torch.stack([g.detach().float().norm() for g in task_modality_reconstruction_loss_grads]))
+                # max_norm = 1
+                # scale = (max_norm / (grad_norm + 1e-6)).clamp(max=1.0)
+                scale = 1
+
+                with torch.no_grad():
+                    adapter_parameters = {name: (parameter - self.lr * scale * grad).detach().requires_grad_() for (name, parameter), grad in zip(adapter_parameters.items(), task_modality_reconstruction_loss_grads)}
 
                 del task_modality_reconstruction_loss_grads, grad_norm, scale
 
@@ -1247,12 +1333,17 @@ class EncoderDecoder(nn.Module):
             task_prediction = self.mt3(input_data, task_modality_data, num_iterations=self.val_best_num_iterations, return_all_iterations=self.mode=='val')
 
             return task_prediction
+        elif '-adapter' in self.adaptation_mode:
+            print(f'Running TTT adapter for {self.val_best_num_iterations} iteration(s)')
+            task_prediction = self.ttt_adapter(input_data, task_modality_data, num_iterations=self.val_best_num_iterations, return_all_iterations=self.mode=='val')
+
+            return task_prediction
         elif 'TTT' in self.adaptation_mode:
-            # num_iterations = int(self.adaptation_mode.split('-')[-1])
             print(f'Running TTT for {self.val_best_num_iterations} iteration(s)')
             task_prediction = self.ttt(input_data, task_modality_data, num_iterations=self.val_best_num_iterations, return_all_iterations=self.mode=='val')
 
             return task_prediction
+
             # iteration_predictions = self.ttt(input_data, task_modality_data, num_iterations=1)
 
             # return iteration_predictions
@@ -1349,37 +1440,37 @@ class EncoderDecoder(nn.Module):
             iteration_predictions = torch.stack(iteration_predictions) # (num_iterations, batch_size, num_classes, optional height, optional width)
 
             return iteration_predictions
-        elif self.adaptation_mode == 'ttt-adapter':
-            self.encoder.eval()
-            self.task_decoder.eval()
-            self.task_modality_decoder.eval()
+        # elif self.adaptation_mode == 'ttt-adapter':
+        #     self.encoder.eval()
+        #     self.task_decoder.eval()
+        #     self.task_modality_decoder.eval()
 
-            iteration_predictions = []
+        #     iteration_predictions = []
 
-            with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
-                adapter_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.adapter.named_parameters()}
-                task_modality_decoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.task_modality_decoder.named_parameters()}
-                input_embeddings = self.encoder(input_data)
+        #     with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
+        #         adapter_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.adapter.named_parameters()}
+        #         task_modality_decoder_parameters = {name: parameter.detach().clone().requires_grad_() for name, parameter in self.task_modality_decoder.named_parameters()}
+        #         input_embeddings = self.encoder(input_data)
 
-                for _ in range(11): # iterations
-                    adapted_embeddings = functional_call(self.adapter, adapter_parameters, (input_embeddings,))
-                    task_prediction = self.task_decoder(adapted_embeddings) if not self.pixelwise else self.task_decoder(adapted_embeddings, input_data)
-                    iteration_predictions.append(task_prediction)
-                    modality_reconstructions = functional_call(self.task_modality_decoder, task_modality_decoder_parameters, (adapted_embeddings, input_data))
-                    task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions, task_modality_data)
-                    task_modality_reconstruction_loss_grads = torch.autograd.grad(task_modality_reconstruction_loss, adapter_parameters.values(), retain_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the adapter parameters
-                    task_modality_reconstruction_loss_task_modality_decoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, task_modality_decoder_parameters.values(), retain_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
+        #         for _ in range(11): # iterations
+        #             adapted_embeddings = functional_call(self.adapter, adapter_parameters, (input_embeddings,))
+        #             task_prediction = self.task_decoder(adapted_embeddings) if not self.pixelwise else self.task_decoder(adapted_embeddings, input_data)
+        #             iteration_predictions.append(task_prediction)
+        #             modality_reconstructions = functional_call(self.task_modality_decoder, task_modality_decoder_parameters, (adapted_embeddings, input_data))
+        #             task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions, task_modality_data)
+        #             task_modality_reconstruction_loss_grads = torch.autograd.grad(task_modality_reconstruction_loss, adapter_parameters.values(), retain_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the adapter parameters
+        #             task_modality_reconstruction_loss_task_modality_decoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, task_modality_decoder_parameters.values(), retain_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
 
-                    with torch.no_grad():
-                        adapter_parameters = {name: param - self.lr * grad for (name, param), grad in zip(adapter_parameters.items(), task_modality_reconstruction_loss_grads)}
-                        task_modality_decoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(task_modality_decoder_parameters.items(), task_modality_reconstruction_loss_task_modality_decoder_grads)}
+        #             with torch.no_grad():
+        #                 adapter_parameters = {name: param - self.lr * grad for (name, param), grad in zip(adapter_parameters.items(), task_modality_reconstruction_loss_grads)}
+        #                 task_modality_decoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(task_modality_decoder_parameters.items(), task_modality_reconstruction_loss_task_modality_decoder_grads)}
 
-                    adapter_parameters = {name: parameter.detach().requires_grad_() for name, parameter in adapter_parameters.items()} # re-attaches the computation graph for the next iteration
-                    task_modality_decoder_parameters = {name: parameter.detach().requires_grad_() for name, parameter in task_modality_decoder_parameters.items()} # re-attaches the computation graph for the next iteration
+        #             adapter_parameters = {name: parameter.detach().requires_grad_() for name, parameter in adapter_parameters.items()} # re-attaches the computation graph for the next iteration
+        #             task_modality_decoder_parameters = {name: parameter.detach().requires_grad_() for name, parameter in task_modality_decoder_parameters.items()} # re-attaches the computation graph for the next iteration
 
-            iteration_predictions = torch.stack([initial_task_prediction, adapted_task_prediction]) # (num_iterations, batch_size, num_classes, optional height, optional width)
+        #     iteration_predictions = torch.stack([initial_task_prediction, adapted_task_prediction]) # (num_iterations, batch_size, num_classes, optional height, optional width)
 
-            return iteration_predictions
+        #     return iteration_predictions
         elif self.adaptation_mode == 'MT3':
             with sdpa_kernel(SDPBackend.MATH):
                 with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
@@ -1449,15 +1540,14 @@ class EncoderDecoder(nn.Module):
                     encoder_parameters = {name: parameter for name, parameter in self.encoder.named_parameters()}
                     task_modality_decoder_parameters = {name: parameter for name, parameter in self.task_modality_decoder.named_parameters()}
 
-                    all_iteration_predictions = []
+                    adapted_task_predictions = []
                     all_adapted_modality_reconstructions = []
-                    all_adapted_task_modality_reconstruction_losses = []
+                    adapted_task_modality_reconstruction_losses = []
 
                     for i in range(len(list(input_data.values())[0])): # for each mini batch
                         mini_batch_input_data = {key: value[i].unsqueeze(0) for key, value in input_data.items()}
                         mini_batch_task_modality_data = {key: {k: v[i].unsqueeze(0) for k, v in data.items()} for key, data in task_modality_data.items()}
                         initial_input_embeddings = functional_call(self.encoder, encoder_parameters, (mini_batch_input_data,))
-                        initial_task_prediction = self.task_decoder(initial_input_embeddings)
                         modality_reconstructions = functional_call(self.task_modality_decoder, task_modality_decoder_parameters, (initial_input_embeddings,))
                         task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions, mini_batch_task_modality_data)
                         task_modality_reconstruction_loss_encoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, encoder_parameters.values(), create_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
@@ -1468,17 +1558,52 @@ class EncoderDecoder(nn.Module):
                         adapted_task_prediction = self.task_decoder(adapted_input_embeddings)
                         adapted_modality_reconstructions = functional_call(self.task_modality_decoder, adapted_task_modality_decoder_parameters, (adapted_input_embeddings,))
                         adapted_task_modality_reconstruction_loss = self.task_modality_decoder_loss(adapted_modality_reconstructions, mini_batch_task_modality_data)
-                        iteration_predictions = torch.stack([initial_task_prediction, adapted_task_prediction]) # (num_iterations, batch_size, num_classes, optional height, optional width)
 
-                        all_iteration_predictions.append(iteration_predictions)
+                        adapted_task_predictions.append(adapted_task_prediction)
                         all_adapted_modality_reconstructions.append(adapted_modality_reconstructions)
-                        all_adapted_task_modality_reconstruction_losses.append(adapted_task_modality_reconstruction_loss)
+                        adapted_task_modality_reconstruction_losses.append(adapted_task_modality_reconstruction_loss)
 
-                    final_iteration_predictions = torch.stack(all_iteration_predictions).squeeze(-1)
-                    final_adapted_modality_reconstructions = {modality: torch.stack([all_adapted_modality_reconstructions[i][modality].squeeze(0) for i in range(len(all_adapted_modality_reconstructions))]).squeeze(-1) for modality in all_adapted_modality_reconstructions[0].keys()}
-                    final_adapted_task_modality_reconstruction_losses = torch.stack(all_adapted_task_modality_reconstruction_losses)
+                    adapted_task_predictions = torch.stack(adapted_task_predictions).squeeze(1)
+                    all_adapted_modality_reconstructions = {modality: torch.stack([all_adapted_modality_reconstructions[i][modality].squeeze(0) for i in range(len(all_adapted_modality_reconstructions))]).squeeze(-1) for modality in all_adapted_modality_reconstructions[0].keys()}
+                    adapted_task_modality_reconstruction_losses = torch.stack(adapted_task_modality_reconstruction_losses)
 
-                    return final_iteration_predictions, final_adapted_modality_reconstructions, final_adapted_task_modality_reconstruction_losses
+                    return adapted_task_predictions, all_adapted_modality_reconstructions, adapted_task_modality_reconstruction_losses
+        # elif self.adaptation_mode == 'MT3_metabatch':
+        #     with sdpa_kernel(SDPBackend.MATH):
+        #         with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
+        #             encoder_parameters = {name: parameter for name, parameter in self.encoder.named_parameters()}
+        #             task_modality_decoder_parameters = {name: parameter for name, parameter in self.task_modality_decoder.named_parameters()}
+
+        #             all_iteration_predictions = []
+        #             all_adapted_modality_reconstructions = []
+        #             all_adapted_task_modality_reconstruction_losses = []
+
+        #             for i in range(len(list(input_data.values())[0])): # for each mini batch
+        #                 mini_batch_input_data = {key: value[i].unsqueeze(0) for key, value in input_data.items()}
+        #                 mini_batch_task_modality_data = {key: {k: v[i].unsqueeze(0) for k, v in data.items()} for key, data in task_modality_data.items()}
+        #                 initial_input_embeddings = functional_call(self.encoder, encoder_parameters, (mini_batch_input_data,))
+        #                 initial_task_prediction = self.task_decoder(initial_input_embeddings)
+        #                 modality_reconstructions = functional_call(self.task_modality_decoder, task_modality_decoder_parameters, (initial_input_embeddings,))
+        #                 task_modality_reconstruction_loss = self.task_modality_decoder_loss(modality_reconstructions, mini_batch_task_modality_data)
+        #                 task_modality_reconstruction_loss_encoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, encoder_parameters.values(), create_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
+        #                 task_modality_reconstruction_loss_task_modality_decoder_grads = torch.autograd.grad(task_modality_reconstruction_loss, task_modality_decoder_parameters.values(), create_graph=True) # computes the gradients of the task modality reconstruction loss with respect to the encoder parameters
+        #                 adapted_encoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_encoder_grads)}
+        #                 adapted_task_modality_decoder_parameters = {name: param - self.lr * grad for (name, param), grad in zip(task_modality_decoder_parameters.items(), task_modality_reconstruction_loss_task_modality_decoder_grads)}
+        #                 adapted_input_embeddings = functional_call(self.encoder, adapted_encoder_parameters, (mini_batch_input_data,))
+        #                 adapted_task_prediction = self.task_decoder(adapted_input_embeddings)
+        #                 adapted_modality_reconstructions = functional_call(self.task_modality_decoder, adapted_task_modality_decoder_parameters, (adapted_input_embeddings,))
+        #                 adapted_task_modality_reconstruction_loss = self.task_modality_decoder_loss(adapted_modality_reconstructions, mini_batch_task_modality_data)
+        #                 iteration_predictions = torch.stack([initial_task_prediction, adapted_task_prediction]) # (num_iterations, batch_size, num_classes, optional height, optional width)
+
+        #                 all_iteration_predictions.append(iteration_predictions)
+        #                 all_adapted_modality_reconstructions.append(adapted_modality_reconstructions)
+        #                 all_adapted_task_modality_reconstruction_losses.append(adapted_task_modality_reconstruction_loss)
+
+        #             final_iteration_predictions = torch.stack(all_iteration_predictions).squeeze(-1)
+        #             final_adapted_modality_reconstructions = {modality: torch.stack([all_adapted_modality_reconstructions[i][modality].squeeze(0) for i in range(len(all_adapted_modality_reconstructions))]).squeeze(-1) for modality in all_adapted_modality_reconstructions[0].keys()}
+        #             final_adapted_task_modality_reconstruction_losses = torch.stack(all_adapted_task_modality_reconstruction_losses)
+
+        #             return final_iteration_predictions, final_adapted_modality_reconstructions, final_adapted_task_modality_reconstruction_losses
         # elif self.adaptation_mode == 'sln':
         #     with sdpa_kernel(SDPBackend.MATH):
         #         with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
@@ -1749,13 +1874,12 @@ class Model(LightningModule):
         input_data, task_modality_data, target, domain = batch # extracts the images and targets for the batch
         prediction = self(input_data, task_modality_data) # forward pass
 
-        if self.hparams.adaptation_mode in ['JT', 'multimodal_joint_training', 'joint_probing']:
+        if self.hparams.adaptation_mode in ['JT', 'MT3_metabatch', 'multimodal_joint_training', 'joint_probing']:
             prediction, modality_reconstructions, task_modality_reconstruction_loss = prediction
         elif self.hparams.adaptation_mode == 'TMD':
             modality_reconstructions = prediction.copy()
         elif 'TTT' in self.hparams.adaptation_mode and mode == 'val':
             iteration_predictions = prediction
-
         # elif self.hparams.adaptation_mode == 'UDA-SS':
         #     embeddings, prediction, modality_reconstructions, task_modality_reconstruction_loss = prediction
         # elif 'ttt' in self.hparams.adaptation_mode or 'TTT' in self.hparams.adaptation_mode or '-10' in self.hparams.adaptation_mode or '-20' in self.hparams.adaptation_mode or self.hparams.adaptation_mode in ['sln_input_embeddings', 'sln_encode', 'rna', 'rna_input_embeddings']:
@@ -1765,8 +1889,10 @@ class Model(LightningModule):
         #     iteration_predictions, modality_reconstructions, task_modality_reconstruction_loss = prediction
         #     prediction = iteration_predictions[-1]
         # elif self.hparams.adaptation_mode == 'MT3_metabatch':
-        #     iteration_predictions, modality_reconstructions, task_modality_reconstruction_loss = prediction
-        #     prediction = iteration_predictions[:, -1]
+            # iteration_predictions, modality_reconstructions, task_modality_reconstruction_loss = prediction
+            # prediction = iteration_predictions[:, -1]
+            # prediction, modality_reconstructions, task_modality_reconstruction_loss = prediction
+
         #     print(iteration_predictions.shape, task_modality_reconstruction_loss.shape)
         # elif self.hparams.adaptation_mode == 'MT3_frozen' or self.hparams.adaptation_mode == 'rna':
         #     iteration_predictions = prediction
@@ -1818,7 +1944,7 @@ class Model(LightningModule):
 
         loss = self.criterion(prediction, target) # computes the loss
 
-        if self.hparams.adaptation_mode in ['JT', 'UDA-SS', 'multimodal_joint_training', 'joint_probing', 'MT3', 'sln', 'multimodal_MT3', 'multimodal_sln']:
+        if self.hparams.adaptation_mode in ['JT', 'MT3_metabatch', 'UDA-SS', 'multimodal_joint_training', 'joint_probing', 'MT3', 'sln', 'multimodal_MT3', 'multimodal_sln']:
             self.log(f'{mode.capitalize().replace("_", " ")} task modality reconstruction loss', task_modality_reconstruction_loss, add_dataloader_idx=False) # logs the task modality reconstruction loss
             loss += task_modality_reconstruction_loss
 
@@ -1928,8 +2054,8 @@ class Model(LightningModule):
         """Called at the end of validation epoch to determine best iteration for TTT"""
         if 'TTT' in self.hparams.adaptation_mode:
             # Calculate average best iteration across all batches
-            # self.model.val_best_num_iterations = int(round(np.mean(self.val_batches_best_num_iterations)))
-            self.model.val_best_num_iterations = int(round(np.median(self.val_batches_best_num_iterations)))
+            self.model.val_best_num_iterations = int(round(np.mean(self.val_batches_best_num_iterations)))
+            # self.model.val_best_num_iterations = int(round(np.median(self.val_batches_best_num_iterations)))
             print(f'Val best num TTT iterations: {self.model.val_best_num_iterations}')
 
     def _log_images(self, images, mode):
