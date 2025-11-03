@@ -39,14 +39,28 @@ def train(cfg):
         key_1, key_2 = parameter.split('.')
         cfg[key_1][key_2] = value
 
-    if cfg.task == 'species':
+    if cfg.adaptation_mode == 'TMD':
+        cfg['trainer']['callbacks'][0]['monitor'] = 'Val task modality reconstruction performance'
+    elif cfg.task == 'species':
         cfg['trainer']['callbacks'][0]['monitor'] = 'Val MAP'
 
-    if cfg.architecture == 'AnySat':
+    # if cfg.adaptation_mode == 'UDA-SS':
+    #     cfg['trainer']['callbacks'][0]['monitor'] = 'Val Heuristic'
+
+    if 'AnySat' in cfg.architecture:
         cfg['trainer']['accumulate_grad_batches'] = 8
         cfg['datamodule']['batch_size'] = 8
 
-    if 'ttt' in cfg.adaptation_mode or '-10' in cfg.adaptation_mode or '-20' in cfg.adaptation_mode:
+    # if cfg.architecture != 'MPMAE' and ('ttt' in cfg.adaptation_mode or 'TTT' in cfg.adaptation_mode or '-10' in cfg.adaptation_mode or '-20' in cfg.adaptation_mode):
+    #     cfg['trainer']['accumulate_grad_batches'] = 1
+    #     cfg['datamodule']['batch_size'] = 1
+
+    if 'TTT' in cfg.adaptation_mode:
+        cfg['datamodule']['batch_size'] = 8
+    if cfg.adaptation_mode == 'MT3_metabatch':
+        cfg['epochs'] = 20
+        cfg['model']['warmup_epochs'] = 2
+    elif 'MT3-TTT' in cfg.adaptation_mode:
         cfg['trainer']['accumulate_grad_batches'] = 1
         cfg['datamodule']['batch_size'] = 1
 
@@ -61,9 +75,10 @@ def train(cfg):
     wandb.config.update(OmegaConf.to_container(cfg, resolve=True))
     model = hydra.utils.instantiate(cfg.model)
 
-    if cfg.adaptation_mode == 'task_modality_decoder':
-        trainer.fit(model, datamodule=datamodule)
-    elif 'ttt' in cfg.adaptation_mode or '-10' in cfg.adaptation_mode or '-20' in cfg.adaptation_mode:
+    if 'val' in cfg.adaptation_mode:
+        trainer.validate(model, datamodule=datamodule)
+    elif 'TTT' in cfg.adaptation_mode:
+        trainer.validate(model, datamodule=datamodule)
         trainer.test(model, datamodule=datamodule)
     else:
         trainer.fit(model, datamodule=datamodule)
