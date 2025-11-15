@@ -1,4 +1,4 @@
-seed: 42
+seed: 41
 epochs: 100
 data_dir_path: '/n/gajos_lab/Lab/luciagordon/mmearth-bench'
 
@@ -14,7 +14,7 @@ logger:
   project: mmearth-bench
   name: ${task}_${architecture}_${adaptation_mode}_${train_percent}_${env:JOB_ID}
   log_model: true
-  tags: ["pi"]
+  tags: ["pi_41"]
 
 trainer:
   _target_: lightning.pytorch.Trainer
@@ -56,4 +56,5 @@ model:
   num_train_batches: null
   min_lr: 1e-6
   epochs: ${epochs}
-  inner_loop_lr: 1e-3
+  inner_loop_lr: 1e-2
+  seed: ${seed}
