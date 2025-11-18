@@ -141,14 +141,28 @@ def plot_missing_modalities(task):
     modality_order = ['sentinel2', 'sentinel1', 'aster', 'eth_gch', 'dynamic_world', 'esa_worldcover', 'precipitation', 'temperature', 'biome', 'ecoregion']
     missing_modality_counts = {modality: missing_modality_counts.get(modality, 0) for modality in modality_order}
 
-    plt.figure(dpi=300)
+    axes_pos = [0.14, 0.2, 0.8, 0.7] # left, bottom, width, height
+
+    if task == 'species':
+        plt.figure(figsize=(6, 3.5), dpi=300)
+    else:
+        plt.figure(figsize=(6, 2.5), dpi=300)
+
+    ax = plt.gca()
+    ax.set_position(axes_pos)
     plt.bar(['Sentinel-2', 'Sentinel-1', 'AsterDEM', 'ETH GCH', 'Dynamic World', 'ESA WorldCover', 'Precipitation', 'Temperature', 'Biome', 'Ecoregion'], missing_modality_counts.values())
-    plt.title(f'{task.capitalize().replace("_", " ").replace("ph", "pH")} missing modality counts', fontsize=14)
-    plt.xlabel('Modality', fontsize=12)
+
+    if task == 'species':
+        plt.xlabel('Modality', fontsize=12)
+        plt.xticks(rotation=45, ha='right', fontsize=12)
+    else:
+        plt.tick_params(labelbottom=False)
+
     plt.ylabel('Tile count', fontsize=12)
-    plt.xticks(rotation=45, ha='right', fontsize=10)
     plt.tight_layout()
     plt.savefig(f'{data_dir_path}/{task}/{task}_missing_modality_counts.png')
+    plt.savefig(f'{data_dir_path}/{task}/{task}_missing_modality_counts.pdf')
+    plt.close()
 
 def plot_species_statistics():
     with open(f'{data_dir_path}/species/output-files/check_species_statistics.out', 'w') as out_file:
