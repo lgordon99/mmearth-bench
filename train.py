@@ -44,25 +44,15 @@ def train(cfg):
     elif cfg.task == 'species':
         cfg['trainer']['callbacks'][0]['monitor'] = 'Val MAP'
 
-    # if cfg.adaptation_mode == 'UDA-SS':
-    #     cfg['trainer']['callbacks'][0]['monitor'] = 'Val Heuristic'
-
     if 'AnySat' in cfg.architecture:
         cfg['trainer']['accumulate_grad_batches'] = 8
         cfg['datamodule']['batch_size'] = 8
 
-    # if cfg.architecture != 'MPMAE' and ('ttt' in cfg.adaptation_mode or 'TTT' in cfg.adaptation_mode or '-10' in cfg.adaptation_mode or '-20' in cfg.adaptation_mode):
-    #     cfg['trainer']['accumulate_grad_batches'] = 1
-    #     cfg['datamodule']['batch_size'] = 1
-
     if 'TTT' in cfg.adaptation_mode:
         cfg['datamodule']['batch_size'] = 8
-    if cfg.adaptation_mode == 'MT3_metabatch':
-        cfg['epochs'] = 20
-        cfg['model']['warmup_epochs'] = 2
-    elif 'MT3-TTT' in cfg.adaptation_mode:
-        cfg['trainer']['accumulate_grad_batches'] = 1
-        cfg['datamodule']['batch_size'] = 1
+    elif cfg.adaptation_mode == 'JT_weighted_gradients':
+        cfg['epochs'] = 50
+        cfg['model']['warmup_epochs'] = 5
 
     print(f'Config: {cfg}')
 
