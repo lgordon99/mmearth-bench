@@ -39,20 +39,11 @@ def train(cfg):
         key_1, key_2 = parameter.split('.')
         cfg[key_1][key_2] = value
 
-    if cfg.adaptation_mode == 'TMD':
-        cfg['trainer']['callbacks'][0]['monitor'] = 'Val task modality reconstruction performance'
-    elif cfg.task == 'species':
+    if cfg.task == 'species':
         cfg['trainer']['callbacks'][0]['monitor'] = 'Val MAP'
-
-    if 'AnySat' in cfg.architecture:
-        cfg['trainer']['accumulate_grad_batches'] = 8
-        cfg['datamodule']['batch_size'] = 8
 
     if 'TTT' in cfg.adaptation_mode:
         cfg['datamodule']['batch_size'] = 8
-    elif cfg.adaptation_mode == 'JT_weighted_gradients':
-        cfg['epochs'] = 50
-        cfg['model']['warmup_epochs'] = 5
 
     print(f'Config: {cfg}')
 
