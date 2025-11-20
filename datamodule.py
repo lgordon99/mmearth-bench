@@ -6,7 +6,7 @@ datamodule.py
 
 from dataset import MMEarthBenchDataset
 from lightning.pytorch import LightningDataModule
-from torch.utils.data import BatchSampler, DataLoader, Dataset, Sampler, Subset
+from torch.utils.data import BatchSampler, DataLoader, Subset
 import numpy as np
 import torch
 
