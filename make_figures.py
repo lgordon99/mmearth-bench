@@ -3,14 +3,17 @@ import cartopy.feature as cfeature
 import cartopy.io.shapereader as shpreader
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 from matplotlib.lines import Line2D
-from PIL import Image
 from shapely.geometry import Point
 from shapely.ops import unary_union
 
+plt.rcParams['pdf.fonttype'] = 42
+plt.rcParams['ps.fonttype'] = 42
+plt.rcParams['font.family'] = 'serif'
+plt.rcParams['font.serif'] = ['DejaVu Serif']
+
 def make_limited_data():
-    fig = plt.figure(figsize=(12, 6))
+    fig = plt.figure(figsize=(9, 3))
 
     # New colors
     land_color1 = '#417e46'  # Dark green
@@ -23,6 +26,7 @@ def make_limited_data():
     ax.add_feature(cfeature.OCEAN, facecolor='lightblue', alpha=0.3)
     ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
     ax.set_extent([-180, 180, -60, 85], crs=ccrs.PlateCarree())
+    ax.set_aspect('auto')
     ax.spines['geo'].set_visible(False)
 
     # Load land polygons
@@ -85,26 +89,30 @@ def make_limited_data():
     sparse_lon_land1, sparse_lat_land1 = generate_land_points(n_dark_green, land_geoms)
     ax.scatter(sparse_lon_land1, sparse_lat_land1, s=100, alpha=0.8, color=land_color1,
             marker='o', linewidths=1.5,
-            transform=ccrs.PlateCarree(), zorder=3)
+            transform=ccrs.PlateCarree(), zorder=3, label='Climate Action')
 
     # Land points (light green) - 3 parts
     sparse_lon_land2, sparse_lat_land2 = generate_land_points(n_light_green, land_geoms)
     ax.scatter(sparse_lon_land2, sparse_lat_land2, s=100, alpha=0.8, color=land_color2,
             marker='o', linewidths=1.5,
-            transform=ccrs.PlateCarree(), zorder=3)
+            transform=ccrs.PlateCarree(), zorder=3, label='Life on Land')
 
     # Ocean points (blue) - 2 parts
     sparse_lon_ocean, sparse_lat_ocean = generate_ocean_points(n_blue, land_geoms)
     ax.scatter(sparse_lon_ocean, sparse_lat_ocean, s=100, alpha=0.8, color=ocean_color,
             marker='o', linewidths=1.5,
-            transform=ccrs.PlateCarree(), zorder=3)
+            transform=ccrs.PlateCarree(), zorder=3, label='Life Below Water')
+
+    # Add legend with column title
+    legend = ax.legend(title='SDGs', loc='best', framealpha=0.9, fontsize=16, handletextpad=0.2, handlelength=1.0)
+    legend.get_title().set_fontsize(16)
 
     # Remove padding
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-    plt.savefig('sparse_data.png', dpi=300, bbox_inches='tight', pad_inches=0)
-    plt.savefig('sparse_data.pdf', dpi=300, bbox_inches='tight', pad_inches=0)
-    plt.savefig('sparse_data.svg', dpi=300, bbox_inches='tight', pad_inches=0)
+    plt.savefig('sparse_data.png', dpi=300, pad_inches=0)
+    plt.savefig('sparse_data.pdf', dpi=300, pad_inches=0)
+    plt.savefig('sparse_data.svg', dpi=300, pad_inches=0)
 
 def make_globe():
     # Get viridis colors
@@ -155,17 +163,17 @@ def make_histogram():
 
     # Generate distributions
     # Source domain: lower mean and std
-    source_mean = 5
-    source_std = 1.5
+    source_mean = 1
+    source_std = 1
     source_data = np.random.normal(source_mean, source_std, 1000)
 
     # Target domain: higher mean and std
-    target_mean = 10
-    target_std = 2.5
+    target_mean = 3
+    target_std = 2
     target_data = np.random.normal(target_mean, target_std, 1000)
 
     # Create figure
-    fig, ax = plt.subplots(figsize=(5, 3))
+    fig, ax = plt.subplots(figsize=(6, 2))
 
     # Compute common bins based on the range of both datasets
     all_data = np.concatenate([source_data, target_data])
@@ -175,10 +183,13 @@ def make_histogram():
     ax.hist(source_data, bins=bins, alpha=0.7, color=source_color, label='Source domain', edgecolor='black')
     ax.hist(target_data, bins=bins, alpha=0.7, color=target_color, label='Target domain', edgecolor='black')
 
+    # Set x-axis to go from 0 to 20
+    ax.set_xlim(0, 12)
+
     # Labels and legend
     ax.set_xlabel('Label', fontsize=18)
     ax.set_ylabel('Frequency', fontsize=18)
-    ax.legend(fontsize=18)
+    ax.legend(fontsize=18, frameon=False)
 
     # Remove tick labels and tick marks
     ax.set_xticklabels([])
@@ -186,7 +197,7 @@ def make_histogram():
     ax.tick_params(axis='both', which='both', length=0)
 
     plt.tight_layout()
-    plt.savefig('distribution_shift.svg', dpi=300, bbox_inches='tight')
+    plt.savefig('distribution_shift.svg', dpi=300, bbox_inches='tight', transparent=True)
 
 def make_multimodal_visualization():
     # Use red and blue colors
@@ -196,50 +207,56 @@ def make_multimodal_visualization():
     # Generate data with spherical decision boundary
     # Classes only separable in 3D (distance from origin)
     np.random.seed(42)
-    n_points = 300
+    n_points = 100
+
+    # Scale factor for z-axis to make sphere squished vertically
+    z_scale = 0.4  # Scale down z-coordinates to make it shorter vertically
 
     # Class 1: Inside sphere (close to origin)
     theta1 = np.random.uniform(0, 2*np.pi, n_points)
     phi1 = np.random.uniform(0, np.pi, n_points)
-    r1 = np.random.uniform(0, 0.7, n_points)  # Radius < 0.7
+    r1 = np.random.uniform(0, 0.85, n_points)  # Radius < 0.7
 
     class1_x = r1 * np.sin(phi1) * np.cos(theta1)
     class1_y = r1 * np.sin(phi1) * np.sin(theta1)
-    class1_z = r1 * np.cos(phi1)
+    class1_z = r1 * np.cos(phi1) * z_scale  # Scale z-coordinates
     class1_points = np.column_stack([class1_x, class1_y, class1_z])
 
     # Class 2: Outside sphere (far from origin)
     theta2 = np.random.uniform(0, 2*np.pi, n_points)
     phi2 = np.random.uniform(0, np.pi, n_points)
-    r2 = np.random.uniform(0.8, 1.5, n_points)  # Radius > 0.8
+    r2 = np.random.uniform(0.95, 1.56, n_points)  # Radius > 0.8
 
     class2_x = r2 * np.sin(phi2) * np.cos(theta2)
     class2_y = r2 * np.sin(phi2) * np.sin(theta2)
-    class2_z = r2 * np.cos(phi2)
+    class2_z = r2 * np.cos(phi2) * z_scale  # Scale z-coordinates
     class2_points = np.column_stack([class2_x, class2_y, class2_z])
 
-    # Create 3D plot
-    fig = plt.figure(figsize=(11, 9))
+    # Create 3D plot with wider, shorter figure
+    fig = plt.figure(figsize=(11, 5))  # Wider and shorter
     ax = fig.add_subplot(111, projection='3d')
 
     # Plot the two classes
     scatter1 = ax.scatter(class1_points[:, 0], class1_points[:, 1], class1_points[:, 2],
-            c=class1_color, s=50, alpha=0.6, label='Class 1', edgecolors='black', linewidth=0.5)
+            c=class1_color, s=50, alpha=0.6, label='Class 1', edgecolors=class1_color, linewidth=0.5)
     scatter2 = ax.scatter(class2_points[:, 0], class2_points[:, 1], class2_points[:, 2],
-            c=class2_color, s=50, alpha=0.6, label='Class 2', edgecolors='black', linewidth=0.5)
+            c=class2_color, s=50, alpha=0.6, label='Class 2', edgecolors=class2_color, linewidth=0.5)
 
     # Add decision boundary sphere with green color (no label here)
     u = np.linspace(0, 2 * np.pi, 50)
     v = np.linspace(0, np.pi, 50)
-    x_sphere = 0.75 * np.outer(np.cos(u), np.sin(v))
-    y_sphere = 0.75 * np.outer(np.sin(u), np.sin(v))
-    z_sphere = 0.75 * np.outer(np.ones(np.size(u)), np.cos(v))
+    x_sphere = 0.9 * np.outer(np.cos(u), np.sin(v))
+    y_sphere = 0.9 * np.outer(np.sin(u), np.sin(v))
+    z_sphere = 0.9 * np.outer(np.ones(np.size(u)), np.cos(v)) * z_scale  # Scale z-coordinates
     ax.plot_surface(x_sphere, y_sphere, z_sphere, alpha=0.3, color='green')
 
-    # Set tight axis limits to compress empty space
+    # Set axis limits - adjust zlim to match scaled z-coordinates
     ax.set_xlim([-1.1, 1.1])
     ax.set_ylim([-1.1, 1.1])
-    ax.set_zlim([-1.1, 1.1])
+    ax.set_zlim([-0.65, 0.65])  # Adjusted to match scaled z-coordinates
+
+    # Set box aspect to make the plot appear wider (x, y, z relative sizes)
+    ax.set_box_aspect([3.5, 3.5, 2])  # Wider x and y relative to z
 
     # Remove tick labels
     ax.set_xticklabels([])
@@ -251,54 +268,29 @@ def make_multimodal_visualization():
     ax.tick_params(axis='y', which='both', length=0, pad=0)
     ax.tick_params(axis='z', which='both', length=0, pad=0)
 
-    # Set axis labels with labelpad=2
-    ax.set_xlabel('Modality X', fontsize=22, labelpad=2)
-    ax.set_ylabel('Modality Y', fontsize=22, labelpad=2)
-    ax.set_zlabel('Modality Z', fontsize=22, labelpad=2)
-
     # Create custom legend with solid green (no alpha)
-
     legend_elements = [
         Line2D([0], [0], marker='o', color='w', markerfacecolor=class1_color,
-            markersize=10, alpha=1, markeredgecolor='black', markeredgewidth=0.5, label='Class 1'),
+            markersize=10, alpha=1, markeredgecolor=class1_color, markeredgewidth=0.5, label='Class 1'),
         Line2D([0], [0], marker='o', color='w', markerfacecolor=class2_color,
-            markersize=10, alpha=1, markeredgecolor='black', markeredgewidth=0.5, label='Class 2'),
+            markersize=10, alpha=1, markeredgecolor=class2_color, markeredgewidth=0.5, label='Class 2'),
         Line2D([0], [0], marker='s', color='w', markerfacecolor='green',
-            markersize=12, alpha=0.6, markeredgecolor='none', label='Decision boundary')
+            markersize=12, alpha=0.6, markeredgecolor='green', label='Decision\nboundary')
     ]
 
-    ax.legend(handles=legend_elements, fontsize=22, loc='upper left',
-            bbox_to_anchor=(-0.045, 0.89), framealpha=0.9, markerscale=2, handletextpad=0.2)
-
-    # Set viewing angle
-    ax.view_init(elev=20, azim=45)
-
-    # Manual spacing
+    ax.legend(handles=legend_elements,
+              fontsize=26,
+              loc='center right',
+              bbox_to_anchor=(1.7, 0.5),
+              ncol=1,
+              framealpha=0.9,
+              markerscale=2,
+              handletextpad=0.1,
+              columnspacing=0.5,
+              frameon=False)
+    ax.view_init(elev=20, azim=45) # sets viewing angle
     plt.subplots_adjust(left=0.12, right=0.95, top=0.95, bottom=0.08)
-
-    # Save
-    temp_filename = '3d_modalities_spherical_full.png'
-    plt.savefig(temp_filename, dpi=300, transparent=True)
-    plt.savefig(temp_filename.replace('.png', '.svg'), dpi=300, transparent=True)
-
-    # Crop the image to remove excess whitespace
-    img = Image.open(temp_filename)
-    width, height = img.size
-
-    # Crop margins: 10% from left, top, right; 15% from bottom
-    crop_left = int(width * 0.15)    # Remove 15% from left
-    crop_top = int(height * 0.15)    # Remove 15% from top
-    crop_right = int(width * 0.90)   # Remove 10% from right
-    crop_bottom = int(height * 0.85) # Remove 15% from bottom
-
-    img_cropped = img.crop((crop_left, crop_top, crop_right, crop_bottom))
-
-    # Save cropped version
-    final_filename = '3d_modalities_spherical.png'
-    img_cropped.save(final_filename)
-
-    # Delete the full version
-    os.remove(temp_filename)
+    plt.savefig('3d_modalities_spherical.svg', dpi=300, transparent=True)
 
 if __name__ == '__main__':
     make_limited_data()
