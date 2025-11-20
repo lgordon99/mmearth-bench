@@ -1,5 +1,5 @@
 '''
-generate_biomass_points.py by Lucia Gordon
+generate_biomass_points.py
 A script to create a GeoJSON with biomass points balanced across biomes
 '''
 
