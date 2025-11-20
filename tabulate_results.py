@@ -11,9 +11,10 @@ tag = 'pi'
 runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': [tag]}})
 tasks = ['biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH', 'species']
 architectures_plots = ['ConvNeXtV2A', 'ScaleMAE', 'DINOv3Web', 'DINOv3Sat', 'Satlas', 'MPMAE', 'TerraMind', 'CopernicusFM']
-# architectures_tables = architectures_plots + ['AnySat']
 
-architectures_tables = architectures_plots
+# Include S2 versions, with S2 above non-S2
+architectures_tables = ['ConvNeXtV2A', 'ScaleMAE', 'DINOv3Web', 'DINOv3Sat', 'Satlas', 'MPMAE',
+                        'TerraMindS2', 'TerraMind', 'CopernicusFMS2', 'CopernicusFM']
 
 # Create a consistent color mapping for all architectures
 ARCHITECTURE_COLORS = {}
@@ -39,12 +40,17 @@ plt.rcParams['ps.fonttype'] = 42
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams['font.serif'] = ['DejaVu Serif']
 
-def tabulate_results_task(task, split, adaptation_mode):
-    tags = ['pi_41', 'pi', 'pi_43']
-    seeds = [41, 42, 43]
+def tabulate_results_task(task, adaptation_mode):
+    splits = ['Random', 'Geographic']
+    # For LP, only use seed 41; for other modes, use all three seeds
+    if adaptation_mode == 'LP':
+        tags = ['pi_41']
+        seeds = [41]
+    else:
+        tags = ['pi_41', 'pi', 'pi_43']
+        seeds = [41, 42, 43]
     train_percents = [5, 50, 100]
     metric = 'R2' if task != 'species' else 'MAP'
-    split_metric_name = f'{split} test {metric}'
 
     # Load runs for each tag
     all_runs = {}
@@ -52,118 +58,165 @@ def tabulate_results_task(task, split, adaptation_mode):
     for tag in tags:
         all_runs[tag] = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': [tag]}})
 
-    # Collect data for each seed
+    # Collect data for each seed and split
     all_data = {}
 
     for tag, seed in zip(tags, seeds):
         runs = all_runs[tag]
-        data = {architecture: {train_percent: np.nan for train_percent in train_percents} for architecture in architectures_tables}
+        data = {split: {architecture: {train_percent: np.nan for train_percent in train_percents} for architecture in architectures_tables} for split in splits}
 
         for architecture in architectures_tables:
             for train_percent in train_percents:
                 name = '_'.join([task, architecture, adaptation_mode, str(train_percent)]) + '_'
                 run = next((run for run in runs if run.name.startswith(name)), None)
-                test_metric = run.summary_metrics.get(split_metric_name) if run else np.nan
-                data[architecture][train_percent] = test_metric
+                if run:
+                    for split in splits:
+                        split_metric_name = f'{split} test {metric}'
+                        test_metric = run.summary_metrics.get(split_metric_name, np.nan)
+                        data[split][architecture][train_percent] = test_metric
 
         all_data[seed] = data
 
-    # Create DataFrames for each seed
+    # Create DataFrames for each seed and split
     df_disps = {}
     masks = {}
     display_decimals = 2
 
     for seed in seeds:
-        # Create DataFrame with architectures as rows and train_percents as columns
-        df = pd.DataFrame.from_dict(all_data[seed], orient='index')
-        # Apply display name mapping for row index
-        df.index = [display_arch_name(idx) for idx in df.index]
-        df.index.name = 'Architecture'
-        df.columns.name = 'Train %'
-        # Round for display
-        df_disp = df.round(display_decimals)
-        df_disps[seed] = df_disp
+        df_disps[seed] = {}
+        masks[seed] = {}
+        for split in splits:
+            # Create DataFrame with architectures as rows and train_percents as columns
+            df = pd.DataFrame.from_dict(all_data[seed][split], orient='index')
+            # Apply display name mapping for row index
+            df.index = [display_arch_name(idx) for idx in df.index]
+            df.index.name = 'Architecture'
+            df.columns.name = 'Train %'
+            # Round for display
+            df_disp = df.round(display_decimals)
+            df_disps[seed][split] = df_disp
 
-        # --- highlight best per column (after rounding) ---
-        mask = pd.DataFrame(False, index=df_disp.index, columns=df_disp.columns, dtype=bool)
+            # --- highlight best per column (after rounding) ---
+            mask = pd.DataFrame(False, index=df_disp.index, columns=df_disp.columns, dtype=bool)
 
-        for col in df_disp.columns:
-            best = df_disp[col].max(skipna=True)
-            eq = df_disp[col].eq(best).fillna(False)
-            mask[col] = eq
+            for col in df_disp.columns:
+                best = df_disp[col].max(skipna=True)
+                eq = df_disp[col].eq(best).fillna(False)
+                mask[col] = eq
 
-        masks[seed] = mask
+            masks[seed][split] = mask
 
     # Format each DataFrame
     df_fmts = {}
 
     for seed in seeds:
-        df_disp = df_disps[seed]
-        mask = masks[seed]
-        # Format from the rounded values
-        df_fmt = df_disp.apply(lambda col: col.map(lambda x: '--' if pd.isna(x) else f'{x:.{display_decimals}f}'))
-        bold = '\\textbf{' + df_fmt + '}'
-        df_fmt = df_fmt.where(~mask, bold)
-        df_fmts[seed] = df_fmt
+        df_fmts[seed] = {}
+        for split in splits:
+            df_disp = df_disps[seed][split]
+            mask = masks[seed][split]
+            # Format from the rounded values
+            df_fmt = df_disp.apply(lambda col: col.map(lambda x: '--' if pd.isna(x) else f'{x:.{display_decimals}f}'))
+            bold = '\\textbf{' + df_fmt + '}'
+            df_fmt = df_fmt.where(~mask, bold)
+            df_fmts[seed][split] = df_fmt
 
-    # Combine DataFrames horizontally (side by side)
-    # First, add seed number as a prefix to column names
+    # Combine DataFrames: first by split (Random and Geographic), then by seed
+    # Structure: Random (Seed 41, Seed 42, Seed 43) | Geographic (Seed 41, Seed 42, Seed 43)
     combined_dfs = []
 
-    for seed in seeds:
-        df_fmt = df_fmts[seed].copy()
-        # Rename columns to include seed number
-        df_fmt.columns = [f'{col} (Seed {seed})' for col in df_fmt.columns]
-        combined_dfs.append(df_fmt)
+    for split in splits:
+        split_dfs = []
+        for seed in seeds:
+            df_fmt = df_fmts[seed][split].copy()
+            # Rename columns to include seed number
+            df_fmt.columns = [f'{col} (Seed {seed})' for col in df_fmt.columns]
+            split_dfs.append(df_fmt)
+        # Concatenate seeds for this split
+        split_combined = pd.concat(split_dfs, axis=1)
+        combined_dfs.append(split_combined)
 
-    # Concatenate horizontally
+    # Concatenate splits horizontally (Random on left, Geographic on right)
     combined_df = pd.concat(combined_dfs, axis=1)
 
     # Create LaTeX table
-    cols = combined_df.columns.tolist()
-    caption_metric = r"R$^2$" if task != 'species' else "MAP"
-    # Build seed header with vertical lines: all but the last seed should have a vertical line on the right
-    seed_header_parts = []
-    for i, seed in enumerate(seeds):
-        if i < len(seeds) - 1:
-            # Not the last seed: include vertical line on the right
-            seed_header_parts.append(f'\\multicolumn{{{len(train_percents)}}}{{c|}}{{\\textbf{{Seed {seed}}}}}')
+    cols_per_seed = len(train_percents)
+    cols_per_split = cols_per_seed * len(seeds)
+    caption_metric = r"R$^2$" if task != 'species' else "mAP"
+
+    # Build split header with vertical line between Random and Geographic
+    split_header_parts = []
+    for i, split in enumerate(splits):
+        if i < len(splits) - 1:
+            # Not the last split: include vertical line on the right
+            split_header_parts.append(f'\\multicolumn{{{cols_per_split}}}{{c|}}{{\\textbf{{{split}}}}}')
         else:
-            # Last seed: no vertical line on the right
-            seed_header_parts.append(f'\\multicolumn{{{len(train_percents)}}}{{c}}{{\\textbf{{Seed {seed}}}}}')
+            # Last split: no vertical line on the right
+            split_header_parts.append(f'\\multicolumn{{{cols_per_split}}}{{c}}{{\\textbf{{{split}}}}}')
+    split_header = ' & '.join([''] + split_header_parts) + r' \\'
+
+    # Build seed header for each split
+    seed_header_parts = []
+    for split in splits:
+        for i, seed in enumerate(seeds):
+            if i < len(seeds) - 1:
+                # Not the last seed: include vertical line on the right
+                seed_header_parts.append(f'\\multicolumn{{{cols_per_seed}}}{{c|}}{{\\textbf{{Seed {seed}}}}}')
+            else:
+                # Last seed: no vertical line on the right (unless it's the last split)
+                if split == splits[-1]:
+                    seed_header_parts.append(f'\\multicolumn{{{cols_per_seed}}}{{c}}{{\\textbf{{Seed {seed}}}}}')
+                else:
+                    seed_header_parts.append(f'\\multicolumn{{{cols_per_seed}}}{{c|}}{{\\textbf{{Seed {seed}}}}}')
     seed_header = ' & '.join([''] + seed_header_parts) + r' \\'
-    train_header = ' & '.join(['\\textbf{Model}'] + [f'\\textbf{{{c}\\%}}' for seed in seeds for c in train_percents]) + r' \\'
-    # Column format: l (Model) | rrr (Seed 41) | rrr (Seed 42) | rrr (Seed 43)
-    column_format = 'l|' + '|'.join(['r'*len(train_percents) for _ in seeds])
+
+    # Training percentages header
+    train_header = ' & '.join([''] + [f'\\textbf{{{c}\\%}}' for split in splits for seed in seeds for c in train_percents]) + r' \\'
+
+    # Column format: l| (Model) | rrr|rrr|rrr (Random: Seeds 41,42,43) | rrr|rrr|rrr (Geographic: Seeds 41,42,43)
+    # Build format parts: 'l|' for model, then for each split, 'r'*cols_per_seed for each seed
+    format_parts = ['l|']
+    for split_idx, split in enumerate(splits):
+        for seed_idx, seed in enumerate(seeds):
+            format_parts.append('r' * cols_per_seed)
+            # Add | between seeds (but not after the last seed of the last split)
+            if seed_idx < len(seeds) - 1 or split_idx < len(splits) - 1:
+                format_parts.append('|')
+    column_format = ''.join(format_parts)
+
     latex = combined_df.to_latex(index=True, header=False, index_names=False, escape=False, column_format=column_format)
-    latex = latex.replace('\\toprule', '\\toprule\n' + seed_header + '\n' + train_header + '\n\\midrule', 1)
-    split_lower = split.lower()
-    latex = ("\\begin{table}[ht]\n\\centering\n" +
+    latex = latex.replace('\\toprule', '\\toprule\n' + split_header + '\n' + seed_header + '\n' + train_header + '\n\\midrule', 1)
+    latex = ("\\begin{table*}\n\\centering\n" +
+            "\\resizebox{\\linewidth}{!}{%\n" +
             latex +
-            f"\\caption{{{task.replace('_', ' ').capitalize().replace('ph', 'pH')} {split_lower} test {caption_metric} by model and training percentage}}\n" +
-            f"\\label{{tab:{task}_{split_lower}}}\n" +
-            "\\end{table}\n")
+            "\n}\n" +
+            f"\\caption{{{task.replace('_', ' ').capitalize().replace('ph', 'pH')} test {caption_metric} by model, training percentage, and split}}\n" +
+            f"\\label{{tab:{task}}}\n" +
+            "\\end{table*}\n")
 
     return latex
 
-def tabulate_results_RQ3_task(task, split):
+def tabulate_results_RQ3_task(task, adaptation_mode):
     """
-    Generate LaTeX table for RQ3 with specified split and multiple seeds.
+    Generate LaTeX table for RQ3 with both Random and Geographic splits combined.
 
     Args:
         task: Task name (e.g., 'biomass', 'soil_pH')
-        split: 'Random' or 'Geographic' (default: 'Random')
+        adaptation_mode: 'FT', 'LP', etc.
 
     Returns:
         LaTeX table string
     """
-    adaptation_mode = 'FT'
+    splits = ['Random', 'Geographic']
     train_percents = [5, 50, 100]
     architectures = ['TerraMindS2', 'TerraMind', 'CopernicusFMS2', 'CopernicusFM']
-    tags = ['pi_41', 'pi', 'pi_43']
-    seeds = [41, 42, 43]
+    # For LP, only use seed 41; for other modes, use all three seeds
+    if adaptation_mode == 'LP':
+        tags = ['pi_41']
+        seeds = [41]
+    else:
+        tags = ['pi_41', 'pi', 'pi_43']
+        seeds = [41, 42, 43]
     metric = 'R2' if task != 'species' else 'MAP'
-    split_metric_name = f'{split} test {metric}'
 
     # Load runs for each tag
     all_runs = {}
@@ -171,122 +224,160 @@ def tabulate_results_RQ3_task(task, split):
     for tag in tags:
         all_runs[tag] = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': [tag]}})
 
-    # Column names: just training percentages for the specified split
-    col_names = [f'{tp}%' for tp in train_percents]
-
-    # Collect data for each seed
+    # Collect data for each seed and split
     all_data = {}
 
     for tag, seed in zip(tags, seeds):
         runs = all_runs[tag]
-        data = {architecture: {col: np.nan for col in col_names} for architecture in architectures}
+        data = {split: {architecture: {train_percent: np.nan for train_percent in train_percents} for architecture in architectures} for split in splits}
 
         for architecture in architectures:
             for tp in train_percents:
                 name = '_'.join([task, architecture, adaptation_mode, str(tp)]) + '_'
                 run = next((run for run in runs if run.name.startswith(name)), None)
                 if run:
-                    val = run.summary_metrics.get(split_metric_name, np.nan)
-                else:
-                    val = np.nan
-
-                data[architecture][f'{tp}%'] = val
+                    for split in splits:
+                        split_metric_name = f'{split} test {metric}'
+                        val = run.summary_metrics.get(split_metric_name, np.nan)
+                        data[split][architecture][f'{tp}%'] = val
 
         all_data[seed] = data
 
-    # Create DataFrames for each seed
+    # Create DataFrames for each seed and split
     df_disps = {}
     masks = {}
     display_decimals = 2
 
     for seed in seeds:
-        # DataFrame with architectures as rows and train_percents as columns
-        df = pd.DataFrame.from_dict(all_data[seed], orient='index')
-        # Apply display name mapping for row index
-        df.index = [display_arch_name(idx) for idx in df.index]
-        df.index.name = 'Architecture'
-        # Round for display
-        df_disp = df.round(display_decimals)
-        df_disps[seed] = df_disp
+        df_disps[seed] = {}
+        masks[seed] = {}
+        for split in splits:
+            # DataFrame with architectures as rows and train_percents as columns
+            df = pd.DataFrame.from_dict(all_data[seed][split], orient='index')
+            # Apply display name mapping for row index
+            df.index = [display_arch_name(idx) for idx in df.index]
+            df.index.name = 'Architecture'
+            # Round for display
+            df_disp = df.round(display_decimals)
+            df_disps[seed][split] = df_disp
 
-        # --- highlight best per column (after rounding) ---
-        mask = pd.DataFrame(False, index=df_disp.index, columns=df_disp.columns, dtype=bool)
-        for col in df_disp.columns:
-            best = df_disp[col].max(skipna=True)
-            eq = df_disp[col].eq(best).fillna(False)
-            mask[col] = eq
+            # --- highlight best per column (after rounding) ---
+            mask = pd.DataFrame(False, index=df_disp.index, columns=df_disp.columns, dtype=bool)
+            for col in df_disp.columns:
+                best = df_disp[col].max(skipna=True)
+                eq = df_disp[col].eq(best).fillna(False)
+                mask[col] = eq
 
-        masks[seed] = mask
+            masks[seed][split] = mask
 
     # Format each DataFrame
     df_fmts = {}
 
     for seed in seeds:
-        df_disp = df_disps[seed]
-        mask = masks[seed]
-        # Format from the rounded values
-        df_fmt = df_disp.apply(lambda col: col.map(lambda x: '--' if pd.isna(x) else f'{x:.{display_decimals}f}'))
-        bold = '\\textbf{' + df_fmt + '}'
-        df_fmt = df_fmt.where(~mask, bold)
-        df_fmts[seed] = df_fmt
+        df_fmts[seed] = {}
+        for split in splits:
+            df_disp = df_disps[seed][split]
+            mask = masks[seed][split]
+            # Format from the rounded values
+            df_fmt = df_disp.apply(lambda col: col.map(lambda x: '--' if pd.isna(x) else f'{x:.{display_decimals}f}'))
+            bold = '\\textbf{' + df_fmt + '}'
+            df_fmt = df_fmt.where(~mask, bold)
+            df_fmts[seed][split] = df_fmt
 
-    # Combine DataFrames horizontally (side by side)
-    # First, add seed number as a prefix to column names
+    # Combine DataFrames: first by split (Random and Geographic), then by seed
+    # Structure: Random (Seed 41, Seed 42, Seed 43) | Geographic (Seed 41, Seed 42, Seed 43)
     combined_dfs = []
 
-    for seed in seeds:
-        df_fmt = df_fmts[seed].copy()
-        # Rename columns to include seed number
-        df_fmt.columns = [f'{col} (Seed {seed})' for col in df_fmt.columns]
-        combined_dfs.append(df_fmt)
+    for split in splits:
+        split_dfs = []
+        for seed in seeds:
+            df_fmt = df_fmts[seed][split].copy()
+            # Rename columns to include seed number
+            df_fmt.columns = [f'{col} (Seed {seed})' for col in df_fmt.columns]
+            split_dfs.append(df_fmt)
+        # Concatenate seeds for this split
+        split_combined = pd.concat(split_dfs, axis=1)
+        combined_dfs.append(split_combined)
 
-    # Concatenate horizontally
+    # Concatenate splits horizontally (Random on left, Geographic on right)
     combined_df = pd.concat(combined_dfs, axis=1)
 
     # Create LaTeX table
-    cols = combined_df.columns.tolist()
-    cols_per_seed = len(train_percents)  # 3 columns per seed (5%, 50%, 100%)
+    cols_per_seed = len(train_percents)
+    cols_per_split = cols_per_seed * len(seeds)
+    caption_metric = r"R$^2$" if task != 'species' else "mAP"
 
-    # Build group header: Seed headers spanning 3 columns each
-    seed_header = ' & '.join([''] + [f'\\multicolumn{{{cols_per_seed}}}{{c}}{{\\textbf{{Seed {seed}}}}}' for seed in seeds]) + r' \\'
+    # Build split header with vertical line between Random and Geographic
+    split_header_parts = []
+    for i, split in enumerate(splits):
+        if i < len(splits) - 1:
+            # Not the last split: include vertical line on the right
+            split_header_parts.append(f'\\multicolumn{{{cols_per_split}}}{{c|}}{{\\textbf{{{split}}}}}')
+        else:
+            # Last split: no vertical line on the right
+            split_header_parts.append(f'\\multicolumn{{{cols_per_split}}}{{c}}{{\\textbf{{{split}}}}}')
+    split_header = ' & '.join([''] + split_header_parts) + r' \\'
 
-    # Second header row: Training percentages for each seed
-    train_header = ' & '.join(['\\textbf{Model}'] + [f'\\textbf{{{c}\\%}}' for seed in seeds for c in train_percents]) + r' \\'
+    # Build seed header for each split
+    seed_header_parts = []
+    for split in splits:
+        for i, seed in enumerate(seeds):
+            if i < len(seeds) - 1:
+                # Not the last seed: include vertical line on the right
+                seed_header_parts.append(f'\\multicolumn{{{cols_per_seed}}}{{c|}}{{\\textbf{{Seed {seed}}}}}')
+            else:
+                # Last seed: no vertical line on the right (unless it's the last split)
+                if split == splits[-1]:
+                    seed_header_parts.append(f'\\multicolumn{{{cols_per_seed}}}{{c}}{{\\textbf{{Seed {seed}}}}}')
+                else:
+                    seed_header_parts.append(f'\\multicolumn{{{cols_per_seed}}}{{c|}}{{\\textbf{{Seed {seed}}}}}')
+    seed_header = ' & '.join([''] + seed_header_parts) + r' \\'
 
-    latex = combined_df.to_latex(index=True, header=False, index_names=False, escape=False, column_format='l' + 'r'*len(cols))
-    latex = latex.replace('\\toprule', '\\toprule\n' + seed_header + '\n' + train_header + '\n\\midrule', 1)
+    # Training percentages header
+    train_header = ' & '.join([''] + [f'\\textbf{{{c}\\%}}' for split in splits for seed in seeds for c in train_percents]) + r' \\'
 
-    caption_metric = r"R$^2$" if task != 'species' else "MAP"
-    split_lower = split.lower()
-    latex = ("\\begin{table}[ht]\n\\centering\n" +
-             latex +
-             f"\\caption{{{task.replace('_', ' ').capitalize().replace('ph', 'pH')} {split_lower} test {caption_metric} by model, training percent, and seed}}\n" +
-             f"\\label{{tab:{task}_rq3_{split_lower}}}\n" +
-             "\\end{table}\n")
+    # Column format: l| (Model) | rrr|rrr|rrr (Random: Seeds 41,42,43) | rrr|rrr|rrr (Geographic: Seeds 41,42,43)
+    # Build format parts: 'l|' for model, then for each split, 'r'*cols_per_seed for each seed
+    format_parts = ['l|']
+    for split_idx, split in enumerate(splits):
+        for seed_idx, seed in enumerate(seeds):
+            format_parts.append('r' * cols_per_seed)
+            # Add | between seeds (but not after the last seed of the last split)
+            if seed_idx < len(seeds) - 1 or split_idx < len(splits) - 1:
+                format_parts.append('|')
+    column_format = ''.join(format_parts)
+
+    latex = combined_df.to_latex(index=True, header=False, index_names=False, escape=False, column_format=column_format)
+    latex = latex.replace('\\toprule', '\\toprule\n' + split_header + '\n' + seed_header + '\n' + train_header + '\n\\midrule', 1)
+    latex = ("\\begin{table*}\n\\centering\n" +
+            "\\resizebox{\\linewidth}{!}{%\n" +
+            latex +
+            "\n}\n" +
+            f"\\caption{{{task.replace('_', ' ').capitalize().replace('ph', 'pH')} test {caption_metric} by model, training percent, and split}}\n" +
+            f"\\label{{tab:{task}_rq3}}\n" +
+            "\\end{table*}\n")
 
     return latex
 
-def tabulate_results(split, adaptation_mode):
-    """Generate combined LaTeX table for all tasks with specified split.
+def tabulate_results(adaptation_mode):
+    """Generate combined LaTeX table for all tasks with both Random and Geographic splits.
 
     Args:
-        split: 'Random' or 'Geographic' (default: 'Random')
+        adaptation_mode: 'FT', 'LP', etc.
     """
-    split_lower = split.lower()
+    with open(f'results_{adaptation_mode}.tex', 'w') as file:
+        file.write('\n'.join([tabulate_results_task(task, adaptation_mode) for task in tasks]))
 
-    with open(f'results_{adaptation_mode}_{split_lower}.tex', 'w') as file:
-        file.write('\n'.join([tabulate_results_task(task, split, adaptation_mode) for task in tasks]))
-
-def tabulate_results_RQ3(split):
-    """Generate combined LaTeX table for all tasks with specified split for RQ3.
+def tabulate_results_RQ3(adaptation_mode):
+    """Generate combined LaTeX table for all tasks with both Random and Geographic splits for RQ3.
 
     Args:
-        split: 'Random' or 'Geographic'
+        adaptation_mode: 'FT', 'LP', etc.
     """
-    split_lower = split.lower()
-    filename = f'results_RQ3_{split_lower}.tex'
+    filename = f'results_RQ3_{adaptation_mode}.tex'
+
     with open(filename, 'w') as file:
-        file.write('\n'.join([tabulate_results_RQ3_task(task, split=split) for task in tasks]))
+        file.write('\n'.join([tabulate_results_RQ3_task(task, adaptation_mode) for task in tasks]))
 
 def tabulate_TTT_results_task(task):
     adaptation_modes = ['FT', 'JT', 'JT-TTT', 'JT-TTT-Geo']
@@ -294,7 +385,7 @@ def tabulate_TTT_results_task(task):
     tags = ['pi_41', 'pi', 'pi_43']
     seeds = [41, 42, 43]
     metric = 'R2' if task != 'species' else 'MAP'
-    display_name_mapping = {'JT-TTT': 'MT-TTT', 'JT-TTT-Geo': 'MT-TTT-Geo'}
+    display_name_mapping = {'JT-TTT': 'TTT-MMR', 'JT-TTT-Geo': 'TTT-MMR-Geo'}
 
     # Load runs for each tag
     all_runs = {}
@@ -381,8 +472,16 @@ def tabulate_TTT_results_task(task):
         cols_per_split = num_adaptation_modes
         cols = combined_df.columns.tolist()
 
-        # Build group header: Split headers spanning 4 columns each
-        split_header = ' & '.join([''] + [f'\\multicolumn{{{cols_per_split}}}{{c}}{{\\textbf{{{split}}}}}' for split in splits]) + r' \\'
+        # Build group header: Split headers with vertical line between Random and Geographic
+        split_header_parts = []
+        for i, split in enumerate(splits):
+            if i < len(splits) - 1:
+                # Not the last split: include vertical line on the right
+                split_header_parts.append(f'\\multicolumn{{{cols_per_split}}}{{c|}}{{\\textbf{{{split}}}}}')
+            else:
+                # Last split: no vertical line on the right
+                split_header_parts.append(f'\\multicolumn{{{cols_per_split}}}{{c}}{{\\textbf{{{split}}}}}')
+        split_header = ' & '.join([''] + split_header_parts) + r' \\'
 
         # Second header row: Adaptation modes for each split (with display name mapping)
         mode_header_parts = []
@@ -391,21 +490,25 @@ def tabulate_TTT_results_task(task):
             mode_header_parts.extend(display_modes)
         mode_header = '\\textbf{Model} & ' + ' & '.join(mode_header_parts) + r' \\'
 
+        # Column format: l (Model) | cccc (Random) | cccc (Geographic)
+        column_format = 'l|' + ('c' * cols_per_split) + '|' + ('c' * cols_per_split)
         body = combined_df.to_latex(index=True,
                                      header=False,
                                      index_names=False,
                                      escape=False,
                                      na_rep='--',
-                                     column_format='l|' + ('c' * len(cols)),
+                                     column_format=column_format,
                                      multicolumn=False,
                                      multirow=False)
 
-        caption_metric = r"R$^2$" if metric == 'R2' else "MAP"
+        caption_metric = r"R$^2$" if metric == 'R2' else "mAP"
         # Replace \toprule\n with our custom headers
         body = body.replace("\\toprule\n", "\\toprule\n" + split_header + "\n" + mode_header + "\n\\midrule", 1)
 
-        latex = ("\\begin{table}[ht]\n\\centering\n" +
+        latex = ("\\begin{table}[H]\n\\centering\n" +
+                 "\\resizebox{\\linewidth}{!}{%\n" +
                  body +
+                 "\n}\n" +
                  f"\\caption{{{task.replace('_', ' ').capitalize().replace('ph', 'pH')} test {caption_metric} by architecture, adaptation mode, and split (Seed {seed})}}\n" +
                  f"\\label{{tab:{task}_{metric}_seed{seed}}}\n" +
                  "\\end{table}\n")
@@ -425,8 +528,8 @@ def tabulate_TTT_results():
     with open('results_TTT.tex', 'w') as file:
         file.write(latex)
 
-def plot_rq1_performance():
-    adaptation_mode = 'FT'
+def plot_rq1_performance(split, adaptation_mode):
+    # adaptation_mode = 'FT'
     train_percents = [5, 50, 100]
     tags = ['pi_41', 'pi_42', 'pi_43']
     seeds = [41, 42, 43]
@@ -441,19 +544,21 @@ def plot_rq1_performance():
 
     for task in tasks:
         metric = 'R2' if task != 'species' else 'MAP'
-        metric_name = f'Random test {metric}'
+        metric_name = f'{split} test {metric}'
 
         for architecture in architectures_plots:
             for train_percent in train_percents:
                 # Collect metrics from all seeds
                 seed_metrics = []
+
                 for tag, seed in zip(tags, seeds):
                     runs = all_runs[tag]
                     name = '_'.join([task, architecture, adaptation_mode, str(train_percent)]) + '_'
                     run = next((run for run in runs if run.name.startswith(name)), None)
-                    random_test_metric = run.summary_metrics.get(metric_name) if run else None
-                    if random_test_metric is not None and not np.isnan(random_test_metric):
-                        seed_metrics.append(random_test_metric)
+                    test_metric = run.summary_metrics.get(metric_name) if run else None
+
+                    if test_metric is not None and not np.isnan(test_metric):
+                        seed_metrics.append(test_metric)
 
                 # Average over seeds if we have any valid metrics
                 if seed_metrics:
@@ -639,11 +744,10 @@ def plot_rq1_performance():
                         frameon=False)
     fig.add_artist(legend4)  # Add immediately to prevent removal
 
-    plt.savefig('RQ1_plot.png', dpi=300)
-    plt.savefig('RQ1_plot.pdf', dpi=300)
+    plt.savefig(f'RQ1_{adaptation_mode}_{split}_plot.png', dpi=300)
+    plt.savefig(f'RQ1_{adaptation_mode}_{split}_plot.pdf', dpi=300)
 
-def plot_rq2_performance():
-    adaptation_mode = 'FT'
+def plot_rq2_performance(adaptation_mode):
     train_percent = 100  # Use full training data for RQ2
     tags = ['pi_41', 'pi_42', 'pi_43']
     seeds = [41, 42, 43]
@@ -772,16 +876,16 @@ def plot_rq2_performance():
         ax.set_xticklabels(['R', 'G'])
         ax.tick_params(axis='both', labelsize=AXIS_LABEL_FONTSIZE)
         ax.set_ylim(y_range)
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=2))
 
-    plt.savefig('RQ2_plot.png', dpi=300)
-    plt.savefig('RQ2_plot.pdf', dpi=300)
+    plt.savefig(f'RQ2_{adaptation_mode}_plot.png', dpi=300)
+    plt.savefig(f'RQ2_{adaptation_mode}_plot.pdf', dpi=300)
 
-def plot_rq3_performance():
+def plot_rq3_performance(adaptation_mode):
     """Create an RQ3 plot with Random and Geographic splits in 2 rows x 5 columns (tasks).
     S2 is solid with circle markers; Multimodal is dashed with triangle markers.
     Legend under the plot; task names above each column.
     """
-    adaptation_mode = 'FT'
     train_percents = [5, 50, 100]
     splits = ['Random', 'Geographic']
     base_archs = ['TerraMind', 'CopernicusFM']
@@ -929,8 +1033,8 @@ def plot_rq3_performance():
             fontsize=LEGEND_FONTSIZE,
             frameon=False)
 
-    plt.savefig('RQ3_plot.png', dpi=300)
-    plt.savefig('RQ3_plot.pdf', dpi=300)
+    plt.savefig(f'RQ3_{adaptation_mode}_plot.png', dpi=300)
+    plt.savefig(f'RQ3_{adaptation_mode}_plot.pdf', dpi=300)
 
 def plot_ttt_improvement():
     """Create a TTT improvement plot with Random and Geographic splits in 2 rows x 5 columns (tasks).
@@ -941,7 +1045,7 @@ def plot_ttt_improvement():
     """
 
     splits = ['Random', 'Geographic']
-    tags = ['pi_41', 'pi', 'pi_43']
+    tags = ['pi_41', 'pi_42', 'pi_43']
     seeds = [41, 42, 43]
 
     # Load runs for each tag
@@ -1149,7 +1253,7 @@ def plot_ttt_improvement_normalized():
     """
 
     splits = ['Random', 'Geographic']
-    tags = ['pi_41', 'pi', 'pi_43']
+    tags = ['pi_41', 'pi_42', 'pi_43']
     seeds = [41, 42, 43]
 
     # Load runs for each tag
@@ -1264,14 +1368,14 @@ def plot_ttt_improvement_normalized():
             for pos, (mode, color) in enumerate(zip(['JT-TTT', 'JT-TTT-Geo'], colors), start=1):
                 stats = averaged_stats[task][split][mode]
                 if stats is not None:
-                    # Create statistics dict for bxp
+                    # Create statistics dict for bxp, multiply by 100 to convert to percentage
                     stats_dict = {
-                        'med': stats['med'],
-                        'q1': stats['q1'],
-                        'q3': stats['q3'],
-                        'whislo': stats['whislo'],
-                        'whishi': stats['whishi'],
-                        'mean': stats['mean']
+                        'med': stats['med'] * 100,
+                        'q1': stats['q1'] * 100,
+                        'q3': stats['q3'] * 100,
+                        'whislo': stats['whislo'] * 100,
+                        'whishi': stats['whishi'] * 100,
+                        'mean': stats['mean'] * 100
                     }
                     stats_list.append(stats_dict)
                     positions.append(pos)
@@ -1308,10 +1412,10 @@ def plot_ttt_improvement_normalized():
             ax.tick_params(axis='y', rotation=90)
 
             # After the plot is drawn, get the natural y-axis range and set ticks at min/max
-            # Round to 0.01 (two decimal places) and ensure at most 2 ticks
+            # Round to 1 (since values are now percentages) and ensure at most 2 ticks
             ymin, ymax = ax.get_ylim()
-            rounded_ymin = np.round(ymin / 0.01) * 0.01
-            rounded_ymax = np.round(ymax / 0.01) * 0.01
+            rounded_ymin = np.round(ymin / 1) * 1
+            rounded_ymax = np.round(ymax / 1) * 1
             ax.set_yticks([rounded_ymin, rounded_ymax])
 
             for spine in ax.spines.values():
@@ -1325,11 +1429,11 @@ def plot_ttt_improvement_normalized():
             if j == 0:
                 ax.set_title(task.replace('_', ' ').capitalize().replace('nitrogen', 'N').replace('organic carbon', 'OC').replace('ph', 'pH'), fontsize=AXIS_LABEL_FONTSIZE)
 
-    # Add "Normalized Δ Performance" label in the middle between the two rows
+    # Add "Normalized Δ Performance (%)" label in the middle between the two rows
     top_row_bottom = axes[0, 0].get_position().y0
     bottom_row_top = axes[1, 0].get_position().y1
     center_y = (top_row_bottom + bottom_row_top) / 2
-    fig.text(0.02, center_y, 'Normalized Δ Performance', fontsize=AXIS_LABEL_FONTSIZE, rotation=90, ha='center', va='center')
+    fig.text(0.02, center_y, 'RI (%)', fontsize=AXIS_LABEL_FONTSIZE, rotation=90, ha='center', va='center')
 
     # Add "Random" and "Geographic" labels to the right of the subplots
     top_row_center = (axes[0, 0].get_position().y0 + axes[0, 0].get_position().y1) / 2
@@ -1349,6 +1453,214 @@ def plot_ttt_improvement_normalized():
 
     plt.savefig('TTT_plot_normalized.png', dpi=300)
     plt.savefig('TTT_plot_normalized.pdf', dpi=300)
+
+def plot_ttt_improvement_normalized_S2_only():
+    """Create a TTT improvement plot with Random and Geographic splits in 2 rows x 5 columns (tasks).
+    Each subplot shows boxplots of normalized improvements over JT for JT-TTT and JT-TTT-Geo, with outliers removed.
+    Statistics are computed separately for each seed, then averaged across seeds.
+    Improvement is calculated as normalized: (r2_new - r2_old) / (1 - r2_old)
+    Legend under the plot.
+    """
+
+    splits = ['Random', 'Geographic']
+    baseline_tag = 'pi_41'  # JT baseline runs are under pi_41
+    ttt_tag = 'pi_41_S2_only'  # JT-TTT and JT-TTT-Geo runs are under pi_41_S2_only
+    seeds = [41]
+
+    # Load runs for baseline (JT) and TTT runs
+    baseline_runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': [baseline_tag]}})
+    ttt_runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': [ttt_tag]}})
+
+    # Collect improvements per seed: {seed: {task: {split: {mode: [improvements]}}}}
+    improvements_per_seed = {seed: {task: {split: {mode: [] for mode in ['JT-TTT', 'JT-TTT-Geo']}
+                                           for split in splits} for task in tasks} for seed in seeds}
+
+    for seed in seeds:
+        for task in tasks:
+            metric = 'R2' if task != 'species' else 'MAP'
+
+            for split in splits:
+                metric_name = f'{split} test {metric}'
+
+                # Baseline JT per architecture - use baseline_runs (pi_41)
+                jt_baseline = {}
+                for architecture in architectures_plots:
+                    run_name = '_'.join([task, architecture, 'JT', str(100)]) + '_'
+                    run = next((run for run in baseline_runs if run.name.startswith(run_name)), None)
+                    if run:
+                        jt_baseline[architecture] = run.summary_metrics.get(metric_name)
+
+                # Improvements for JT-TTT and JT-TTT-Geo - use ttt_runs (pi_41_S2_only)
+                for mode in ['JT-TTT', 'JT-TTT-Geo']:
+                    for architecture in architectures_plots:
+                        run_name = '_'.join([task, architecture, mode, str(100)]) + '_'
+                        run = next((run for run in ttt_runs if run.name.startswith(run_name)), None)
+
+                        if not run:
+                            continue
+
+                        performance = run.summary_metrics.get(metric_name)
+                        base = jt_baseline.get(architecture)
+
+                        # Normalized improvement: (r2_new - r2_old) / (1 - r2_old)
+                        if base is not None and performance is not None and not np.isnan(base) and not np.isnan(performance):
+                            # Handle edge case: if baseline is 1, avoid division by zero
+                            if base != 1:
+                                improvement = (performance - base) / (1 - base)
+                                if not np.isnan(improvement):
+                                    improvements_per_seed[seed][task][split][mode].append(improvement)
+
+    # Compute boxplot statistics per seed, then average them
+    # Structure: {task: {split: {mode: {stat_name: averaged_value}}}}
+    averaged_stats = {}
+
+    for task in tasks:
+        averaged_stats[task] = {}
+        for split in splits:
+            averaged_stats[task][split] = {}
+            for mode in ['JT-TTT', 'JT-TTT-Geo']:
+                # Collect statistics for each seed
+                seed_stats = []
+                for seed in seeds:
+                    improvements = improvements_per_seed[seed][task][split][mode]
+                    if len(improvements) > 0:
+                        improvements_array = np.array(improvements)
+                        # Compute boxplot statistics
+                        q1 = np.percentile(improvements_array, 25)
+                        median = np.percentile(improvements_array, 50)
+                        q3 = np.percentile(improvements_array, 75)
+                        mean = np.mean(improvements_array)
+                        iqr = q3 - q1
+                        # Whiskers: 1.5 * IQR from Q1 and Q3
+                        whislo = q1 - 1.5 * iqr
+                        whishi = q3 + 1.5 * iqr
+                        # Clip whiskers to actual data range
+                        whislo = max(whislo, np.min(improvements_array))
+                        whishi = min(whishi, np.max(improvements_array))
+                        seed_stats.append({
+                            'q1': q1,
+                            'med': median,
+                            'q3': q3,
+                            'mean': mean,
+                            'whislo': whislo,
+                            'whishi': whishi
+                        })
+
+                # Average statistics across seeds
+                if len(seed_stats) > 0:
+                    averaged_stats[task][split][mode] = {
+                        'q1': np.mean([s['q1'] for s in seed_stats]),
+                        'med': np.mean([s['med'] for s in seed_stats]),
+                        'q3': np.mean([s['q3'] for s in seed_stats]),
+                        'mean': np.mean([s['mean'] for s in seed_stats]),
+                        'whislo': np.mean([s['whislo'] for s in seed_stats]),
+                        'whishi': np.mean([s['whishi'] for s in seed_stats])
+                    }
+                else:
+                    averaged_stats[task][split][mode] = None
+
+    # 2 rows x 5 columns (splits x tasks)
+    fig, axes = plt.subplots(2, 5, figsize=(COL_WIDTH, 2), gridspec_kw=dict(left=0.1, right=0.96, top=0.89, bottom=0.13, wspace=0.4, hspace=0.45))
+
+    # Colors for boxes
+    colors = ['#1f77b4', '#ff7f0e']
+
+    for i, task in enumerate(tasks):
+        for j, split in enumerate(splits):
+            ax = axes[j, i]
+
+            # Get averaged statistics for this task and split
+            stats_list = []
+            positions = []
+            mode_colors = []  # Track which color to use for each boxplot
+            for pos, (mode, color) in enumerate(zip(['JT-TTT', 'JT-TTT-Geo'], colors), start=1):
+                stats = averaged_stats[task][split][mode]
+                if stats is not None:
+                    # Create statistics dict for bxp, multiply by 100 to convert to percentage
+                    stats_dict = {
+                        'med': stats['med'] * 100,
+                        'q1': stats['q1'] * 100,
+                        'q3': stats['q3'] * 100,
+                        'whislo': stats['whislo'] * 100,
+                        'whishi': stats['whishi'] * 100,
+                        'mean': stats['mean'] * 100
+                    }
+                    stats_list.append(stats_dict)
+                    positions.append(pos)
+                    mode_colors.append(color)
+
+            if len(stats_list) > 0:
+                # Create boxplots from averaged statistics
+                bp = ax.bxp(stats_list,
+                            positions=positions,
+                            widths=0.6,
+                            patch_artist=True,
+                            showmeans=True,
+                            showfliers=False,
+                            meanprops=dict(marker='D', markerfacecolor='black', markeredgecolor='black', markersize=MARKER_SIZE),
+                            medianprops=dict(color='black', linewidth=LINE_WIDTH),
+                            boxprops=dict(linewidth=LINE_WIDTH),
+                            whiskerprops=dict(linewidth=LINE_WIDTH),
+                            capprops=dict(linewidth=LINE_WIDTH))
+
+                # Colors for boxes - use the tracked colors
+                for patch, color in zip(bp['boxes'], mode_colors):
+                    patch.set_facecolor(color)
+                    patch.set_alpha(0.7)
+                    patch.set_edgecolor('black')
+                    patch.set_linewidth(0.5)  # Thinner border around boxes
+
+            # Remove x-axis ticks
+            ax.set_xticks([])
+            ax.set_xticklabels([])  # Remove method names from under each subplot
+            ax.tick_params(axis='x', bottom=False)  # Hide x-axis ticks
+            ax.axhline(y=0, color='black', linewidth=LINE_WIDTH)
+            ax.grid(True, alpha=0.3, axis='y')
+            ax.tick_params(axis='y', labelsize=AXIS_LABEL_FONTSIZE)
+            ax.tick_params(axis='y', rotation=90)
+
+            # After the plot is drawn, get the natural y-axis range and set ticks at min/max
+            # Round to 1 (since values are now percentages) and ensure at most 2 ticks
+            ymin, ymax = ax.get_ylim()
+            rounded_ymin = np.round(ymin / 1) * 1
+            rounded_ymax = np.round(ymax / 1) * 1
+            ax.set_yticks([rounded_ymin, rounded_ymax])
+
+            for spine in ax.spines.values():
+                spine.set_linewidth(0.5)  # Adjust this value to change thickness (default is usually 1.0)
+
+            for label in ax.get_yticklabels():
+                label.set_ha('center')
+                label.set_va('center')
+
+            # Set title only on top row
+            if j == 0:
+                ax.set_title(task.replace('_', ' ').capitalize().replace('nitrogen', 'N').replace('organic carbon', 'OC').replace('ph', 'pH'), fontsize=AXIS_LABEL_FONTSIZE)
+
+    # Add "Normalized Δ Performance (%)" label in the middle between the two rows
+    top_row_bottom = axes[0, 0].get_position().y0
+    bottom_row_top = axes[1, 0].get_position().y1
+    center_y = (top_row_bottom + bottom_row_top) / 2
+    fig.text(0.02, center_y, 'RI (%)', fontsize=AXIS_LABEL_FONTSIZE, rotation=90, ha='center', va='center')
+
+    # Add "Random" and "Geographic" labels to the right of the subplots
+    top_row_center = (axes[0, 0].get_position().y0 + axes[0, 0].get_position().y1) / 2
+    bottom_row_center = (axes[1, 0].get_position().y0 + axes[1, 0].get_position().y1) / 2
+    fig.text(0.98, top_row_center, 'Random', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
+    fig.text(0.98, bottom_row_center, 'Geographic', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
+
+    # Create legend for method colors under the plot
+    legend_labels = ['TTT-MMR', 'TTT-MMR-Geo']
+    legend_handles = [plt.Rectangle((0,0),1,1, facecolor=color, alpha=0.7) for color in colors]
+    fig.legend(legend_handles, legend_labels,
+            loc='lower center',
+            bbox_to_anchor=(0.5, -0.05),
+            ncol=len(legend_labels),
+            fontsize=LEGEND_FONTSIZE,
+            frameon=False)
+
+    plt.savefig('TTT_plot_normalized_s2only.png', dpi=300)
+    plt.savefig('TTT_plot_normalized_s2only.pdf', dpi=300)
 
 def calculate_rq1_stats(test_split='Random'):
     """Calculate performance drops (raw deltas) when reducing training data from 100% to 50% and 100% to 5%,
@@ -1680,51 +1992,55 @@ def calculate_rq3_stats(test_split='Random'):
     }
 
 def tabulate_ttt_by_model():
-    """Create a table showing average improvement (normalized, averaged over tasks) of MT-TTT and MT-TTT-Geo over JT.
-    Rows are methods (MT-TTT and MT-TTT-Geo) for Random, then for Geographic (4 rows total).
+    """Create a table showing average improvement (normalized, averaged over tasks) of TTT-MMR and TTT-MMR-Geo over JT.
+    Rows are methods (TTT-MMR and TTT-MMR-Geo) for Random, then for Geographic (4 rows total).
     Columns are architectures. Includes standard error.
     Separate results for Random and Geographic test splits.
     Improvement is calculated as normalized: (r2_new - r2_old) / (1 - r2_old)
+    First average improvements over tasks for each seed, then average those averages over seeds.
     """
-
     adaptation_modes = ['JT-TTT', 'JT-TTT-Geo']
     splits = ['Random', 'Geographic']
-    improvement_data = {architecture: {split: {mode: [] for mode in adaptation_modes} for split in splits} for architecture in architectures_plots}
+    tags = ['pi_41', 'pi_42', 'pi_43']
+    seeds = [41, 42, 43]
+
+    # Load runs for each tag
+    all_runs = {}
+    for tag in tags:
+        all_runs[tag] = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': [tag]}})
+
+    # Collect improvements per seed and task: {architecture: {split: {seed: {task: {mode: improvement}}}}}
+    improvement_data = {architecture: {split: {seed: {task: {mode: None for mode in adaptation_modes} for task in tasks} for seed in seeds} for split in splits}
+                       for architecture in architectures_plots}
 
     for architecture in architectures_plots:
-        # Get JT baseline performance for each task and split
-        jt_baseline = {}
-
         for task in tasks:
             metric = 'R2' if task != 'species' else 'MAP'
-            jt_baseline[task] = {}
-            run_name = '_'.join([task, architecture, 'JT', str(100)]) + '_'
-            run = next((run for run in runs if run.name.startswith(run_name)), None)
 
-            if run:
-                for split in splits:
-                    metric_name = f'{split} test {metric}'
-                    baseline_value = run.summary_metrics.get(metric_name)
+            # Get JT baseline performance for each split and seed
+            for split in splits:
+                metric_name = f'{split} test {metric}'
 
-                    if baseline_value is not None and not np.isnan(baseline_value):
-                        jt_baseline[task][split] = baseline_value
+                for tag, seed in zip(tags, seeds):
+                    runs = all_runs[tag]
 
-        # Calculate improvements for JT-TTT and JT-TTT-Geo for each task and split
-        for adaptation_mode in adaptation_modes:
-            for task in tasks:
-                if task in jt_baseline and len(jt_baseline[task]) > 0:
-                    metric = 'R2' if task != 'species' else 'MAP'
-                    run_name = '_'.join([task, architecture, adaptation_mode, str(100)]) + '_'
-                    run = next((run for run in runs if run.name.startswith(run_name)), None)
+                    # Get JT baseline for this seed
+                    jt_run_name = '_'.join([task, architecture, 'JT', str(100)]) + '_'
+                    jt_run = next((run for run in runs if run.name.startswith(jt_run_name)), None)
+                    baseline = None
+                    if jt_run:
+                        baseline_value = jt_run.summary_metrics.get(metric_name)
+                        if baseline_value is not None and not np.isnan(baseline_value):
+                            baseline = baseline_value
 
-                    if run:
-                        # Collect improvements separately for each split
-                        for split in splits:
-                            if split in jt_baseline[task]:
-                                metric_name = f'{split} test {metric}'
+                    if baseline is not None:
+                        # Calculate improvements for JT-TTT and JT-TTT-Geo for this seed
+                        for mode in adaptation_modes:
+                            run_name = '_'.join([task, architecture, mode, str(100)]) + '_'
+                            run = next((run for run in runs if run.name.startswith(run_name)), None)
+
+                            if run:
                                 performance = run.summary_metrics.get(metric_name)
-                                baseline = jt_baseline[task][split]
-
                                 if performance is not None and not np.isnan(performance) and not np.isnan(baseline):
                                     # Calculate normalized improvement: (r2_new - r2_old) / (1 - r2_old)
                                     # Handle edge cases: if baseline is 1, avoid division by zero
@@ -1733,9 +2049,29 @@ def tabulate_ttt_by_model():
                                     else:
                                         improvement = np.nan  # Skip if baseline is 1 (perfect R2)
                                     if not np.isnan(improvement):
-                                        improvement_data[architecture][split][adaptation_mode].append(improvement)
+                                        improvement_data[architecture][split][seed][task][mode] = improvement
 
-    # Calculate mean and standard error for each architecture-mode-split combination
+    # First, average over tasks for each seed: {architecture: {split: {seed: {mode: avg_improvement}}}}
+    seed_avg_improvements = {architecture: {split: {seed: {mode: None for mode in adaptation_modes} for seed in seeds} for split in splits}
+                            for architecture in architectures_plots}
+
+    for architecture in architectures_plots:
+        for split in splits:
+            for seed in seeds:
+                for mode in adaptation_modes:
+                    # Collect improvements for this seed across all tasks
+                    task_improvements = []
+                    for task in tasks:
+                        improvement = improvement_data[architecture][split][seed][task][mode]
+                        if improvement is not None:
+                            task_improvements.append(improvement)
+                    # Average over tasks for this seed
+                    if len(task_improvements) > 0:
+                        seed_avg_improvements[architecture][split][seed][mode] = np.mean(task_improvements)
+                    else:
+                        seed_avg_improvements[architecture][split][seed][mode] = None
+
+    # Then, average over seeds and calculate mean and standard error
     data_dict = {}
 
     for split in splits:
@@ -1743,13 +2079,26 @@ def tabulate_ttt_by_model():
         for mode in adaptation_modes:
             data_dict[split][mode] = {}
             for architecture in architectures_plots:
-                improvements = improvement_data[architecture][split][mode]
+                # Collect seed-averaged improvements for the mean
+                seed_avgs = []
+                for seed in seeds:
+                    avg_improvement = seed_avg_improvements[architecture][split][seed][mode]
+                    if avg_improvement is not None:
+                        seed_avgs.append(avg_improvement)
 
-                if len(improvements) > 0:
-                    mean = np.mean(improvements)
-                    # Standard error: std / sqrt(n)
-                    se = np.std(improvements, ddof=1) / np.sqrt(len(improvements)) if len(improvements) > 1 else 0.0
-                    data_dict[split][mode][architecture] = {'mean': mean, 'se': se, 'n': len(improvements)}
+                # Collect all individual improvements (across tasks and seeds) for the SE
+                all_improvements = []
+                for seed in seeds:
+                    for task in tasks:
+                        improvement = improvement_data[architecture][split][seed][task][mode]
+                        if improvement is not None:
+                            all_improvements.append(improvement)
+
+                if len(seed_avgs) > 0:
+                    mean = np.mean(seed_avgs)  # Mean: average over tasks per seed, then over seeds
+                    # SE: computed from all individual improvements to reflect task-level variation
+                    se = np.std(all_improvements, ddof=1) / np.sqrt(len(all_improvements)) if len(all_improvements) > 1 else 0.0
+                    data_dict[split][mode][architecture] = {'mean': mean, 'se': se, 'n': len(seed_avgs)}
                 else:
                     data_dict[split][mode][architecture] = {'mean': np.nan, 'se': np.nan, 'n': 0}
 
@@ -1770,9 +2119,9 @@ def tabulate_ttt_by_model():
                 best_methods[(split, architecture)] = best_mode
 
     # Create DataFrame with mean ± SE format
-    # Rows: MT-TTT, MT-TTT-Geo (for Random), then MT-TTT, MT-TTT-Geo (for Geographic)
+    # Rows: TTT-MMR, TTT-MMR-Geo (for Random), then TTT-MMR, TTT-MMR-Geo (for Geographic)
     # Columns: Split, Method, then architectures
-    display_decimals = 3
+    display_decimals = 1
     formatted_data = {}
     split_column = []
     method_column = []
@@ -1794,8 +2143,11 @@ def tabulate_ttt_by_model():
             for architecture in architectures_plots:
                 stats = data_dict[split][mode][architecture]
                 if stats['n'] > 0 and not np.isnan(stats['mean']):
-                    mean_str = f"{stats['mean']:.{display_decimals}f}"
-                    se_str = f"{stats['se']:.{display_decimals}f}"
+                    # Multiply by 100 to convert to percentage
+                    mean_val = stats['mean'] * 100
+                    se_val = stats['se'] * 100
+                    mean_str = f"{mean_val:.{display_decimals}f}"
+                    se_str = f"{se_val:.{display_decimals}f}"
                     # Bold if this is the best (highest mean) method for this split-architecture
                     if best_methods.get((split, architecture)) == mode:
                         formatted_data[row_key][architecture] = f"$\\mathbf{{{mean_str} \\pm {se_str}}}$"
@@ -1819,7 +2171,7 @@ def tabulate_ttt_by_model():
     latex = df.to_latex(index=False,
                         header=False,
                         escape=False,
-                        column_format='l' + 'l' + 'r' * (len(df.columns) - 2),
+                        column_format='l' + 'l' + 'c' * (len(df.columns) - 2),
                         na_rep='--')
 
     # Insert custom header and use multicolumn for Split column
@@ -1865,12 +2217,14 @@ def tabulate_ttt_by_model():
 
     latex = '\n'.join(lines)
 
-    # Add table environment
-    latex = ("\\begin{table}[ht]\n\\centering\n" +
+    # Add table environment with resizebox and table*
+    latex = ("\\begin{table*}[ht]\n\\centering\n" +
+            "\\resizebox{\\linewidth}{!}{%\n" +
             latex +
-            "\\caption{Average improvement over JT (averaged over tasks) for TTT-MMR and TTT-MMR-Geo by architecture and test split. Values shown as mean $\\pm$ standard error. Improvement is calculated as normalized: $(R^2_{\\text{new}} - R^2_{\\text{old}}) / (1 - R^2_{\\text{old}})$.}\n" +
+            "\n}\n" +
+            "\\caption{Average improvement over JT (averaged over tasks) for TTT-MMR and TTT-MMR-Geo by architecture and test split. Values shown as mean $\\pm$ standard error (multiplied by 100). Improvement is calculated as normalized: $(R^2_{\\text{new}} - R^2_{\\text{old}}) / (1 - R^2_{\\text{old}})$.}\n" +
             "\\label{tab:ttt_by_model}\n" +
-            "\\end{table}\n")
+            "\\end{table*}\n")
 
     with open('ttt_by_model.tex', 'w') as file:
         file.write(latex)
@@ -2197,7 +2551,7 @@ def calculate_ttt_delta_averages():
         print("-" * 80)
 
         for mode in adaptation_modes:
-            display_mode = 'MT-TTT' if mode == 'JT-TTT' else 'MT-TTT-Geo'
+            display_mode = 'TTT-MMR' if mode == 'JT-TTT' else 'TTT-MMR-Geo'
             stats = results[split][mode]
 
             if stats['n'] > 0:
@@ -2306,23 +2660,27 @@ def compare_dinov3_architectures():
     return results
 
 if __name__ == '__main__':
-    tabulate_results('Random', 'FT')
-    tabulate_results('Geographic', 'FT')
-    # tabulate_results('Random', 'LP')
-    # tabulate_results('Geographic', 'LP')
-    # tabulate_results_RQ3('Random')
-    # tabulate_results_RQ3('Geographic')
+    # tabulate_results('FT')
+    # tabulate_results('LP')
+    # tabulate_results_RQ3('LP')
     # tabulate_TTT_results()
     # tabulate_ttt_by_model()
     # tabulate_ttt_ranks_by_model()
 
-    # plot_rq1_performance()
-    # plot_rq2_performance()
-    # plot_rq3_performance()
+    # in paper
+    # plot_rq1_performance('Random', 'FT')
+    # plot_rq2_performance('FT')
+    # plot_rq3_performance('FT')
     # plot_ttt_improvement()
     # plot_ttt_improvement_normalized()
-    # plot_rq3_performance('Random')
-    # plot_rq3_performance('Geographic')
+    plot_ttt_improvement_normalized_S2_only()
+
+    # supplementary
+    # plot_rq1_performance('Geographic', 'FT')
+    # plot_rq1_performance('Random', 'LP')
+    # plot_rq1_performance('Geographic', 'LP')
+    # plot_rq2_performance('LP')
+    # plot_rq3_performance('LP')
 
     # # Analyze performance drops for both test splits
     # random_results = calculate_rq1_stats('Random')
