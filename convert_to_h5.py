@@ -185,28 +185,29 @@ def plot_species_statistics():
         plt.figure(dpi=300, figsize=(20, 5))
         plt.bar(indices, counts)
         plt.margins(x=1e-2)
-        plt.xticks(indices, species, rotation=90)
-        plt.xlabel('Species')
-        plt.ylabel('Number of tiles')
-        plt.title('Number of tiles per species')
+        plt.xticks(indices, species, rotation=90, fontsize=12)
+        plt.xlabel('Species', fontsize=12)
+        plt.ylabel('Number of tiles', fontsize=12)
         plt.tight_layout()
         plt.savefig(f'{data_dir_path}/species/tiles_per_species.png')
+        plt.savefig(f'{data_dir_path}/species/tiles_per_species.pdf')
 
         out_file.write(f'Max number of tiles for a species: {max(counts)}\n')
         out_file.write(f'Min number of tiles for a species: {min(counts)}\n')
 
-        # histogram of number of species per tile
+        # species richness per tile
         plt.figure(dpi=300)
-        bin_size = 1000
-        bins = np.arange(0, max(counts) + bin_size, bin_size)
-        tick_interval = 5000
+        num_species_per_tile = [len(tile) for tile in tiles]
+        tile_counts = Counter(num_species_per_tile) # counts the number of tiles for each number of species
+        num_species = sorted(tile_counts.keys()) # sorts the number of species in ascending order
+        num_tiles = [tile_counts[n] for n in num_species] # counts the number of tiles for each number of species
 
-        plt.hist(counts, bins=bins, edgecolor='black')
-        plt.xlabel('Number of tiles')
-        plt.ylabel('Number of species')
-        plt.xticks(np.arange(0, max(counts) + tick_interval, tick_interval))
+        plt.bar(num_species, num_tiles, edgecolor='black')
+        plt.xlabel('Number of species', fontsize=12)
+        plt.ylabel('Number of tiles', fontsize=12)
         plt.tight_layout()
         plt.savefig(f'{data_dir_path}/species/tile_species_counts.png')
+        plt.savefig(f'{data_dir_path}/species/tile_species_counts.pdf')
 
         with open(f'{data_dir_path}/species/species_labels.json', 'w') as file:
             json.dump({name: i for i, name in enumerate(species)}, file, indent=4)
