@@ -2,9 +2,11 @@
 
 from affine import Affine
 from itertools import chain
+from collections import Counter
 from matplotlib.lines import Line2D
 from rasterio.warp import transform_bounds
 from shapely.geometry import box
+from sklearn.metrics import r2_score
 from sys import argv
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -70,9 +72,12 @@ def generate_splits(task):
         split_data['geographic_test_indices'] = sorted(list(map(int, africa_boxes.keys()))) # Africa tiles for testing
 
         if task == 'species':
-            species = [json.loads(lst) for lst in h5_file['species'].asstr()[...]]
-            species_names = np.unique(list(chain.from_iterable(species))).tolist()
-            species_counts = {split: {species_name: len(np.where(np.array(list(chain.from_iterable([species[idx] for idx in split_data[f'{split}_indices']]))) == species_name)[0]) for species_name in species_names} for split in all_splits}
+            species_tiles = [json.loads(lst) for lst in h5_file['species'].asstr()[...]]
+            species_tiles_splits = {split: [species_tiles[idx] for idx in split_data[f'{split}_indices']] for split in all_splits}
+            species_counts_total = dict(Counter(chain.from_iterable(species_tiles)))
+            species_counts_total = dict(sorted(species_counts_total.items(), key=lambda item: item[1], reverse=True)) # sorts by value in descending order
+            species_sorted = list(species_counts_total.keys()) # sorted by number of tiles in descending order
+            species_counts_splits = {split: {species: Counter(chain.from_iterable(species_tiles_splits[split])).get(species, 0) for species in species_sorted} for split in all_splits}
 
         # calculate normalization statistics
         for split in subset_splits:
@@ -97,23 +102,33 @@ def generate_splits(task):
         gdf.to_file(f'{data_dir_path}/{task}/split_tiles/{task}_{split}_tiles.geojson', driver='GeoJSON')
 
     if task != 'species':
-        # calculate RMSE using the train mean as the prediction
-        split_task_values = {split: task_data.squeeze()[split_data[f'{split}_indices']].ravel() for split in splits}
+        # calculate R2 using the train means as the prediction
+        split_task_values = {split: task_data.squeeze()[split_data[f'{split}_indices']].ravel() for split in all_splits}
 
         if task == 'biomass':
-            split_task_values = {split: [value for value in split_task_values[split] if value != -9999] for split in splits}
+            split_task_values = {split: [value for value in split_task_values[split] if value != -9999] for split in all_splits}
 
-        train_mean = np.mean(split_task_values['train_100%'])
-        val_rmse = np.sqrt(np.mean((np.array(split_task_values['val']) - train_mean) ** 2))
-        random_test_rmse = np.sqrt(np.mean((np.array(split_task_values['random_test']) - train_mean) ** 2))
-        geographic_test_rmse = np.sqrt(np.mean((np.array(split_task_values['geographic_test']) - train_mean) ** 2))
+        values = {'val': np.array(split_task_values['val']), 'random_test': np.array(split_task_values['random_test']), 'geographic_test': np.array(split_task_values['geographic_test'])}
+        metrics = {}
+
+        for subset_split in subset_splits:
+            metrics[subset_split] = {}
+
+            for split in values:
+                predictions = np.full_like(values[split], np.mean(split_task_values[subset_split]))
+                metrics[subset_split][split] = r2_score(values[split], predictions)
 
         # plot task distribution
-        fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(12, 16), sharex=True) # 4 rows, 1 column, shared x-axis
-        max_value = max([np.max(split_task_values[split]) for split in splits])
+        fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(4, 16), sharex=True) # 4 rows, 1 column, shared x-axis
+
+        if task == 'biomass':
+            max_value = 400
+        else:
+            max_value = max([np.max(split_task_values[split]) for split in splits])
+
         bin_size = 1
         bins = np.arange(0, max_value + bin_size, bin_size)
-        tick_interval = np.ceil(max_value / 20)
+        tick_interval = np.ceil(max_value / 5)
 
         for i, split in enumerate(splits):
             counts, bin_edges = np.histogram(split_task_values[split], bins=bins)
@@ -121,13 +136,44 @@ def generate_splits(task):
 
             axes[i].bar(bin_edges[:-1], percentages, width=np.diff(bin_edges), align='edge')
             axes[i].set_xticks(np.arange(0, max_value + tick_interval, tick_interval))
-            axes[i].set_ylabel('Percentage (%)')
-            axes[i].set_title(split.replace('train_100%', 'train').replace('_', ' ').capitalize())
+            axes[i].tick_params(labelsize=14)
+            axes[i].set_title(split.replace('train_100%', 'train').replace('_', ' ').capitalize(), fontsize=14)
 
-        fig.suptitle(task.replace('_', ' ').capitalize().replace("ph", "pH"), fontweight='bold')
-        axes[-1].set_xlabel(f'{task.replace("_", " ").capitalize().replace("ph", "pH")} value') # sets common x-label
+        if task == 'biomass':
+            xlabel = 'Value (Mg/ha)'
+        elif task in ['soil_nitrogen', 'soil_organic_carbon']:
+            xlabel = 'Value (g/kg)'
+        else:
+            xlabel = 'Value'
+
+        fig.supylabel('Percentage (%)', fontsize=14)
+        axes[-1].set_xlabel(xlabel, fontsize=14) # sets common x-label
         plt.tight_layout(rect=[0, 0, 1, 0.99])
         plt.savefig(f'{data_dir_path}/{task}/{task}_distributions.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{data_dir_path}/{task}/{task}_distributions.pdf', dpi=300, bbox_inches='tight')
+        plt.close()
+    else:
+        # plot species distributions
+        fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(4, 16), sharex=True) # 4 rows, 1 column, shared x-axis
+        species_indices = np.arange(len(species_sorted))
+
+        for i, split in enumerate(splits):
+            total_count = sum(species_counts_splits[split].values()) # total number of tiles for this split
+            percentages = [count / total_count * 100 for count in species_counts_splits[split].values()]
+
+            # Plot bar chart
+            axes[i].bar(species_indices, percentages, width=0.8, align='center')
+            axes[i].set_xticks([])
+            axes[i].set_xticklabels([])
+            axes[i].tick_params(labelsize=14)
+            axes[i].set_title(split.replace('train_100%', 'train').replace('_', ' ').capitalize(), fontsize=14)
+            axes[i].grid(True, alpha=0.3, axis='y')
+
+        fig.supylabel('Percentage (%)', fontsize=14)
+        axes[-1].set_xlabel('Species', fontsize=14) # sets common x-label
+        plt.tight_layout(rect=[0, 0, 1, 0.99])
+        plt.savefig(f'{data_dir_path}/species/species_distributions.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'{data_dir_path}/species/species_distributions.pdf', dpi=300, bbox_inches='tight')
         plt.close()
 
     # save summary for task
@@ -145,24 +191,41 @@ def generate_splits(task):
         txt_file.write(f'{len(split_data["geographic_test_indices"])} geographic test tiles\n')
 
         if task != 'species':
-            txt_file.write(f'Mean of train values: {round(float(train_mean), 2)}\n')
-            txt_file.write(f'STD of train values: {round(float(np.std(split_task_values["train_100%"])), 2)}\n')
+            txt_file.write(f'Mean of train 100% values: {round(float(np.mean(split_task_values["train_100%"])), 2)}\n')
+            txt_file.write(f'STD of train 100% values: {round(float(np.std(split_task_values["train_100%"])), 2)}\n')
+            txt_file.write(f'Min of train 100% values: {round(float(np.min(split_task_values["train_100%"])), 2)}\n')
+            txt_file.write(f'Max of train 100% values: {round(float(np.max(split_task_values["train_100%"])), 2)}\n')
+            txt_file.write(f'Mean of train 50% values: {round(float(np.mean(split_task_values["train_50%"])), 2)}\n')
+            txt_file.write(f'STD of train 50% values: {round(float(np.std(split_task_values["train_50%"])), 2)}\n')
+            txt_file.write(f'Min of train 50% values: {round(float(np.min(split_task_values["train_50%"])), 2)}\n')
+            txt_file.write(f'Max of train 50% values: {round(float(np.max(split_task_values["train_50%"])), 2)}\n')
+            txt_file.write(f'Mean of train 5% values: {round(float(np.mean(split_task_values["train_5%"])), 2)}\n')
+            txt_file.write(f'STD of train 5% values: {round(float(np.std(split_task_values["train_5%"])), 2)}\n')
+            txt_file.write(f'Min of train 5% values: {round(float(np.min(split_task_values["train_5%"])), 2)}\n')
+            txt_file.write(f'Max of train 5% values: {round(float(np.max(split_task_values["train_5%"])), 2)}\n')
             txt_file.write(f'Mean of validation values: {round(float(np.mean(split_task_values["val"])), 2)}\n')
             txt_file.write(f'STD of validation values: {round(float(np.std(split_task_values["val"])), 2)}\n')
+            txt_file.write(f'Min of validation values: {round(float(np.min(split_task_values["val"])), 2)}\n')
+            txt_file.write(f'Max of validation values: {round(float(np.max(split_task_values["val"])), 2)}\n')
             txt_file.write(f'Mean of random test values: {round(float(np.mean(split_task_values["random_test"])), 2)}\n')
             txt_file.write(f'STD of random test values: {round(float(np.std(split_task_values["random_test"])), 2)}\n')
+            txt_file.write(f'Min of random test values: {round(float(np.min(split_task_values["random_test"])), 2)}\n')
+            txt_file.write(f'Max of random test values: {round(float(np.max(split_task_values["random_test"])), 2)}\n')
             txt_file.write(f'Mean of geographic test values: {round(float(np.mean(split_task_values["geographic_test"])), 2)}\n')
             txt_file.write(f'STD of geographic test values: {round(float(np.std(split_task_values["geographic_test"])), 2)}\n')
-            txt_file.write(f'Val RMSE using the train mean as the prediction: {round(float(val_rmse), 2)}\n')
-            txt_file.write(f'Random test RMSE using the train mean as the prediction: {round(float(random_test_rmse), 2)}\n')
-            txt_file.write(f'Geographic test RMSE using the train mean as the prediction: {round(float(geographic_test_rmse), 2)}\n')
+            txt_file.write(f'Min of geographic test values: {round(float(np.min(split_task_values["geographic_test"])), 2)}\n')
+            txt_file.write(f'Max of geographic test values: {round(float(np.max(split_task_values["geographic_test"])), 2)}\n')
+
+            for split in ['val', 'random_test', 'geographic_test']:
+                for subset_split in subset_splits:
+                    txt_file.write(f'{split.capitalize().replace("_", " ")} R2 using the {subset_split.replace("_", " ")} mean as the prediction: {round(float(metrics[subset_split][split]), 2)}\n')
         else:
-            txt_file.write(f'Min count of a species in train 100%: {min(species_counts["train_100%"].values())}\n')
-            txt_file.write(f'Min count of a species in train 50%: {min(species_counts["train_50%"].values())}\n')
-            txt_file.write(f'Min count of a species in train 5%: {min(species_counts["train_5%"].values())}\n')
-            txt_file.write(f'Min count of a species in val: {min(species_counts["val"].values())}\n')
-            txt_file.write(f'Min count of a species in random test: {min(species_counts["random_test"].values())}\n')
-            txt_file.write(f'Min count of a species in geographic test: {min(species_counts["geographic_test"].values())}\n')
+            txt_file.write(f'Min count of a species in train 100%: {min(species_counts_splits["train_100%"].values())}\n')
+            txt_file.write(f'Min count of a species in train 50%: {min(species_counts_splits["train_50%"].values())}\n')
+            txt_file.write(f'Min count of a species in train 5%: {min(species_counts_splits["train_5%"].values())}\n')
+            txt_file.write(f'Min count of a species in val: {min(species_counts_splits["val"].values())}\n')
+            txt_file.write(f'Min count of a species in random test: {min(species_counts_splits["random_test"].values())}\n')
+            txt_file.write(f'Min count of a species in geographic test: {min(species_counts_splits["geographic_test"].values())}\n')
 
 def plot_dataset_split(task):
     # plot dataset split on world map
@@ -173,11 +236,11 @@ def plot_dataset_split(task):
     ax.add_feature(cfeature.BORDERS, linewidth=0.3, linestyle=':')
     ax.add_feature(cfeature.LAND, color='lightgray', alpha=0.3)
     ax.add_feature(cfeature.OCEAN, color='lightblue', alpha=0.3)
-
-    split_properties = {'train_100%': {'color': 'red', 'label': 'Training 100%'},
-                        'val': {'color': 'blue', 'label': 'Validation'},
-                        'random_test': {'color': '#51A687', 'label': 'Random test'},
-                        'geographic_test': {'color': '#06402B', 'label': 'Geographic test'}}
+    cmap = plt.cm.viridis
+    split_properties = {'train_100%': {'color': cmap(0), 'label': 'Training 100%'},
+                        'val': {'color': cmap(0.25), 'label': 'Validation'},
+                        'random_test': {'color': cmap(0.5), 'label': 'Random test'},
+                        'geographic_test': {'color': cmap(0.75), 'label': 'Geographic test'}}
     gdfs = []
 
     for split in splits:
@@ -199,10 +262,15 @@ def plot_dataset_split(task):
               fontsize=12)
     plt.title(f'{task.replace("_", " ").title().replace("Ph", "pH")} Dataset Split', fontsize=16, fontweight='bold')
     plt.tight_layout()
-    plt.savefig(f'{data_dir_path}/{task}/{task}_split_map_2.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{data_dir_path}/{task}/{task}_split_map.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{data_dir_path}/{task}/{task}_split_map.pdf', dpi=300, bbox_inches='tight')
 
 def plot_all_splits():
     tasks = ['biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH', 'species']
+    plt.rcParams['pdf.fonttype'] = 42
+    plt.rcParams['ps.fonttype'] = 42
+    plt.rcParams['font.family'] = 'serif'
+    plt.rcParams['font.serif'] = ['DejaVu Serif']
     cmap = plt.cm.viridis
     split_properties = {'train_100%': {'color': cmap(0), 'label': 'Training 100%'},
                         'val': {'color': cmap(0.25), 'label': 'Validation'},
@@ -231,20 +299,20 @@ def plot_all_splits():
 
         for _, row in combined_gdf.iterrows():
             split = row['split']
-            ax.scatter(row.geometry.x, row.geometry.y,
-                    color=split_properties[split]['color'],
-                    marker='s', s=0.1, label=split_properties[split]['label'] if split not in ax.get_legend_handles_labels()[1] else "")
+            ax.scatter(row.geometry.x, row.geometry.y, color=split_properties[split]['color'], marker='s', s=0.1, rasterized=True, label=split_properties[split]['label'] if split not in ax.get_legend_handles_labels()[1] else "")
 
-        ax.set_title(f'{task.replace("_", " ").title().replace("Ph", "pH")}', fontsize=16)
+        ax.set_title(f'{task.replace("_", " ").title().replace("Ph", "pH")}', fontsize=30)
 
-    legend_elements = [Line2D([0], [0], marker='s', color='w', markerfacecolor=split_properties[mode]['color'], markersize=15, label=split_properties[mode]['label']) for mode in split_properties.keys()]
+    legend_elements = [Line2D([0], [0], marker='s', color='w', markerfacecolor=split_properties[mode]['color'], markersize=30, label=split_properties[mode]['label']) for mode in split_properties.keys()]
 
-    fig.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 0.13), ncol=4, fontsize=16, frameon=False, handletextpad=0.2)
+    fig.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 0.05), ncol=4, fontsize=30, frameon=False, handletextpad=0.1)
     plt.tight_layout()
     plt.savefig(f'{data_dir_path}/split_maps.png', dpi=300, bbox_inches='tight')
     plt.savefig(f'{data_dir_path}/split_maps.pdf', dpi=300, bbox_inches='tight')
 
 if __name__ == '__main__':
-    generate_splits(task=argv[1])
-    plot_dataset_split(task=argv[1])
-    plot_all_splits()
+    if len(argv) > 1:
+        generate_splits(task=argv[1])
+        plot_dataset_split(task=argv[1])
+    else:
+        plot_all_splits()
