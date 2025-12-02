@@ -155,7 +155,7 @@ class _TerraMindBaseEncoder(nn.Module):
         if self.modalities == ['S2L2A']:
             x = {'S2L2A': images['Sentinel2']}
         else:
-            x = {'S2L2A': images['Sentinel2'], 'S1GRD': images['Sentinel1'], 'DEM': images['AsterDEM'], 'RGB': images['RGB']}
+            x = {'S2L2A': images['Sentinel2'], 'S1GRD': images['Sentinel1'], 'DEM': images['ASTER_GDEM'], 'RGB': images['RGB']}
 
         embeddings = self.model(x)[-1] # extracts the final block's embeddings
         embeddings = embeddings.permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
@@ -222,14 +222,14 @@ class _CopernicusFMBaseEncoder(nn.Module):
             embeddings = sentinel2_embeddings
         else:
             sentinel1_embeddings = self.model.forward_features(images['Sentinel1'], sentinel_1_2_metadata, self.sentinel1_wavelengths, self.sentinel1_bandwidths, language_embed=None, input_mode='spectral', kernel_size=self.patch_size)[1][0]
-            dem_embeddings = self.model.forward_features(images['AsterDEM'], dem_metadata, None, None, language_embed=self.dem_language_embedding, input_mode='variable', kernel_size=self.patch_size)[1][0]
+            dem_embeddings = self.model.forward_features(images['ASTER_GDEM'], dem_metadata, None, None, language_embed=self.dem_language_embedding, input_mode='variable', kernel_size=self.patch_size)[1][0]
             embeddings = torch.stack([sentinel2_embeddings, sentinel1_embeddings, dem_embeddings], dim=0).mean(dim=0) # averages the embeddings of the different modalities
 
         return embeddings
 
 class CopernicusFMEncoder(_CopernicusFMBaseEncoder):
     def __init__(self, *_):
-        super().__init__(modalities=['Sentinel2', 'Sentinel1', 'AsterDEM', 'longitude', 'latitude', 'time'])
+        super().__init__(modalities=['Sentinel2', 'Sentinel1', 'ASTER_GDEM', 'longitude', 'latitude', 'time'])
 
 class CopernicusFMS2Encoder(_CopernicusFMBaseEncoder):
     def __init__(self, *_):
@@ -281,7 +281,7 @@ class TaskModalityDecoder(nn.Module):
                                                    out_channels=922) # 922 is the total number of bands in the task modalities excluding the NaN bands in the categorical modalities
         self.modality_band_indices = {'Sentinel2': [0, 12],
                                       'Sentinel1': [12, 20],
-                                      'AsterDEM': [20, 22],
+                                      'ASTER_GDEM': [20, 22],
                                       'ETH_GCH': [22, 24],
                                       'DynamicWorld': [24, 33],
                                       'ESA_WorldCover': [33, 44],
@@ -608,7 +608,7 @@ class Model(LightningModule):
 
         loss = self.criterion(prediction, target) # computes the loss
 
-        if self.hparams.adaptation_mode =='JT':
+        if self.hparams.adaptation_mode == 'JT':
             self.log(f'{mode.capitalize().replace("_", " ")} task modality reconstruction loss', task_modality_reconstruction_loss, add_dataloader_idx=False) # logs the task modality reconstruction loss
             loss += task_modality_reconstruction_loss
 
@@ -644,7 +644,9 @@ class Model(LightningModule):
         self.log_dict(metrics, on_step=False, on_epoch=True, add_dataloader_idx=False) # logs the metrics at the end of each epoch
 
         if self.hparams.adaptation_mode == 'JT' and self.trainer.is_last_batch:
-            task_modality_reconstruction_performance = torch.stack([metric.compute() for name, metric in metrics.items() if 'accuracy' in name or 'R2' in name]).nanmean() # computes the mean performance across all modalities and tiles, ignoring NaNs
+            task_modality_reconstruction_performances = torch.stack([metric.compute() for name, metric in metrics.items() if any(modality in name for modality in task_modalities)])
+            assert len(task_modality_reconstruction_performances) == len(task_modalities)
+            task_modality_reconstruction_performance = task_modality_reconstruction_performances.nanmean() # computes the mean performance across all modalities and tiles, ignoring NaNs
             self.log(f'{mode.capitalize().replace("_", " ")} task modality reconstruction performance', task_modality_reconstruction_performance, on_step=False, on_epoch=True, add_dataloader_idx=False) # logs the task modality reconstruction performance
 
         # log the images in the first batch
