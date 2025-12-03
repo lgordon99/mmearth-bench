@@ -115,7 +115,7 @@ class MMEarthBenchDataset(Dataset):
                 tile_task_modality_data[modality]['valid_mask'] = (tile_task_modality_data[modality]['data'] != no_data_values[modality]).squeeze() # mask for where the data is valid
 
             # normalization
-            if modality in ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETH_GCH', 'precipitation', 'temperature']: # continuous modalities without an encoding
+            if modality in ['Sentinel2', 'Sentinel1', 'ASTER_GDEM', 'ETH_GCH', 'precipitation', 'temperature']: # continuous modalities without an encoding
                 masked = np.ma.masked_equal(tile_task_modality_data[modality]['data'], no_data_values[modality]) # masks the no-data values
                 means = json.loads(json.dumps(self.split_data[f'{modality}_train_{self.train_percent}%_means']).replace('null', '0'))
                 stds = json.loads(json.dumps(self.split_data[f'{modality}_train_{self.train_percent}%_stds']).replace('null', '1'))
@@ -152,7 +152,7 @@ class MMEarthBenchDataset(Dataset):
                     # mean-std normalization
                     normalized = (masked - np.expand_dims(architecture_normalization_data[modality]['means'], axis=axes_to_collapse)) / np.expand_dims(architecture_normalization_data[modality]['stds'], axis=axes_to_collapse)
 
-                    if self.architecture == 'Satlas':
+                    if self.architecture == 'SatlasNet':
                         normalized = np.ma.clip(normalized, 0, 1) # clips values to [0, 1]
 
                     tile_input_data[modality] = normalized.filled(0)
