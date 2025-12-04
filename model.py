@@ -40,7 +40,7 @@ architecture_embedding_dims = {'ConvNeXtV2A': 320,
                                'ScaleMAE': 1024,
                                'DINOv3Web': 1024,
                                'DINOv3Sat': 1024,
-                               'Satlas': 1024,
+                               'SatlasNet': 1024,
                                'MPMAE': 320,
                                'TerraMind': 768,
                                'CopernicusFM': 768,
@@ -114,7 +114,7 @@ class DINOv3SatEncoder(_DINOv3BaseEncoder):
     def __init__(self, *_):
         super().__init__(checkpoint_name='dinov3_vitl16_pretrain_sat493m-eadcf0ff')
 
-class SatlasEncoder(nn.Module):
+class SatlasNetEncoder(nn.Module):
     def __init__(self, *_):
         super().__init__()
 
@@ -407,7 +407,7 @@ class EncoderDecoder(nn.Module):
             self.val_best_num_iterations = 5
 
     def get_state_dict(self, adaptation_mode):
-        runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': [f'pi_{self.seed}']}}) # filters to only include runs with a certain tag
+        runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': [f'chi_{self.seed}']}}) # filters to only include runs with a certain tag
         name = '_'.join([self.task, self.architecture, adaptation_mode, str(100)]) + '_' # uses 100% train percent
         run = [run for run in runs if run.name.startswith(name)][0] # finds the run with the matching name
 
