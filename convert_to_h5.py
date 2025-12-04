@@ -15,8 +15,26 @@ import utils
 # ============================================== GLOBAL VARIABLES ============================================== #
 
 data_dir_path = utils.read_yaml('config-user.yml')['data_dir_path']
-pixel_level_modalities = ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETH_GCH', 'DynamicWorld', 'ESA_WorldCover', 'MSK_CLDPRB', 'S2CLOUDLESS', 'SCL']
-tile_level_modalities = ['precipitation', 'temperature', 'geolocation', 'geolocation_encoding', 'month_encoding', 'biome', 'ecoregion', 'MSK_CLDPRB_CLOUDY_PIXEL_FRACTION', 'S2CLOUDLESS_CLOUDY_PIXEL_FRACTION', 'SCL_NO_DATA_PIXEL_FRACTION']
+no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
+pixel_level_modalities = ['Sentinel2',
+                          'Sentinel1',
+                          'ASTER_GDEM',
+                          'ETH_GCH',
+                          'DynamicWorld',
+                          'ESA_WorldCover',
+                          'MSK_CLDPRB',
+                          'S2CLOUDLESS',
+                          'SCL']
+tile_level_modalities = ['precipitation',
+                         'temperature',
+                         'geolocation',
+                         'geolocation_encoding',
+                         'month_encoding',
+                         'biome',
+                         'ecoregion',
+                         'MSK_CLDPRB_CLOUDY_PIXEL_FRACTION',
+                         'S2CLOUDLESS_CLOUDY_PIXEL_FRACTION',
+                         'SCL_NO_DATA_PIXEL_FRACTION']
 
 # ============================================== FUNCTIONS ============================================== #
 
@@ -56,6 +74,7 @@ def convert_tiffs_to_h5(task):
                 # additional tile data
                 data['id'].append(get_tile_id(tiff_filename))
                 data['sentinel2_date'].append(tags['sentinel2_date'])
+                data['sentinel2_system_index'].append(tags['sentinel2_system_index'])
                 data['crs'].append(tiff.crs.to_string())
                 data['transform'].append([i for i in tiff.transform])
                 data['missing_modalities'].append(tags['missing_modalities'])
@@ -66,79 +85,86 @@ def convert_tiffs_to_h5(task):
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
 def check_h5(task):
-    with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
-        tile_data = {modality: h5_file[modality][:] for modality in pixel_level_modalities + tile_level_modalities}
-        aster_dem = tile_data['AsterDEM']
-        print(f'{len(aster_dem)} tiles made')
-        print(h5_file.keys())
+    with open(f'{data_dir_path}/{task}/output-files/check_h5.out', 'w') as out_file:
+        with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
+            tile_data = {modality: h5_file[modality][:] for modality in pixel_level_modalities + tile_level_modalities}
+            out_file.write(f'{len(tile_data[list(tile_data.keys())[0]])} tiles made\n')
 
-        for key in h5_file.keys():
-            value = h5_file[key][:]
+            for key in h5_file.keys():
+                value = h5_file[key][:]
+                out_file.write(f'{key}: {value.dtype}\n')
 
-            print(f'{key}: {value.dtype}')
+                if key in pixel_level_modalities or key in tile_level_modalities or 'soil' in key:
+                    if key in no_data_values:
+                        value = np.ma.masked_equal(value, no_data_values[key])
+                        out_file.write(f'NaN pixels = {(value.mask.sum() / value.size) * 100:.2f}%\n')
 
-            if key in pixel_level_modalities or key in tile_level_modalities or key == 'soil_nitrogen' or key == 'id':
-                print(f'Min: {np.min(value)}, Max: {np.max(value)}')
+                    if key == 'ASTER_GDEM':
+                        out_file.write('Elevation band\n')
+                        out_file.write(f'Min: {np.min(value[:, 0])}, Max: {np.max(value[:, 0])}\n')
+                        out_file.write('Slope band\n')
+                        out_file.write(f'Min: {np.min(value[:, 1])}, Max: {np.max(value[:, 1])}\n')
+                    elif key == 'ETH_GCH':
+                        out_file.write('Height band\n')
+                        out_file.write(f'Min: {np.min(value[:, 0])}, Max: {np.max(value[:, 0])}\n')
+                        out_file.write('Uncertainty band\n')
+                        out_file.write(f'Min: {np.min(value[:, 1])}, Max: {np.max(value[:, 1])}\n')
+                    else:
+                        out_file.write(f'Min: {np.min(value)}, Max: {np.max(value)}\n')
 
-                if key == 'Sentinel2':
-                    assert np.min(value) >= 0
-                    assert np.max(value) <= 65535
-                elif key == 'Sentinel1' or key == 'AsterDEM' or key == 'precipitation' or key == 'temperature' or key == 'geolocation' or key == 'month':
-                    assert np.min(value) >= -9999
-                elif key == 'ETH_GCH':
-                    assert np.max(value) <= 255
-                elif key == 'DynamicWorld':
-                    assert np.min(value) >= 0
-                    assert np.max(value) <= 9
-                elif key == 'ESA_WorldCover':
-                    assert np.min(value) >= 0
-                    assert np.max(value) <= 11
-                elif key == 'biome':
-                    assert np.min(value) >= 0
-                    assert np.max(value) <= 14
-                elif key == 'ecoregion':
-                    assert np.min(value) >= 0
-                    assert np.max(value) <= 846
+                    if key == 'Sentinel2':
+                        assert np.min(value) >= 0
+                        assert np.max(value) < no_data_values[key]
+                    elif key == 'Sentinel1' or key == 'ASTER_GDEM':
+                        assert np.min(value) > no_data_values[key]
+                    elif key == 'ETH_GCH':
+                        assert np.max(value) < no_data_values[key]
+                    elif key in ['DynamicWorld', 'ESA_WorldCover', 'biome', 'ecoregion']:
+                        assert np.min(value) >= 0
+                        assert np.max(value) < no_data_values[key]
+                    elif key == 'precipitation':
+                        assert np.min(value) >= 0
+                    elif key == 'geolocation':
+                        assert np.min(value) >= -180
+                        assert np.max(value) <= 180
+                    elif 'encoding' in key:
+                        assert np.min(value) >= -1
+                        assert np.max(value) <= 1
 
-        print(h5_file['sentinel2_date'].asstr()[...])
-        print(h5_file['crs'].asstr()[...])
-        print(h5_file['id'][:5])
-        print([json.loads(lst) for lst in h5_file['missing_modalities'].asstr()[...]][:5])
+                out_file.write('\n')
 
-        aster_dem_reshaped = aster_dem.reshape(len(aster_dem), 2, 16384)
-        assert np.count_nonzero(aster_dem_reshaped[:, 0] == 0) == 0 # should be no zeros in the elevation band
-        nan_indices = np.argwhere(aster_dem_reshaped == -9999)
+            out_file.write(f'Sentinel-2 date: {h5_file["sentinel2_date"].asstr()[...]}\n')
+            out_file.write(f'Sentinel-2 system index: {h5_file["sentinel2_system_index"].asstr()[...]}\n')
+            out_file.write(f'CRS: {h5_file["crs"].asstr()[...]}\n')
+            out_file.write(f'ID: {h5_file["id"][:10]}\n')
+            out_file.write(f'Missing modalities: {[json.loads(lst) for lst in h5_file["missing_modalities"].asstr()[...]][:10]}\n')
 
-        for numbers in nan_indices:
-            x, y, z = numbers
+            for modality in ['ASTER_GDEM', 'ETH_GCH']:
+                modality_data = tile_data[modality]
+                modality_data_reshaped = modality_data.reshape(len(modality_data), 2, 16384)
+                nan_indices = np.argwhere(modality_data_reshaped == no_data_values[modality])
 
-            if y == 0:
-                assert aster_dem_reshaped[x][1][z] == -9999 # slope band should be NaN wherever the elevation band is NaN
+                for numbers in nan_indices:
+                    x, y, z = numbers
 
-        eth_gch = tile_data['ETH_GCH']
-        eth_gch_reshaped = eth_gch.reshape(len(eth_gch), 2, 16384)
-        nan_indices = np.argwhere(eth_gch_reshaped == 255)
-
-        for numbers in nan_indices:
-            x, y, z = numbers
-
-            if y == 0:
-                assert eth_gch_reshaped[x][1][z] == 255 # uncertainty band should be NaN wherever the height band is NaN
+                    if y == 0:
+                        assert modality_data_reshaped[x][1][z] == no_data_values[modality] # slope (uncertainty) band should be NaN wherever the elevation (height) band is NaN
 
 def plot_missing_modalities(task):
-    print(task)
-    original_num_tiles = len(utils.read_geojson(f'{data_dir_path}/{task}/{task}_points.geojson')['features'])
-    print(f'Original number of tiles = {original_num_tiles}')
+    with open(f'{data_dir_path}/{task}/output-files/plot_missing_modalities.out', 'w') as out_file:
+        original_num_tiles = len(utils.read_geojson(f'{data_dir_path}/{task}/{task}_points.geojson')['features'])
+        out_file.write(f'Original number of tiles = {original_num_tiles}\n')
 
-    with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
-        missing_modalities = [json.loads(lst) for lst in h5_file['missing_modalities'].asstr()[...]]
+        with h5py.File(f'{data_dir_path}/{task}/{task}.h5', 'r') as h5_file:
+            missing_modalities = [json.loads(lst) for lst in h5_file['missing_modalities'].asstr()[...]]
 
-    print(f'Final number of tiles = {len(missing_modalities)}')
+        out_file.write(f'Final number of tiles = {len(missing_modalities)}\n')
+
     assert len(missing_modalities) == len(os.listdir(f'{data_dir_path}/{task}/tiffs'))
 
     missing_modality_counts = dict(Counter(item for sublist in missing_modalities for item in sublist))
     missing_modality_counts['sentinel2'] = original_num_tiles - len(missing_modalities)
-    modality_order = ['sentinel2', 'sentinel1', 'aster', 'eth_gch', 'dynamic_world', 'esa_worldcover', 'precipitation', 'temperature', 'biome', 'ecoregion']
+    modality_order = ['sentinel2', 'sentinel1', 'aster_gdem', 'eth_gch', 'dynamic_world', 'esa_worldcover', 'precipitation', 'temperature', 'biome', 'ecoregion']
     missing_modality_counts = {modality: missing_modality_counts.get(modality, 0) for modality in modality_order}
 
     axes_pos = [0.14, 0.2, 0.8, 0.7] # left, bottom, width, height
@@ -150,7 +176,7 @@ def plot_missing_modalities(task):
 
     ax = plt.gca()
     ax.set_position(axes_pos)
-    plt.bar(['Sentinel-2', 'Sentinel-1', 'AsterDEM', 'ETH GCH', 'Dynamic World', 'ESA WorldCover', 'Precipitation', 'Temperature', 'Biome', 'Ecoregion'], missing_modality_counts.values())
+    plt.bar(['Sentinel-2', 'Sentinel-1', 'ASTER GDEM', 'ETH GCH', 'Dynamic World', 'ESA WorldCover', 'Precipitation', 'Temperature', 'Biome', 'Ecoregion'], missing_modality_counts.values())
 
     if task == 'species':
         plt.xlabel('Modality', fontsize=12)
