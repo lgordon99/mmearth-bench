@@ -54,7 +54,7 @@ class EEData:
         self.tile_level_data = {}
 
         print(f'Running tile {self.id}')
-        datasets = ['sentinel2', 'sentinel1', 'aster', 'eth_gch', 'dynamic_world', 'esa_worldcover', 'precipitation', 'temperature']
+        datasets = ['sentinel2', 'sentinel1', 'aster_gdem', 'eth_gch', 'dynamic_world', 'esa_worldcover', 'precipitation', 'temperature']
 
         for function_name in datasets: # series of function calls to get the data
             if getattr(self, function_name)() is False: # if the method returns False
@@ -170,6 +170,7 @@ class EEData:
             return False
 
         s2_image = sentinel2_images.first().float() # get the S2 image with the most valid pixels
+        self.tile_level_data['sentinel2_system_index'] = s2_image.get('system:index').getInfo()
         self.tile_level_data['sentinel2_date'] = s2_image.date().format('YYYY-MM-dd').getInfo() # date of Sentinel-2 image
         month = int(self.tile_level_data['sentinel2_date'].split('-')[1]) # extracts the month of the Sentinel-2 image
         self.tile_level_data['month_encoding'] = json.dumps([np.cos(np.pi * month / 6), np.sin(np.pi * month / 6)]) # cyclic month encoding
@@ -180,11 +181,12 @@ class EEData:
         nearest_pixel_intersection_y = ee.Number(projected_point_coordinates.get(1)).round() # rounds the latitude to the nearest pixel intersection in the Sentinel-2 grid
         self.tile = ee.Geometry.Rectangle([nearest_pixel_intersection_x.subtract(TILE_SIZE/2), nearest_pixel_intersection_y.subtract(TILE_SIZE/2), nearest_pixel_intersection_x.add(TILE_SIZE/2), nearest_pixel_intersection_y.add(TILE_SIZE/2)], proj=self.proj, geodesic=False) # resets the tile to be centered at the nearest pixel intersection in the Sentinel-2 grid
         self.tile_center = self.tile.centroid(maxError=1)
-        self.tile_level_data['geolocation'] = json.dumps(self.tile_center.coordinates().getInfo()) # gets the lon, lat coordinates of the tile centroid
-        self.tile_level_data['geolocation_encoding'] = json.dumps([np.cos(np.deg2rad(self.tile_level_data['geolocation'][0])), # cyclic location encding
-                                                                   np.sin(np.deg2rad(self.tile_level_data['geolocation'][0])),
-                                                                   np.cos(np.deg2rad(self.tile_level_data['geolocation'][1])),
-                                                                   np.sin(np.deg2rad(self.tile_level_data['geolocation'][1]))])
+        longitude, latitude = self.tile_center.coordinates().getInfo()
+        self.tile_level_data['geolocation'] = json.dumps([longitude, latitude]) # gets the lon, lat coordinates of the tile centroid
+        self.tile_level_data['geolocation_encoding'] = json.dumps([np.cos(np.deg2rad(longitude)), # cyclic location encding
+                                                                   np.sin(np.deg2rad(longitude)),
+                                                                   np.cos(np.deg2rad(latitude)),
+                                                                   np.sin(np.deg2rad(latitude))])
         continuous_valued_bands = s2_image.select([band for band in bands if band != 'SCL']).resample('bilinear').reproject(self.proj).unmask(no_data_values['Sentinel2'])
         scl = s2_image.select('SCL').reproject(self.proj).unmask() # unmasks SCL to 0
         s2_image = continuous_valued_bands.addBands(scl) # combines continuous and categorical bands
@@ -232,14 +234,13 @@ class EEData:
         if asc_image.getInfo() is None and desc_image.getInfo() is None: # if there is no ascending image and no descending image
             return False
 
-    def aster(self):
+    def aster_gdem(self):
         elevation = ee.Image('projects/sat-io/open-datasets/ASTER/GDEM').select('b1').float() # elevation band
+        elevation = elevation.mask(elevation.neq(no_data_values['ASTER_GDEM'])) # masks NaN values in the elevation band
         slope = ee.Terrain.slope(elevation) # calculates slope from elevation data
-        elevation = elevation.where(elevation.eq(0), no_data_values['AsterDEM']) # sets 0 in elevation band to the no data value
-        slope = slope.where(elevation.eq(no_data_values['AsterDEM']), no_data_values['AsterDEM']) # sets slope to no data value where elevation is no data
-        self.pixel_level_data['aster'] = ee.Image.cat([elevation, slope]).resample('bilinear').reproject(self.proj).unmask(no_data_values['AsterDEM']).rename(['AsterDEM_elevation', 'AsterDEM_slope']) # combine the elevation and slope into a single image
+        self.pixel_level_data['aster_gdem'] = ee.Image.cat([elevation, slope]).resample('bilinear').reproject(self.proj).unmask(no_data_values['ASTER_GDEM']).rename(['ASTER_GDEM_elevation', 'ASTER_GDEM_slope']) # combines the elevation and slope into a single image
 
-        if self.pixel_level_data['aster'].eq(no_data_values['AsterDEM']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=resolution).get('AsterDEM_elevation').getInfo() == 1: # if all pixels in the tile are no data
+        if self.pixel_level_data['aster_gdem'].eq(no_data_values['ASTER_GDEM']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=resolution).get('ASTER_GDEM_elevation').getInfo() == 1: # if all pixels in the tile are no data
             return False # if all pixels are no data, return False
 
     def eth_gch(self):
