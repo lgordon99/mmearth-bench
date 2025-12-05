@@ -40,7 +40,7 @@ def train(cfg):
         cfg[key_1][key_2] = value
 
     if cfg.task == 'species':
-        cfg['trainer']['callbacks'][0]['monitor'] = 'Val MAP'
+        cfg['trainer']['callbacks'][0]['monitor'] = 'Val mAP'
 
     if 'TTT' in cfg.adaptation_mode:
         cfg['datamodule']['batch_size'] = 8

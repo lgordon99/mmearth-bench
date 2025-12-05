@@ -540,7 +540,7 @@ class Model(LightningModule):
 
     def configure_metrics(self):
         if self.hparams.task == 'species':
-            metric_collection = {'MAP': MultilabelAveragePrecision(self.num_classes), 'Recall': MultilabelRecall(self.num_classes)}
+            metric_collection = {'mAP': MultilabelAveragePrecision(self.num_classes), 'Recall': MultilabelRecall(self.num_classes)}
         else:
             metric_collection = {'R2': R2Score(), 'RMSE': MeanSquaredError(squared=False)}
 
