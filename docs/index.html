@@ -211,22 +211,50 @@
       background-color: transparent !important;
     }
 
+    /* Make title, superscript numbers, and institution names white */
+    .publication-title,
+    .publication-title h1,
+    #main-content > section.hero:first-of-type h1 {
+      color: white !important;
+    }
+
+    #main-content > section.hero:first-of-type sup {
+      color: white !important;
+    }
+
+    #main-content > section.hero:first-of-type .publication-authors {
+      color: white !important;
+    }
+
+    #main-content > section.hero:first-of-type .publication-authors a {
+      color: white !important;
+    }
+
     /* Ensure content sections have some transparency or solid backgrounds for readability */
     /* Make sections not span full width - center them with max-width */
+    /* Add liquid glass (glassmorphism) effect */
     .section {
-      background-color: rgba(255, 255, 255, 0.95);
-      border-radius: 8px;
+      background-color: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 12px;
       margin: 1rem auto;
       max-width: 90%;
       width: 100%;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
     }
 
     .hero.is-light {
-      background-color: rgba(255, 255, 255, 0.98);
-      border-radius: 8px;
+      background-color: rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 12px;
       margin: 1rem auto;
       max-width: 90%;
       width: 100%;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
     }
 
     /* Regular hero sections (not the first one) should also not span full width */
