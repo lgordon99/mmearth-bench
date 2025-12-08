@@ -74,7 +74,7 @@
 
 
   <!-- TODO: Replace with your paper title and authors -->
-  <title>PAPER_TITLE - AUTHOR_NAMES | Academic Research</title>
+  <title>MMEarth-Bench</title>
 
   <!-- Favicon and App Icons -->
   <link rel="icon" type="image/x-icon" href="static/images/favicon.ico">
@@ -200,15 +200,34 @@
       min-height: 100vh;
     }
 
+    /* Remove white background from the main hero section with title/authors/buttons */
+    #main-content > section.hero:first-of-type,
+    #main-content > section.hero:first-of-type .hero-body {
+      background-color: transparent !important;
+    }
+
     /* Ensure content sections have some transparency or solid backgrounds for readability */
-    .section, .hero {
+    /* Make sections not span full width - center them with max-width */
+    .section {
       background-color: rgba(255, 255, 255, 0.95);
       border-radius: 8px;
-      margin: 1rem 0;
+      margin: 1rem auto;
+      max-width: 90%;
+      width: 100%;
     }
 
     .hero.is-light {
       background-color: rgba(255, 255, 255, 0.98);
+      border-radius: 8px;
+      margin: 1rem auto;
+      max-width: 90%;
+      width: 100%;
+    }
+
+    /* Regular hero sections (not the first one) should also not span full width */
+    .hero:not(#main-content > section.hero:first-of-type) {
+      max-width: 90%;
+      margin: 1rem auto;
     }
   </style>
 </head>
