@@ -88,7 +88,35 @@ window.addEventListener('scroll', function() {
     } else {
         scrollButton.classList.remove('visible');
     }
+
+    // Highlight active section in nav menu
+    highlightActiveSection();
 });
+
+// Highlight active section in navigation
+function highlightActiveSection() {
+    const sections = document.querySelectorAll('section[id]');
+    const navItems = document.querySelectorAll('.nav-item');
+
+    let currentSection = '';
+    const scrollPos = window.pageYOffset + 100; // Offset for sticky nav
+
+    sections.forEach(section => {
+        const sectionTop = section.offsetTop;
+        const sectionHeight = section.offsetHeight;
+
+        if (scrollPos >= sectionTop && scrollPos < sectionTop + sectionHeight) {
+            currentSection = section.getAttribute('id');
+        }
+    });
+
+    navItems.forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('href') === '#' + currentSection) {
+            item.classList.add('active');
+        }
+    });
+}
 
 // Video carousel autoplay when in view
 function setupVideoCarouselAutoplay() {
@@ -138,5 +166,8 @@ $(document).ready(function() {
 
     // Setup video autoplay for carousel
     setupVideoCarouselAutoplay();
+
+    // Initialize section highlighting
+    highlightActiveSection();
 
 })
