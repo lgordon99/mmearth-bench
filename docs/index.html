@@ -286,6 +286,27 @@
       max-width: 90%;
       margin: 1rem auto;
     }
+
+    /* Make "Open in new tab" button text white */
+    .button.is-link.is-outlined {
+      color: white !important;
+      border-color: rgba(255, 255, 255, 0.5) !important;
+    }
+
+    .button.is-link.is-outlined:hover {
+      background-color: rgba(255, 255, 255, 0.1) !important;
+      border-color: white !important;
+    }
+
+    /* Make Abstract section text black */
+    .section .content.has-text-justified,
+    .section .content.has-text-justified p {
+      color: #000000 !important;
+    }
+
+    .section .title.is-3 {
+      color: #000000 !important;
+    }
   </style>
 </head>
 <body>
@@ -471,21 +492,21 @@
 <!-- End Interactive App -->
 
 <!-- Teaser video-->
-<section class="hero teaser">
+<!-- <section class="hero teaser">
   <div class="container is-max-desktop">
-    <div class="hero-body">
+    <div class="hero-body"> -->
       <!-- TODO: Replace with your teaser video -->
-      <video poster="" id="tree" autoplay controls muted loop height="100%" preload="metadata">
+      <!-- <video poster="" id="tree" autoplay controls muted loop height="100%" preload="metadata"> -->
         <!-- TODO: Add your video file path here -->
-        <source src="static/videos/banner_video.mp4" type="video/mp4">
-      </video>
+        <!-- <source src="static/videos/banner_video.mp4" type="video/mp4">
+      </video> -->
       <!-- TODO: Replace with your video description -->
-      <h2 class="subtitle has-text-centered">
+      <!-- <h2 class="subtitle has-text-centered">
         Aliquam vitae elit ullamcorper tellus egestas pellentesque. Ut lacus tellus, maximus vel lectus at, placerat pretium mi. Maecenas dignissim tincidunt vestibulum. Sed consequat hendrerit nisl ut maximus.
       </h2>
     </div>
   </div>
-</section>
+</section> -->
 <!-- End teaser video -->
 
 <!-- Paper abstract -->
@@ -497,7 +518,7 @@
         <div class="content has-text-justified">
           <!-- TODO: Replace with your paper abstract -->
           <p>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin ullamcorper tellus sed ante aliquam tempus. Etiam porttitor urna feugiat nibh elementum, et tempor dolor mattis. Donec accumsan enim augue, a vulputate nisi sodales sit amet. Proin bibendum ex eget mauris cursus euismod nec et nibh. Maecenas ac gravida ante, nec cursus dui. Vivamus purus nibh, placerat ac purus eget, sagittis vestibulum metus. Sed vestibulum bibendum lectus gravida commodo. Pellentesque auctor leo vitae sagittis suscipit.
+            Recent research in geospatial machine learning has demonstrated that models pretrained with self-supervised learning on Earth observation data can perform well on downstream tasks with limited training data. However, most of the existing geospatial benchmark datasets have few data modalities and poor global representation, limiting the ability to evaluate multimodal pretrained models at global scales. To fill this gap, we introduce \textsc{MMEarth-Bench}, a collection of five new multimodal downstream tasks with 12 input modalities, globally distributed data, and both in- and out-of-distribution test splits. We benchmark a diverse set of pretrained models on \textsc{MMEarth-Bench} and find that multimodal models generally perform best. While pretraining tends to improve model robustness in limited data settings, geographic generalization abilities remain poor and using multimodal inputs at test time can sometimes lead to geographic overfitting. In order to facilitate model adaptation to new downstream tasks and geographic domains, we propose a model-agnostic method for test-time training with multimodal reconstruction (\textsc{TTT-MMR}) that uses all the modalities available at test time, regardless of whether the pretrained model accepts them as input. We show that \textsc{TTT-MMR} improves model performance on both random and geographic test splits, and that geographic batching leads to a good trade-off between regularization and specialization during TTT. Our code, dataset, and visualization tool will be released upon publication.
           </p>
         </div>
       </div>
@@ -505,6 +526,23 @@
   </div>
 </section>
 <!-- End paper abstract -->
+
+<!-- Species section -->
+<section class="hero is-small">
+  <div class="hero-body">
+    <div class="container">
+      <h2 class="title is-3 has-text-centered">Species</h2>
+      <div class="columns is-centered">
+        <div class="column is-full">
+          <div class="publication-banner">
+            <img src="static/images/species_grid.png" alt="Species distribution grid visualization" loading="lazy"/>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End species section -->
 
 <!-- Image carousel -->
 <section class="hero is-small">
