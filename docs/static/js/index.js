@@ -110,7 +110,10 @@ function handleStickyNav() {
         navInitialOffset = nav.offsetTop;
     }
 
-    if (window.pageYOffset > navInitialOffset) {
+    // Calculate the scroll position where menu should become sticky
+    const stickyThreshold = navInitialOffset - 10; // 10px is the top offset when stuck
+
+    if (window.pageYOffset >= stickyThreshold) {
         if (!nav.classList.contains('stuck')) {
             nav.classList.add('stuck');
             // Create placeholder to prevent content jump
