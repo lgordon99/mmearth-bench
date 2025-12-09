@@ -101,29 +101,49 @@ function highlightActiveSection() {
     let currentSection = '';
     const scrollPos = window.pageYOffset + 100; // Offset for sticky nav
     const windowHeight = window.innerHeight;
-    const documentHeight = document.documentElement.scrollHeight;
+    const documentHeight = Math.max(
+        document.body.scrollHeight,
+        document.body.offsetHeight,
+        document.documentElement.clientHeight,
+        document.documentElement.scrollHeight,
+        document.documentElement.offsetHeight
+    );
 
-    // Check if user is at the bottom of the page
-    const isAtBottom = window.pageYOffset + windowHeight >= documentHeight - 50; // 50px threshold
+    // Check if user is at the bottom of the page or in BibTeX section
+    const scrollBottom = window.pageYOffset + windowHeight;
+    const isAtBottom = scrollBottom >= documentHeight - 100; // 100px threshold
 
-    if (isAtBottom) {
-        // If at bottom, highlight BibTeX
-        currentSection = 'BibTeX';
-    } else {
-        // Otherwise, find the current section normally
+    // First check if we're in BibTeX section or at bottom
+    const bibtexSection = document.getElementById('BibTeX');
+    if (bibtexSection) {
+        const bibtexTop = bibtexSection.offsetTop;
+        const bibtexHeight = bibtexSection.offsetHeight;
+
+        // If we're in BibTeX section or at bottom, highlight BibTeX
+        if (scrollPos >= bibtexTop || isAtBottom) {
+            currentSection = 'BibTeX';
+        }
+    }
+
+    // If not in BibTeX, find the current section normally
+    if (!currentSection) {
         sections.forEach(section => {
+            const sectionId = section.getAttribute('id');
+            if (sectionId === 'BibTeX') return; // Skip BibTeX, already checked
+
             const sectionTop = section.offsetTop;
             const sectionHeight = section.offsetHeight;
 
             if (scrollPos >= sectionTop && scrollPos < sectionTop + sectionHeight) {
-                currentSection = section.getAttribute('id');
+                currentSection = sectionId;
             }
         });
     }
 
     navItems.forEach(item => {
         item.classList.remove('active');
-        if (item.getAttribute('href') === '#' + currentSection) {
+        const href = item.getAttribute('href');
+        if (href === '#' + currentSection) {
             item.classList.add('active');
         }
     });
