@@ -226,8 +226,9 @@
       color: white !important;
     }
 
+    /* Keep author links their original blue color */
     #main-content > section.hero:first-of-type .publication-authors a {
-      color: white !important;
+      color: inherit !important;
     }
 
     /* Ensure content sections have some transparency or solid backgrounds for readability */
@@ -363,7 +364,7 @@
                     </span>
 
                     <!-- TODO: Add your supplementary material PDF or remove this section -->
-                    <span class="link-block">
+                    <!-- <span class="link-block">
                       <a href="static/pdfs/supplementary_material.pdf" target="_blank"
                       class="external-link button is-normal is-rounded is-dark">
                       <span class="icon">
@@ -371,7 +372,7 @@
                       </span>
                       <span>Supplementary</span>
                     </a>
-                  </span>
+                  </span> -->
 
                   <!-- TODO: Replace with your GitHub repository URL -->
                   <span class="link-block">
@@ -394,6 +395,17 @@
                   <span>arXiv</span>
                 </a>
               </span>
+
+              <span class="link-block">
+                <a href="https://lgordon99.github.io/mmearth-bench-app/" target="_blank"
+                class="external-link button is-normal is-rounded is-dark">
+                <span class="icon">
+                  <i class="fas fa-globe"></i>
+                </span>
+                <span>Map</span>
+              </a>
+            </span>
+
             </div>
           </div>
         </div>
