@@ -312,6 +312,11 @@
       color: #ffffff !important;
       font-weight: 800 !important;
     }
+
+    /* Make the underline under section titles longer */
+    .title.is-3::after {
+      width: 120px !important;
+    }
   </style>
 </head>
 <body>
@@ -532,6 +537,23 @@
 </section>
 <!-- End paper abstract -->
 
+<!-- Motivation section -->
+<section class="section hero is-light">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Motivation</h2>
+        <div class="content has-text-justified">
+          <p>
+            <!-- Add your motivation text here -->
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End motivation section -->
+
 <!-- Species section -->
 <section class="section hero is-light">
   <div class="container is-max-desktop">
@@ -540,7 +562,7 @@
         <h2 class="title is-3">Species</h2>
         <div class="content" style="max-width: 800px; margin: 0 auto;">
           <p class="has-text-justified">
-            The species task in MMEarth-Bench contains 100 terrestrial mammals, shown below ordered by their prevalence in the dataset.
+            The species task in MMEarth-Bench contains 100 terrestrial mammals, shown below in order of their prevalence in the dataset.
           </p>
         </div>
         <div class="content">
