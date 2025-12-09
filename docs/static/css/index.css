@@ -33,17 +33,18 @@ html {
 .section-nav {
   position: relative;
   z-index: 1000;
-  margin: 1rem auto 20px auto;
+  margin: 0.5rem auto 20px auto;
   max-width: 800px;
   padding: 0 1rem;
-  transition: all 0.3s ease;
+  left: 50%;
+  transform: translateX(-50%);
+  transition: top 0.3s ease;
 }
 
 .section-nav.stuck {
   position: fixed;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 10px;
+  margin-top: 0;
 }
 
 .nav-container {
@@ -51,7 +52,7 @@ html {
   justify-content: center;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.6rem;
+  padding: 0.5rem 0.4rem;
   background: rgba(255, 255, 255, 0.15);
   backdrop-filter: blur(12px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -500,7 +501,7 @@ code {
 .scroll-to-top {
   position: fixed;
   bottom: 2rem;
-  right: 2.5%; /* Midway between section edge (at 5% from right) and page edge (at 0% from right) */
+  right: 1.5rem; /* Position in the margin area, to the right of section boxes */
   width: 50px;
   height: 50px;
   background: var(--primary-color);
