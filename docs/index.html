@@ -298,14 +298,17 @@
       border-color: white !important;
     }
 
-    /* Make Abstract section text white */
+    /* Make section text white */
     .section .content.has-text-justified,
-    .section .content.has-text-justified p {
+    .section .content.has-text-justified p,
+    .section .content p,
+    .section .content {
       color: #ffffff !important;
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
     }
 
-    .section .title.is-3 {
+    .section .title.is-3,
+    .hero.is-light .title.is-3 {
       color: #ffffff !important;
       font-weight: 800 !important;
     }
@@ -465,7 +468,7 @@
   <div class="container is-fluid" style="max-width: 95%;">
     <div class="columns is-centered has-text-centered">
       <div class="column is-full">
-        <h2 class="title is-3">Interactive Explorer</h2>
+        <h2 class="title is-3">Interactive Dataset Explorer</h2>
         <div class="content" style="max-width: 800px; margin: 0 auto;">
           <p class="has-text-justified">
             Explore the MMEarth-Bench dataset interactively. Zoom in to view pixel-level modality data, hover over tiles to see tile-level data, and filter by task, split, and species.
@@ -535,8 +538,13 @@
     <div class="columns is-centered has-text-centered">
       <div class="column is-full">
         <h2 class="title is-3">Species</h2>
+        <div class="content" style="max-width: 800px; margin: 0 auto;">
+          <p class="has-text-justified">
+            The species task in MMEarth-Bench contains 100 terrestrial mammals, shown below ordered by their prevalence in the dataset.
+          </p>
+        </div>
         <div class="content">
-          <img src="static/images/species_grid.png" alt="Species distribution grid visualization" style="width: 100%; height: auto; border-radius: 12px; margin-top: 1rem;" loading="lazy"/>
+          <img src="static/images/species_grid.png" alt="Species distribution grid visualization" style="width: 100%; height: auto; margin-top: 1rem;" loading="lazy"/>
         </div>
       </div>
     </div>
