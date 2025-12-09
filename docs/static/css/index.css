@@ -31,7 +31,7 @@ html {
 body {
   font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
   color: var(--text-primary);
-  line-height: 1.6;
+  line-height: 1.4;
   font-size: 16px;
   background-color: var(--background-primary);
   -webkit-font-smoothing: antialiased;
@@ -333,12 +333,21 @@ body {
 /* Content Improvements */
 .content.has-text-justified {
   font-size: 1.1rem;
-  line-height: 1.8;
+  line-height: 1.5;
   color: var(--text-secondary);
 }
 
 .content.has-text-justified p {
   margin-bottom: 1.5rem;
+}
+
+/* Global paragraph line height */
+p {
+  line-height: 1.4;
+}
+
+.content p {
+  line-height: 1.4;
 }
 
 /* Footer Improvements */
@@ -350,7 +359,7 @@ body {
 
 .footer .content {
   color: var(--text-secondary);
-  line-height: 1.7;
+  line-height: 1.5;
 }
 
 .footer a {
