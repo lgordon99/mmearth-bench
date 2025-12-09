@@ -228,9 +228,9 @@
       color: white !important;
     }
 
-    /* Restore original author link styling from index.css */
+    /* Author link styling with lighter blue, no color change on hover */
     #main-content > section.hero:first-of-type .publication-authors a {
-      color: #2563eb !important;
+      color: #60a5fa !important;
       text-decoration: none;
       font-weight: 600;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -252,35 +252,33 @@
       width: 100%;
     }
 
-    #main-content > section.hero:first-of-type .publication-authors a:hover {
-      color: #1d4ed8 !important;
-    }
-
     /* Ensure content sections have some transparency or solid backgrounds for readability */
     /* Make sections not span full width - center them with max-width */
-    /* Add liquid glass (glassmorphism) effect */
+    /* Add liquid glass (glassmorphism) effect - no visible borders */
     .section {
-      background-color: rgba(255, 255, 255, 0.15);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+      backdrop-filter: blur(12px) saturate(180%);
+      -webkit-backdrop-filter: blur(12px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
       margin: 1rem auto;
       max-width: 90%;
       width: 100%;
-      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15),
+                  inset 0 0 0 1px rgba(255, 255, 255, 0.05);
     }
 
     .hero.is-light {
-      background-color: rgba(255, 255, 255, 0.2);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.08));
+      backdrop-filter: blur(12px) saturate(180%);
+      -webkit-backdrop-filter: blur(12px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
       margin: 1rem auto;
       max-width: 90%;
       width: 100%;
-      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15),
+                  inset 0 0 0 1px rgba(255, 255, 255, 0.05);
     }
 
     /* Regular hero sections (not the first one) should also not span full width */
@@ -453,7 +451,7 @@
         <div class="interactive-app-container" style="width: 100%; height: 800px; margin-top: 2rem;">
           <iframe
             src="https://lgordon99.github.io/mmearth-bench-app/"
-            style="width: 100%; height: 100%; border: none; border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);"
+            style="width: 100%; height: 100%; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15), inset 0 0 0 1px rgba(255, 255, 255, 0.05);"
             title="MMEarth-Bench Interactive Explorer"
             allowfullscreen>
           </iframe>
