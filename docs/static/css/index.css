@@ -33,7 +33,7 @@ html {
 .section-nav {
   position: relative;
   z-index: 1000;
-  margin: 0.25rem auto 20px auto;
+  margin: 0 auto 20px auto;
   padding: 0 1rem;
   display: flex;
   justify-content: center;
