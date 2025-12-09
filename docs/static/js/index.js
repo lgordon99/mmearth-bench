@@ -100,21 +100,53 @@ function highlightActiveSection() {
 
     let currentSection = '';
     const scrollPos = window.pageYOffset + 100; // Offset for sticky nav
+    const windowHeight = window.innerHeight;
+    const documentHeight = document.documentElement.scrollHeight;
 
-    sections.forEach(section => {
-        const sectionTop = section.offsetTop;
-        const sectionHeight = section.offsetHeight;
+    // Check if user is at the bottom of the page
+    const isAtBottom = window.pageYOffset + windowHeight >= documentHeight - 50; // 50px threshold
 
-        if (scrollPos >= sectionTop && scrollPos < sectionTop + sectionHeight) {
-            currentSection = section.getAttribute('id');
-        }
-    });
+    if (isAtBottom) {
+        // If at bottom, highlight BibTeX
+        currentSection = 'BibTeX';
+    } else {
+        // Otherwise, find the current section normally
+        sections.forEach(section => {
+            const sectionTop = section.offsetTop;
+            const sectionHeight = section.offsetHeight;
+
+            if (scrollPos >= sectionTop && scrollPos < sectionTop + sectionHeight) {
+                currentSection = section.getAttribute('id');
+            }
+        });
+    }
 
     navItems.forEach(item => {
         item.classList.remove('active');
         if (item.getAttribute('href') === '#' + currentSection) {
             item.classList.add('active');
         }
+    });
+}
+
+// Add click handlers to nav items to highlight them when clicked
+function setupNavClickHandlers() {
+    const navItems = document.querySelectorAll('.nav-item');
+
+    navItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+            const targetId = this.getAttribute('href').substring(1); // Remove the #
+
+            // Remove active class from all items
+            navItems.forEach(navItem => navItem.classList.remove('active'));
+            // Add active class to clicked item
+            this.classList.add('active');
+
+            // After scrolling completes, let the scroll handler take over
+            setTimeout(() => {
+                highlightActiveSection();
+            }, 500);
+        });
     });
 }
 
@@ -169,5 +201,8 @@ $(document).ready(function() {
 
     // Initialize section highlighting
     highlightActiveSection();
+
+    // Setup nav click handlers
+    setupNavClickHandlers();
 
 })
