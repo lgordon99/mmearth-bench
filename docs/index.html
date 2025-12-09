@@ -211,24 +211,30 @@
       background-color: transparent !important;
     }
 
-    /* Make title, superscript numbers, and institution names white */
+    /* Make title and institution names white */
     .publication-title,
     .publication-title h1,
     #main-content > section.hero:first-of-type h1 {
       color: white !important;
     }
 
+    /* Make superscript numbers white */
     #main-content > section.hero:first-of-type sup {
       color: white !important;
     }
 
+    /* Keep institution text white but not author links */
     #main-content > section.hero:first-of-type .publication-authors {
       color: white !important;
     }
 
-    /* Keep author links their original blue color */
+    /* Restore author links to blue color */
     #main-content > section.hero:first-of-type .publication-authors a {
-      color: inherit !important;
+      color: #3273dc !important;
+    }
+
+    #main-content > section.hero:first-of-type .publication-authors a:hover {
+      color: #485fc7 !important;
     }
 
     /* Ensure content sections have some transparency or solid backgrounds for readability */
