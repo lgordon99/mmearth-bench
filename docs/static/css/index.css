@@ -36,14 +36,14 @@ html {
   margin: 0.25rem auto 20px auto;
   max-width: 800px;
   padding: 0 1rem;
-  left: 50%;
-  transform: translateX(-50%);
-  transition: top 0.3s ease;
+  width: fit-content;
 }
 
 .section-nav.stuck {
   position: fixed;
   top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
   margin-top: 0;
 }
 
