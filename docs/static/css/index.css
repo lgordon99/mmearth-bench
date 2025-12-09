@@ -34,7 +34,7 @@ html {
   position: sticky;
   top: 10px;
   z-index: 1000;
-  margin: -0.5rem auto 20px auto;
+  margin: -1rem auto 20px auto;
   padding: 0 1rem;
   display: flex;
   justify-content: center;
