@@ -495,7 +495,7 @@ code {
 .scroll-to-top {
   position: fixed;
   bottom: 2rem;
-  right: 0.25rem; /* Position in the margin area, to the right of section boxes */
+  right: 0.5rem; /* Position in the margin area, to the right of section boxes */
   width: 50px;
   height: 50px;
   background: var(--primary-color);
