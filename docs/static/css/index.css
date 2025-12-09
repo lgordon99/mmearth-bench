@@ -31,12 +31,19 @@ html {
 
 /* Section Navigation Menu */
 .section-nav {
-  position: sticky;
-  top: 20px;
+  position: relative;
   z-index: 1000;
   margin: 20px auto;
   max-width: 800px;
   padding: 0 1rem;
+  transition: all 0.3s ease;
+}
+
+.section-nav.stuck {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .nav-container {
@@ -696,8 +703,11 @@ code {
   }
 
   .section-nav {
-    top: 10px;
     padding: 0 0.5rem;
+  }
+
+  .section-nav.stuck {
+    top: 10px;
   }
 
   .nav-container {

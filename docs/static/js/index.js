@@ -80,7 +80,11 @@ function scrollToTop() {
     });
 }
 
-// Show/hide scroll to top button
+// Track initial position of nav menu
+let navInitialOffset = null;
+let navPlaceholder = null;
+
+// Show/hide scroll to top button and handle sticky nav
 window.addEventListener('scroll', function() {
     const scrollButton = document.querySelector('.scroll-to-top');
     if (window.pageYOffset > 300) {
@@ -89,9 +93,45 @@ window.addEventListener('scroll', function() {
         scrollButton.classList.remove('visible');
     }
 
+    // Handle sticky navigation
+    handleStickyNav();
+
     // Highlight active section in nav menu
     highlightActiveSection();
 });
+
+// Make nav sticky after scrolling past its initial position
+function handleStickyNav() {
+    const nav = document.querySelector('.section-nav');
+    if (!nav) return;
+
+    // Get initial offset on first scroll
+    if (navInitialOffset === null) {
+        navInitialOffset = nav.offsetTop;
+    }
+
+    if (window.pageYOffset > navInitialOffset) {
+        if (!nav.classList.contains('stuck')) {
+            nav.classList.add('stuck');
+            // Create placeholder to prevent content jump
+            if (!navPlaceholder) {
+                navPlaceholder = document.createElement('div');
+                navPlaceholder.style.height = nav.offsetHeight + 'px';
+                navPlaceholder.style.width = '100%';
+                nav.parentNode.insertBefore(navPlaceholder, nav);
+            }
+        }
+    } else {
+        if (nav.classList.contains('stuck')) {
+            nav.classList.remove('stuck');
+            // Remove placeholder
+            if (navPlaceholder && navPlaceholder.parentNode) {
+                navPlaceholder.parentNode.removeChild(navPlaceholder);
+                navPlaceholder = null;
+            }
+        }
+    }
+}
 
 // Highlight active section in navigation
 function highlightActiveSection() {
