@@ -569,7 +569,7 @@ class Model(LightningModule):
         return self.model(input_data, task_modality_data)
 
     def general_step(self, batch, batch_idx, mode, dataloader_idx=0):
-        input_data, task_modality_data, target, domain = batch # extracts the images and targets for the batch
+        input_data, task_modality_data, target = batch # extracts the images and targets for the batch
         prediction = self(input_data, task_modality_data) # forward pass
 
         if self.hparams.adaptation_mode =='JT':
