@@ -33,7 +33,7 @@ html {
 .section-nav {
   position: relative;
   z-index: 1000;
-  margin: 20px auto;
+  margin: 1rem auto 20px auto;
   max-width: 800px;
   padding: 0 1rem;
   transition: all 0.3s ease;
@@ -51,7 +51,7 @@ html {
   justify-content: center;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 0.6rem;
   background: rgba(255, 255, 255, 0.15);
   backdrop-filter: blur(12px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -64,7 +64,7 @@ html {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.6rem 1.2rem;
+  padding: 0.4rem 1.2rem;
   color: white;
   text-decoration: none;
   font-weight: 600;
@@ -500,7 +500,7 @@ code {
 .scroll-to-top {
   position: fixed;
   bottom: 2rem;
-  right: calc((100vw - 90vw) / 4); /* Midway between page edge and section box edge */
+  right: 2.5%; /* Midway between section edge (at 5% from right) and page edge (at 0% from right) */
   width: 50px;
   height: 50px;
   background: var(--primary-color);
