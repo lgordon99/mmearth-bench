@@ -31,21 +31,14 @@ html {
 
 /* Section Navigation Menu */
 .section-nav {
-  position: relative;
+  position: sticky;
+  top: 10px;
   z-index: 1000;
   margin: 0 auto 20px auto;
   padding: 0 1rem;
   display: flex;
   justify-content: center;
   width: 100%;
-}
-
-.section-nav.stuck {
-  position: fixed;
-  top: 10px;
-  left: 0;
-  right: 0;
-  margin-top: 0;
 }
 
 .nav-container {
@@ -706,9 +699,6 @@ code {
 
   .section-nav {
     padding: 0 0.5rem;
-  }
-
-  .section-nav.stuck {
     top: 10px;
   }
 
