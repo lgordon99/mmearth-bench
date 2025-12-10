@@ -2,6 +2,7 @@
 
 # ============================================== IMPORTS ============================================== #
 
+from collections import Counter
 from shapely.geometry import shape
 from sys import argv
 import ee
@@ -124,26 +125,26 @@ def check_point_statistics():
         indices = np.arange(len(species))
         plt.figure(dpi=300, figsize=(20, 5))
         plt.bar(indices, counts)
-        plt.xticks(indices, species, rotation=90)
-        plt.xlabel('Species')
-        plt.ylabel('Number of points')
-        plt.title('Number of points per species')
+        plt.margins(x=1e-2)
+        plt.xticks(indices, species, rotation=90, fontsize=12)
+        plt.xlabel('Species', fontsize=12)
+        plt.ylabel('Number of points', fontsize=12)
         plt.tight_layout()
         plt.savefig(f'{data_dir_path}/species/points_per_species.png')
 
         out_file.write(f'Max number of points for a species: {max(counts)}\n')
         out_file.write(f'Min number of points for a species: {min(counts)}\n')
 
-        # histogram of number of species per point
+        # species richness per tile
         plt.figure(dpi=300)
-        bin_size = 1000
-        bins = np.arange(0, max(counts) + bin_size, bin_size)
-        tick_interval = 5000
+        num_species_per_point = [len(point['properties']['species']) for point in points]
+        point_counts = Counter(num_species_per_point) # counts the number of points for each number of species
+        num_species = sorted(point_counts.keys()) # sorts the number of species in ascending order
+        num_points = [point_counts[n] for n in num_species] # counts the number of points for each number of species
 
-        plt.hist(counts, bins=bins, edgecolor='black')
-        plt.xlabel('Number of points')
-        plt.ylabel('Number of species')
-        plt.xticks(np.arange(0, max(counts) + tick_interval, tick_interval))
+        plt.bar(num_species, num_points, edgecolor='black')
+        plt.xlabel('Number of species', fontsize=12)
+        plt.ylabel('Number of points', fontsize=12)
         plt.tight_layout()
         plt.savefig(f'{data_dir_path}/species/point_species_counts.png')
 
