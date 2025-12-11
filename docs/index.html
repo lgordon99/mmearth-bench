@@ -392,29 +392,36 @@
                     <feOffset in="SourceAlpha" dx="0" dy="3" result="shadowOffset"/>
                     <feGaussianBlur in="shadowOffset" stdDeviation="2" result="shadowBlur"/>
                     <feComposite in="shadowBlur" in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1" result="innerShadow"/>
-                    <feFlood flood-color="rgba(0,0,0,0.4)" result="shadowColor"/>
+                    <feFlood flood-color="rgba(0,0,0,0.5)" result="shadowColor"/>
                     <feComposite in="shadowColor" in2="innerShadow" operator="in" result="innerShadowColored"/>
 
                     <!-- Bottom highlight -->
                     <feOffset in="SourceAlpha" dx="0" dy="-2" result="highlightOffset"/>
                     <feGaussianBlur in="highlightOffset" stdDeviation="1" result="highlightBlur"/>
                     <feComposite in="highlightBlur" in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1" result="innerHighlight"/>
-                    <feFlood flood-color="rgba(255,255,255,0.8)" result="highlightColor"/>
+                    <feFlood flood-color="rgba(255,255,255,1)" result="highlightColor"/>
                     <feComposite in="highlightColor" in2="innerHighlight" operator="in" result="innerHighlightColored"/>
 
                     <!-- Outer glow -->
-                    <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="outerGlow"/>
-                    <feFlood flood-color="rgba(255,255,255,0.3)" result="glowColor"/>
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="outerGlow"/>
+                    <feFlood flood-color="rgba(255,255,255,0.5)" result="glowColor"/>
                     <feComposite in="glowColor" in2="outerGlow" operator="in" result="coloredGlow"/>
 
-                    <!-- Base fill -->
-                    <feFlood flood-color="rgba(255,255,255,0.25)" result="baseFill"/>
+                    <!-- Base fill - more opaque for legibility -->
+                    <feFlood flood-color="rgba(255,255,255,0.45)" result="baseFill"/>
                     <feComposite in="baseFill" in2="SourceAlpha" operator="in" result="baseShape"/>
+
+                    <!-- Edge stroke for definition -->
+                    <feMorphology in="SourceAlpha" operator="dilate" radius="0.5" result="dilated"/>
+                    <feComposite in="dilated" in2="SourceAlpha" operator="out" result="strokeOnly"/>
+                    <feFlood flood-color="rgba(255,255,255,0.6)" result="strokeColor"/>
+                    <feComposite in="strokeColor" in2="strokeOnly" operator="in" result="coloredStroke"/>
 
                     <!-- Combine all layers -->
                     <feMerge>
                       <feMergeNode in="coloredGlow"/>
                       <feMergeNode in="baseShape"/>
+                      <feMergeNode in="coloredStroke"/>
                       <feMergeNode in="innerShadowColored"/>
                       <feMergeNode in="innerHighlightColored"/>
                     </feMerge>
