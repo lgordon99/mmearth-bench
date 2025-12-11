@@ -190,17 +190,12 @@ body {
     margin-bottom: 0 !important;
     line-height: 1.1 !important;
     position: relative;
-    color: transparent !important;
-    background: linear-gradient(180deg,
-        rgba(255, 255, 255, 0.75) 0%,
-        rgba(255, 255, 255, 0.45) 50%,
-        rgba(255, 255, 255, 0.6) 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-stroke: 0.5px rgba(255, 255, 255, 0.6);
-    text-stroke: 0.5px rgba(255, 255, 255, 0.6);
-    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.4))
-            drop-shadow(0 0 8px rgba(255, 255, 255, 0.2));
+    color: rgba(255, 255, 255, 0.4) !important;
+    -webkit-text-stroke: 1px rgba(255, 255, 255, 0.6);
+    text-stroke: 1px rgba(255, 255, 255, 0.6);
+    text-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.5),
+        0 2px 4px rgba(0, 0, 0, 0.4);
     z-index: 2;
 }
 
@@ -213,13 +208,12 @@ body {
     font-size: 3rem;
     font-weight: 800;
     line-height: 1.1;
-    color: rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.2);
     z-index: 1;
     pointer-events: none;
-    filter: blur(3px);
+    filter: blur(4px);
     text-shadow:
-        0 0 15px rgba(255, 255, 255, 0.4),
-        0 0 30px rgba(255, 255, 255, 0.2);
+        0 0 20px rgba(255, 255, 255, 0.3);
 }
 
 .publication-banner {
