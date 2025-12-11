@@ -199,6 +199,44 @@ function setupVideoCarouselAutoplay() {
     });
 }
 
+// Create glass text effect by wrapping each letter in a span
+function createGlassText() {
+    const glassTextElements = document.querySelectorAll('.glass-text');
+
+    glassTextElements.forEach(element => {
+        const text = element.getAttribute('data-text');
+        if (!text) return;
+
+        element.innerHTML = '';
+
+        // Split into words first to handle word wrapping properly
+        const words = text.split(' ');
+
+        words.forEach((word, wordIndex) => {
+            const wordSpan = document.createElement('span');
+            wordSpan.className = 'glass-word';
+
+            // Add each letter
+            for (let i = 0; i < word.length; i++) {
+                const letterSpan = document.createElement('span');
+                letterSpan.className = 'glass-letter';
+                letterSpan.textContent = word[i];
+                wordSpan.appendChild(letterSpan);
+            }
+
+            element.appendChild(wordSpan);
+
+            // Add space between words (except after last word)
+            if (wordIndex < words.length - 1) {
+                const space = document.createElement('span');
+                space.className = 'glass-space';
+                space.innerHTML = '&nbsp;';
+                element.appendChild(space);
+            }
+        });
+    });
+}
+
 $(document).ready(function() {
     // Check for click events on the navbar burger icon
 
@@ -224,5 +262,8 @@ $(document).ready(function() {
 
     // Setup nav click handlers
     setupNavClickHandlers();
+
+    // Create glass text effect
+    createGlassText();
 
 })
