@@ -299,6 +299,10 @@ body {
   white-space: nowrap;
 }
 
+.institution-line {
+  white-space: nowrap;
+}
+
 /* Author images */
 .author-image-container {
   width: 70px;
