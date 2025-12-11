@@ -386,18 +386,44 @@
             <div class="glass-title-container">
               <svg class="glass-title-svg" viewBox="0 0 1000 140" preserveAspectRatio="xMidYMid meet">
                 <defs>
-                  <clipPath id="titleClip">
-                    <text x="500" y="50" text-anchor="middle" class="glass-title-text-clip">MMEarth-Bench:</text>
-                    <text x="500" y="120" text-anchor="middle" class="glass-title-text-clip-sub">Global Model Adaptation via Multimodal Test-Time Training</text>
-                  </clipPath>
+                  <!-- Liquid glass filter -->
+                  <filter id="liquidGlass" x="-20%" y="-20%" width="140%" height="140%">
+                    <!-- Inner shadow (top) - creates depth -->
+                    <feOffset in="SourceAlpha" dx="0" dy="3" result="shadowOffset"/>
+                    <feGaussianBlur in="shadowOffset" stdDeviation="2" result="shadowBlur"/>
+                    <feComposite in="shadowBlur" in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1" result="innerShadow"/>
+                    <feFlood flood-color="rgba(0,0,0,0.4)" result="shadowColor"/>
+                    <feComposite in="shadowColor" in2="innerShadow" operator="in" result="innerShadowColored"/>
+
+                    <!-- Bottom highlight -->
+                    <feOffset in="SourceAlpha" dx="0" dy="-2" result="highlightOffset"/>
+                    <feGaussianBlur in="highlightOffset" stdDeviation="1" result="highlightBlur"/>
+                    <feComposite in="highlightBlur" in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1" result="innerHighlight"/>
+                    <feFlood flood-color="rgba(255,255,255,0.8)" result="highlightColor"/>
+                    <feComposite in="highlightColor" in2="innerHighlight" operator="in" result="innerHighlightColored"/>
+
+                    <!-- Outer glow -->
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="outerGlow"/>
+                    <feFlood flood-color="rgba(255,255,255,0.3)" result="glowColor"/>
+                    <feComposite in="glowColor" in2="outerGlow" operator="in" result="coloredGlow"/>
+
+                    <!-- Base fill -->
+                    <feFlood flood-color="rgba(255,255,255,0.25)" result="baseFill"/>
+                    <feComposite in="baseFill" in2="SourceAlpha" operator="in" result="baseShape"/>
+
+                    <!-- Combine all layers -->
+                    <feMerge>
+                      <feMergeNode in="coloredGlow"/>
+                      <feMergeNode in="baseShape"/>
+                      <feMergeNode in="innerShadowColored"/>
+                      <feMergeNode in="innerHighlightColored"/>
+                    </feMerge>
+                  </filter>
                 </defs>
-                <!-- Backdrop blur layer clipped to text shape -->
-                <foreignObject x="0" y="0" width="100%" height="100%" clip-path="url(#titleClip)">
-                  <div class="glass-title-backdrop"></div>
-                </foreignObject>
-                <!-- Text outline for definition -->
-                <text x="500" y="50" text-anchor="middle" class="glass-title-outline">MMEarth-Bench:</text>
-                <text x="500" y="120" text-anchor="middle" class="glass-title-outline-sub">Global Model Adaptation via Multimodal Test-Time Training</text>
+
+                <!-- Main title text with liquid glass effect -->
+                <text x="500" y="50" text-anchor="middle" class="glass-title-main" filter="url(#liquidGlass)">MMEarth-Bench:</text>
+                <text x="500" y="120" text-anchor="middle" class="glass-title-sub" filter="url(#liquidGlass)">Global Model Adaptation via Multimodal Test-Time Training</text>
               </svg>
             </div>
             <div class="is-size-5 publication-authors">
