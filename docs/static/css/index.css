@@ -295,6 +295,10 @@ body {
   margin-right: 0;
 }
 
+.author-name-line {
+  white-space: nowrap;
+}
+
 /* Author images */
 .author-image-container {
   width: 70px;
