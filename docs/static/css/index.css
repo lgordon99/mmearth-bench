@@ -473,40 +473,45 @@ code {
 }
 
 /* BibTeX Section Improvements */
-.bibtex-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-.copy-bibtex-btn {
-  background: var(--primary-color);
-  color: white;
-  border: none;
-  border-radius: var(--border-radius);
-  padding: 0.75rem 1rem;
-  font-size: 0.9rem;
-  font-weight: 600;
+/* Clickable BibTeX box */
+.bibtex-clickable {
   cursor: pointer;
   transition: var(--transition);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
+  position: relative;
 }
 
-.copy-bibtex-btn:hover {
-  background: var(--primary-hover);
+.bibtex-clickable:hover {
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
 }
 
-.copy-bibtex-btn.copied {
+.bibtex-clickable::after {
+  content: "Click to copy";
+  position: absolute;
+  top: -2.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: var(--border-radius);
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  pointer-events: none;
+}
+
+.bibtex-clickable:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+.bibtex-clickable.copied::after {
+  content: "Copied!";
   background: #10b981;
-}
-
-.copy-bibtex-btn.copied .copy-text::after {
-  content: "ied!";
 }
 
 /* Scroll to Top Button */

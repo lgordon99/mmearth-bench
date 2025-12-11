@@ -39,18 +39,14 @@ document.addEventListener('keydown', function(event) {
 // Copy BibTeX to clipboard
 function copyBibTeX() {
     const bibtexElement = document.getElementById('bibtex-code');
-    const button = document.querySelector('.copy-bibtex-btn');
-    const copyText = button.querySelector('.copy-text');
 
     if (bibtexElement) {
         navigator.clipboard.writeText(bibtexElement.textContent).then(function() {
             // Success feedback
-            button.classList.add('copied');
-            copyText.textContent = 'Cop';
+            bibtexElement.classList.add('copied');
 
             setTimeout(function() {
-                button.classList.remove('copied');
-                copyText.textContent = 'Copy';
+                bibtexElement.classList.remove('copied');
             }, 2000);
         }).catch(function(err) {
             console.error('Failed to copy: ', err);
@@ -62,11 +58,9 @@ function copyBibTeX() {
             document.execCommand('copy');
             document.body.removeChild(textArea);
 
-            button.classList.add('copied');
-            copyText.textContent = 'Cop';
+            bibtexElement.classList.add('copied');
             setTimeout(function() {
-                button.classList.remove('copied');
-                copyText.textContent = 'Copy';
+                bibtexElement.classList.remove('copied');
             }, 2000);
         });
     }
