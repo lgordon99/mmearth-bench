@@ -402,23 +402,30 @@
                     <feFlood flood-color="rgba(255,255,255,1)" result="highlightColor"/>
                     <feComposite in="highlightColor" in2="innerHighlight" operator="in" result="innerHighlightColored"/>
 
-                    <!-- Outer glow -->
-                    <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="outerGlow"/>
-                    <feFlood flood-color="rgba(255,255,255,0.5)" result="glowColor"/>
+                    <!-- Outer glow - stronger for visibility -->
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="outerGlow"/>
+                    <feFlood flood-color="rgba(255,255,255,0.7)" result="glowColor"/>
                     <feComposite in="glowColor" in2="outerGlow" operator="in" result="coloredGlow"/>
 
                     <!-- Base fill - more opaque for legibility -->
-                    <feFlood flood-color="rgba(255,255,255,0.45)" result="baseFill"/>
+                    <feFlood flood-color="rgba(255,255,255,0.55)" result="baseFill"/>
                     <feComposite in="baseFill" in2="SourceAlpha" operator="in" result="baseShape"/>
 
                     <!-- Edge stroke for definition -->
-                    <feMorphology in="SourceAlpha" operator="dilate" radius="0.5" result="dilated"/>
+                    <feMorphology in="SourceAlpha" operator="dilate" radius="1" result="dilated"/>
                     <feComposite in="dilated" in2="SourceAlpha" operator="out" result="strokeOnly"/>
-                    <feFlood flood-color="rgba(255,255,255,0.6)" result="strokeColor"/>
+                    <feFlood flood-color="rgba(255,255,255,0.85)" result="strokeColor"/>
                     <feComposite in="strokeColor" in2="strokeOnly" operator="in" result="coloredStroke"/>
+
+                    <!-- Dark outline for contrast -->
+                    <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="outline"/>
+                    <feComposite in="outline" in2="dilated" operator="out" result="outlineOnly"/>
+                    <feFlood flood-color="rgba(0,0,0,0.3)" result="outlineColor"/>
+                    <feComposite in="outlineColor" in2="outlineOnly" operator="in" result="darkOutline"/>
 
                     <!-- Combine all layers -->
                     <feMerge>
+                      <feMergeNode in="darkOutline"/>
                       <feMergeNode in="coloredGlow"/>
                       <feMergeNode in="baseShape"/>
                       <feMergeNode in="coloredStroke"/>
