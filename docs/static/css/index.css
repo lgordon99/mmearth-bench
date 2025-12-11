@@ -181,39 +181,45 @@ body {
 .publication-title {
     font-family: 'Inter', sans-serif !important;
     font-weight: 800 !important;
-    color: rgba(255, 255, 255, 0.6) !important;
     margin-bottom: 2rem !important;
     line-height: 1.1 !important;
     position: relative;
     display: inline-block;
-    padding: 0.2em 0.4em;
+    background: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.75) 0%,
+        rgba(255, 255, 255, 0.4) 50%,
+        rgba(255, 255, 255, 0.6) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
     text-shadow:
         0 1px 2px rgba(0, 0, 0, 0.5),
         0 2px 4px rgba(0, 0, 0, 0.4),
-        0 0 20px rgba(255, 255, 255, 0.25),
-        0 1px 0 rgba(255, 255, 255, 0.6);
+        0 0 20px rgba(255, 255, 255, 0.2),
+        0 1px 0 rgba(255, 255, 255, 0.8),
+        0 -1px 1px rgba(0, 0, 0, 0.4);
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
     -webkit-text-stroke: 0.5px rgba(255, 255, 255, 0.5);
     text-stroke: 0.5px rgba(255, 255, 255, 0.5);
+    z-index: 1;
 }
 
 .publication-title::before {
-    content: '';
+    content: attr(data-text);
     position: absolute;
-    top: -5px;
-    left: -5px;
-    right: -5px;
-    bottom: -5px;
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(15px) saturate(200%);
-    -webkit-backdrop-filter: blur(15px) saturate(200%);
-    border-radius: 8px;
+    top: 0;
+    left: 0;
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+    line-height: 1.1;
+    color: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
     z-index: -1;
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.4),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.15),
-        0 4px 16px rgba(0, 0, 0, 0.15);
+    opacity: 0.8;
     pointer-events: none;
+    text-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
 }
 
 .publication-banner {
