@@ -301,6 +301,7 @@ body {
 
 .institution-line {
   white-space: nowrap;
+  margin-right: 1rem;
 }
 
 /* Author images */
