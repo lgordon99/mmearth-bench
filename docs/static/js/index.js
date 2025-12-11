@@ -39,15 +39,21 @@ document.addEventListener('keydown', function(event) {
 // Copy BibTeX to clipboard
 function copyBibTeX() {
     const bibtexElement = document.getElementById('bibtex-code');
+    const copyButton = document.querySelector('.bibtex-copy-btn');
 
     if (bibtexElement) {
         navigator.clipboard.writeText(bibtexElement.textContent).then(function() {
             // Success feedback
-            bibtexElement.classList.add('copied');
+            if (copyButton) {
+                const originalEmoji = copyButton.textContent;
+                copyButton.textContent = '✓';
+                copyButton.classList.add('copied');
 
-            setTimeout(function() {
-                bibtexElement.classList.remove('copied');
-            }, 2000);
+                setTimeout(function() {
+                    copyButton.textContent = originalEmoji;
+                    copyButton.classList.remove('copied');
+                }, 2000);
+            }
         }).catch(function(err) {
             console.error('Failed to copy: ', err);
             // Fallback for older browsers
@@ -58,10 +64,16 @@ function copyBibTeX() {
             document.execCommand('copy');
             document.body.removeChild(textArea);
 
-            bibtexElement.classList.add('copied');
-            setTimeout(function() {
-                bibtexElement.classList.remove('copied');
-            }, 2000);
+            if (copyButton) {
+                const originalEmoji = copyButton.textContent;
+                copyButton.textContent = '✓';
+                copyButton.classList.add('copied');
+
+                setTimeout(function() {
+                    copyButton.textContent = originalEmoji;
+                    copyButton.classList.remove('copied');
+                }, 2000);
+            }
         });
     }
 }
