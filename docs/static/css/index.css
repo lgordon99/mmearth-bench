@@ -178,12 +178,48 @@ body {
 
 
 /* Publication Content Styling */
+.glass-title-wrapper {
+    position: relative;
+    display: inline-block;
+    margin-bottom: 2rem;
+}
+
 .publication-title {
     font-family: 'Inter', sans-serif !important;
     font-weight: 800 !important;
-    color: rgba(255, 255, 255, 0.85) !important;
-    margin-bottom: 2rem !important;
+    margin-bottom: 0 !important;
     line-height: 1.1 !important;
+    position: relative;
+    color: transparent !important;
+    background: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.75) 0%,
+        rgba(255, 255, 255, 0.45) 50%,
+        rgba(255, 255, 255, 0.6) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-stroke: 0.5px rgba(255, 255, 255, 0.6);
+    text-stroke: 0.5px rgba(255, 255, 255, 0.6);
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.4))
+            drop-shadow(0 0 8px rgba(255, 255, 255, 0.2));
+    z-index: 2;
+}
+
+.glass-title-blur {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    font-family: 'Inter', sans-serif;
+    font-size: 3rem;
+    font-weight: 800;
+    line-height: 1.1;
+    color: rgba(255, 255, 255, 0.25);
+    z-index: 1;
+    pointer-events: none;
+    filter: blur(3px);
+    text-shadow:
+        0 0 15px rgba(255, 255, 255, 0.4),
+        0 0 30px rgba(255, 255, 255, 0.2);
 }
 
 .publication-banner {
@@ -687,6 +723,11 @@ code {
     margin-bottom: 1.5rem !important;
   }
 
+  .glass-title-blur {
+    font-size: 2.5rem !important;
+    line-height: 1.2 !important;
+  }
+
   .publication-authors {
     font-size: 1rem !important;
   }
@@ -754,6 +795,10 @@ code {
 
 @media screen and (max-width: 480px) {
   .publication-title {
+    font-size: 2rem !important;
+  }
+
+  .glass-title-blur {
     font-size: 2rem !important;
   }
 
