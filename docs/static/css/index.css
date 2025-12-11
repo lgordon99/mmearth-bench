@@ -314,20 +314,29 @@ body {
 
 .modality-item {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform-origin: 0 0;
   white-space: nowrap;
   font-size: 0.95rem;
   font-weight: 500;
   color: var(--text-primary);
-  --radius: 220px;
-  transform:
-    translate(-50%, -50%)
-    rotate(var(--angle))
-    translateX(var(--radius))
-    rotate(calc(90deg - var(--angle)));
+  transform-origin: center center;
+  left: calc(50% + var(--x));
+  top: calc(50% + var(--y));
+  transform: translate(-50%, -50%) rotate(var(--rotation));
 }
+
+/* Calculate positions for circle */
+.modality-item:nth-child(1) { --x: 0px; --y: -200px; --rotation: 0deg; } /* Sentinel-2 */
+.modality-item:nth-child(2) { --x: 100px; --y: -173px; --rotation: 30deg; } /* Sentinel-1 */
+.modality-item:nth-child(3) { --x: 173px; --y: -100px; --rotation: 60deg; } /* ASTER GDEM */
+.modality-item:nth-child(4) { --x: 200px; --y: 0px; --rotation: 90deg; } /* ETH Global Canopy Height */
+.modality-item:nth-child(5) { --x: 173px; --y: 100px; --rotation: 120deg; } /* Dynamic World */
+.modality-item:nth-child(6) { --x: 100px; --y: 173px; --rotation: 150deg; } /* ESA WorldCover */
+.modality-item:nth-child(7) { --x: 0px; --y: 200px; --rotation: 180deg; } /* Precipitation */
+.modality-item:nth-child(8) { --x: -100px; --y: 173px; --rotation: 210deg; } /* Temperature */
+.modality-item:nth-child(9) { --x: -173px; --y: 100px; --rotation: 240deg; } /* Geolocation */
+.modality-item:nth-child(10) { --x: -200px; --y: 0px; --rotation: 270deg; } /* Sentinel-2 date */
+.modality-item:nth-child(11) { --x: -173px; --y: -100px; --rotation: 300deg; } /* Biome */
+.modality-item:nth-child(12) { --x: -100px; --y: -173px; --rotation: 330deg; } /* Ecoregion */
 
 /* Author images */
 .author-image-container {
