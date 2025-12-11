@@ -184,18 +184,20 @@ body {
     color: white !important;
     margin-bottom: 2rem !important;
     line-height: 1.1 !important;
-    display: inline-block;
-    padding: 1rem 1.5rem;
-    background: rgba(255, 255, 255, 0.15);
-    backdrop-filter: blur(12px) saturate(180%);
-    -webkit-backdrop-filter: blur(12px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15),
-                inset 0 0 0 1px rgba(255, 255, 255, 0.05),
-                0 0 20px rgba(255, 255, 255, 0.1);
-    border-radius: 20px;
-    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3),
-                 0 0 20px rgba(255, 255, 255, 0.2);
+    position: relative;
+    text-shadow:
+        0 0 10px rgba(255, 255, 255, 0.6),
+        0 0 20px rgba(255, 255, 255, 0.4),
+        0 0 30px rgba(255, 255, 255, 0.3),
+        0 0 40px rgba(255, 255, 255, 0.2),
+        0 2px 4px rgba(0, 0, 0, 0.4),
+        0 4px 8px rgba(0, 0, 0, 0.3),
+        0 1px 0 rgba(255, 255, 255, 0.9),
+        0 -1px 2px rgba(0, 0, 0, 0.5);
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.5))
+            drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+    -webkit-text-stroke: 0.5px rgba(255, 255, 255, 0.4);
+    text-stroke: 0.5px rgba(255, 255, 255, 0.4);
 }
 
 .publication-banner {
