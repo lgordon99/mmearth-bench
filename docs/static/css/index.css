@@ -177,19 +177,55 @@ body {
 }
 
 
-/* Publication Content Styling */
-.publication-title {
-    font-family: 'Inter', sans-serif !important;
-    font-weight: 800 !important;
-    margin-bottom: 2rem !important;
-    line-height: 1.1 !important;
-    color: rgba(255, 255, 255, 0.5) !important;
-    text-shadow:
-        0 0 20px rgba(255, 255, 255, 0.4),
-        0 0 40px rgba(255, 255, 255, 0.2),
-        0 1px 0 rgba(255, 255, 255, 0.3);
-    -webkit-text-stroke: 0.5px rgba(255, 255, 255, 0.4);
-    text-stroke: 0.5px rgba(255, 255, 255, 0.4);
+/* Publication Content Styling - SVG Glass Title */
+.glass-title-container {
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto 2rem auto;
+}
+
+.glass-title-svg {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+}
+
+.glass-title-text-clip {
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+    font-size: 52px;
+}
+
+.glass-title-text-clip-sub {
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+    font-size: 36px;
+}
+
+.glass-title-backdrop {
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+}
+
+.glass-title-outline {
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+    font-size: 52px;
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.3);
+    stroke-width: 1px;
+}
+
+.glass-title-outline-sub {
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+    font-size: 36px;
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.3);
+    stroke-width: 0.5px;
 }
 
 .publication-banner {
