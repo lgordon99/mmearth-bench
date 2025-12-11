@@ -403,32 +403,18 @@
                     <feComposite in="highlightColor" in2="innerHighlight" operator="in" result="innerHighlightColored"/>
 
                     <!-- Outer glow - stronger for visibility -->
-                    <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="outerGlow"/>
-                    <feFlood flood-color="rgba(255,255,255,0.7)" result="glowColor"/>
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="outerGlow"/>
+                    <feFlood flood-color="rgba(255,255,255,0.6)" result="glowColor"/>
                     <feComposite in="glowColor" in2="outerGlow" operator="in" result="coloredGlow"/>
 
                     <!-- Base fill - more opaque for legibility -->
-                    <feFlood flood-color="rgba(255,255,255,0.55)" result="baseFill"/>
+                    <feFlood flood-color="rgba(255,255,255,0.6)" result="baseFill"/>
                     <feComposite in="baseFill" in2="SourceAlpha" operator="in" result="baseShape"/>
-
-                    <!-- Edge stroke for definition -->
-                    <feMorphology in="SourceAlpha" operator="dilate" radius="1" result="dilated"/>
-                    <feComposite in="dilated" in2="SourceAlpha" operator="out" result="strokeOnly"/>
-                    <feFlood flood-color="rgba(255,255,255,0.85)" result="strokeColor"/>
-                    <feComposite in="strokeColor" in2="strokeOnly" operator="in" result="coloredStroke"/>
-
-                    <!-- Dark outline for contrast -->
-                    <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="outline"/>
-                    <feComposite in="outline" in2="dilated" operator="out" result="outlineOnly"/>
-                    <feFlood flood-color="rgba(0,0,0,0.3)" result="outlineColor"/>
-                    <feComposite in="outlineColor" in2="outlineOnly" operator="in" result="darkOutline"/>
 
                     <!-- Combine all layers -->
                     <feMerge>
-                      <feMergeNode in="darkOutline"/>
                       <feMergeNode in="coloredGlow"/>
                       <feMergeNode in="baseShape"/>
-                      <feMergeNode in="coloredStroke"/>
                       <feMergeNode in="innerShadowColored"/>
                       <feMergeNode in="innerHighlightColored"/>
                     </feMerge>

@@ -194,9 +194,7 @@ body {
     font-family: 'Inter', sans-serif;
     font-weight: 800;
     font-size: 52px;
-    fill: rgba(255, 255, 255, 0.25);
-    stroke: rgba(255, 255, 255, 0.4);
-    stroke-width: 0.5px;
+    fill: rgba(255, 255, 255, 0.3);
 }
 
 .glass-title-sub {
