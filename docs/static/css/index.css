@@ -177,38 +177,19 @@ body {
 }
 
 
-/* Publication Content Styling - Glass Text Effect */
-.publication-title.glass-text {
+/* Publication Content Styling */
+.publication-title {
     font-family: 'Inter', sans-serif !important;
     font-weight: 800 !important;
     margin-bottom: 2rem !important;
-    line-height: 1.3 !important;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 0;
-}
-
-.glass-word {
-    display: inline-flex;
-}
-
-.glass-space {
-    width: 0.3em;
-}
-
-.glass-letter {
-    display: inline-block;
-    padding: 0.05em 0.02em;
-    background: rgba(255, 255, 255, 0.15);
-    backdrop-filter: blur(12px) saturate(180%);
-    -webkit-backdrop-filter: blur(12px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.15), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.9);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-    margin: 0 -0.5px;
+    line-height: 1.1 !important;
+    color: rgba(255, 255, 255, 0.5) !important;
+    text-shadow:
+        0 0 20px rgba(255, 255, 255, 0.4),
+        0 0 40px rgba(255, 255, 255, 0.2),
+        0 1px 0 rgba(255, 255, 255, 0.3);
+    -webkit-text-stroke: 0.5px rgba(255, 255, 255, 0.4);
+    text-stroke: 0.5px rgba(255, 255, 255, 0.4);
 }
 
 .publication-banner {
