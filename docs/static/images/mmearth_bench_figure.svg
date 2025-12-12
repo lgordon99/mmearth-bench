@@ -5,10 +5,6 @@
     </filter>
   </defs>
 
-  <!-- Background Gap/Ring (simulating box-shadow) -->
-  <!-- CSS box-shadow: 0 0 0 35px #f5f5f5 -->
-  <!-- Pie is 300px (R150). Box shadow 35px means it extends to R185. -->
-  <circle cx="600" cy="600" r="185" fill="#f5f5f5" />
 
   <!-- Pie Chart -->
   <g>
