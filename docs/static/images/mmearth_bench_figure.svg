@@ -19,7 +19,7 @@
   <!-- Outer Content (Donut text, rings, icons) -->
   <g>
                 <defs>
-                <path id="donut-curve" d="M 440 600 A 160 160 0 0 1 760 600" />
+                <path id="donut-curve" d="M 435 600 A 165 165 0 0 1 765 600" />
                 <path id="donut-curve-bottom" d="M 390 600 A 210 210 0 0 0 810 600" />
             </defs>
 
@@ -53,7 +53,7 @@
             <!-- Inner enclosing circle border -->
             <circle cx="600" cy="600" r="185" fill="none" stroke="#ddd" stroke-width="2" />
 
-            <text font-size="20" font-family="Arial, sans-serif" font-weight="bold" fill="#333" dominant-baseline="middle">
+            <text font-size="20" font-family="Arial, sans-serif" font-weight="bold" fill="white" dominant-baseline="middle">
                 <textPath href="#donut-curve" startOffset="50%" text-anchor="middle">
                     Downstream tasks
                 </textPath>
