@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" width="1200" height="1200">
+  <defs>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="1" dy="1" stdDeviation="1" flood-color="rgba(0,0,0,0.7)"/>
+    </filter>
+  </defs>
+
+  <!-- Background Gap/Ring (simulating box-shadow) -->
+  <!-- CSS box-shadow: 0 0 0 35px #f5f5f5 -->
+  <!-- Pie is 300px (R150). Box shadow 35px means it extends to R185. -->
+  <circle cx="600" cy="600" r="185" fill="#f5f5f5" />
+
+  <!-- Pie Chart -->
+  <g>
+    <path d="M 600 600 L 600.0 450.0 A 150 150 0 0 1 742.658477444273 553.6474508437578 Z" fill="green" stroke="none" /><path d="M 600 600 L 742.658477444273 553.6474508437578 A 150 150 0 0 1 688.167787843871 721.3525491562422 Z" fill="blue" stroke="none" /><path d="M 600 600 L 688.167787843871 721.3525491562422 A 150 150 0 0 1 511.83221215612906 721.3525491562422 Z" fill="brown" stroke="none" /><path d="M 600 600 L 511.83221215612906 721.3525491562422 A 150 150 0 0 1 457.341522555727 553.6474508437578 Z" fill="purple" stroke="none" /><path d="M 600 600 L 457.341522555727 553.6474508437578 A 150 150 0 0 1 600.0 450.0 Z" fill="red" stroke="none" />
+  </g>
+
+  <!-- Pie Labels -->
+  <g>
+    <text x="652.9" y="527.2" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)">Biomass</text><text x="685.6" y="627.8" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)">Soil Nitrogen</text><text x="600" y="690" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)"><tspan x="600" dy="-0.6em">Soil Organic</tspan><tspan x="600" dy="1.2em">Carbon</tspan></text><text x="514.4" y="627.8" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)">Soil pH</text><text x="547.1" y="527.2" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)">Species</text>
+  </g>
+
+  <!-- Outer Content (Donut text, rings, icons) -->
+  <g>
+                <defs>
+                <path id="donut-curve" d="M 440 600 A 160 160 0 0 1 760 600" />
+                <path id="donut-curve-bottom" d="M 390 600 A 210 210 0 0 0 810 600" />
+            </defs>
+
+            <!-- Outer enclosing circle backgrounds (donut shape) -->
+            <!-- Left Half (Pink): Outer arc (R340) ccw, Line in, Inner arc (R185) cw, Line out -->
+            <path d="M 600 260 A 340 340 0 0 0 600 940 L 600 785 A 185 185 0 0 1 600 415 Z" fill="pink" opacity="0.1" />
+            <!-- Right Half (Teal): Outer arc (R340) cw, Line in, Inner arc (R185) ccw, Line out -->
+            <path d="M 600 260 A 340 340 0 0 1 600 940 L 600 785 A 185 185 0 0 0 600 415 Z" fill="teal" opacity="0.1" />
+
+            <defs>
+                <!-- Path for Pixel-level (Left side, R195) -->
+                <path id="pixel-curve" d="M 600 795 A 195 195 0 0 1 600 405" />
+                <!-- Path for Tile-level (Right side, R195) -->
+                <path id="tile-curve" d="M 600 405 A 195 195 0 0 1 600 795" />
+            </defs>
+
+            <text font-size="20" font-family="Arial, sans-serif" font-weight="bold" fill="purple" opacity="0.6">
+                <textPath href="#pixel-curve" startOffset="50%" text-anchor="middle" side="left">
+                    Pixel-level
+                </textPath>
+            </text>
+
+            <text font-size="20" font-family="Arial, sans-serif" font-weight="bold" fill="teal" opacity="0.6">
+                <textPath href="#tile-curve" startOffset="50%" text-anchor="middle" side="right">
+                    Tile-level
+                </textPath>
+            </text>
+
+            <!-- Outer enclosing circle border -->
+            <circle cx="600" cy="600" r="340" fill="none" stroke="#ddd" stroke-width="2" />
+            <!-- Inner enclosing circle border -->
+            <circle cx="600" cy="600" r="185" fill="none" stroke="#ddd" stroke-width="2" />
+
+            <text font-size="20" font-family="Arial, sans-serif" font-weight="bold" fill="#333" dominant-baseline="middle">
+                <textPath href="#donut-curve" startOffset="50%" text-anchor="middle">
+                    Downstream tasks
+                </textPath>
+            </text>
+            <text font-size="20" font-family="Arial, sans-serif" font-weight="bold" fill="#333" dominant-baseline="middle">
+                <textPath href="#donut-curve-bottom" startOffset="50%" text-anchor="middle">
+                    Input modalities
+                </textPath>
+            </text>
+            <!-- 12 Placeholder Figures -->
+            <g transform="translate(600, 600)">
+                <!-- Figure 1 (15 degrees) -->
+                <g transform="rotate(15) translate(255) rotate(-15)">
+                    <svg x="-20" y="-20" width="40" height="40" viewBox="0 0 24 24" fill="none">
+                        <path d="M6,22H18a3,3,0,0,0,3-3V7a2,2,0,0,0-2-2H17V3a1,1,0,0,0-2,0V5H9V3A1,1,0,0,0,7,3V5H5A2,2,0,0,0,3,7V19A3,3,0,0,0,6,22ZM5,12.5a.5.5,0,0,1,.5-.5h13a.5.5,0,0,1,.5.5V19a1,1,0,0,1-1,1H6a1,1,0,0,1-1-1Z" fill="#333"/>
+                    </svg>
+                </g>
+                <text x="295" y="0" fill="#333" font-size="14" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle" transform="rotate(15) rotate(-90, 295, 0)">Sentinel-2 date</text>
+
+                <!-- Figure 2 (45 degrees) -->
+                <circle cx="0" cy="0" r="20" fill="#ddd" stroke="#999" stroke-width="2" transform="rotate(45) translate(255) rotate(-45)" />
+                <text x="295" y="0" fill="#333" font-size="14" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle" transform="rotate(45) rotate(-90, 295, 0)">Biome</text>
+
+                <!-- Figure 3 (75 degrees) -->
+                <circle cx="0" cy="0" r="20" fill="#ddd" stroke="#999" stroke-width="2" transform="rotate(75) translate(255) rotate(-75)" />
+                <text x="295" y="0" fill="#333" font-size="14" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle" transform="rotate(75) rotate(-90, 295, 0)">Ecoregion</text>
+
+                <!-- Figure 4 (105 degrees) -->
+                <circle cx="0" cy="0" r="20" fill="#ddd" stroke="#999" stroke-width="2" transform="rotate(105) translate(255) rotate(-105)" />
+                <text x="295" y="0" fill="#333" font-size="14" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle" transform="rotate(105) rotate(-90, 295, 0)">ESA WorldCover</text>
+
+                <!-- Figure 5 (135 degrees) -->
+                <circle cx="0" cy="0" r="20" fill="#ddd" stroke="#999" stroke-width="2" transform="rotate(135) translate(255) rotate(-135)" />
+                <text x="295" y="0" fill="#333" font-size="14" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle" transform="rotate(135) rotate(-90, 295, 0)">Dynamic World</text>
+
+                <!-- Figure 6 (165 degrees) -->
+                <circle cx="0" cy="0" r="20" fill="#ddd" stroke="#999" stroke-width="2" transform="rotate(165) translate(255) rotate(-165)" />
+                <text x="315" y="0" fill="#333" font-size="14" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle" transform="rotate(165) rotate(-90, 315, 0)">
+                    <tspan x="315" dy="-0.6em">ETH Global</tspan>
+                    <tspan x="315" dy="1.2em">Canopy Height</tspan>
+                </text>
+
+                <!-- Figure 7 (195 degrees) -->
+                <circle cx="0" cy="0" r="20" fill="#ddd" stroke="#999" stroke-width="2" transform="rotate(195) translate(255) rotate(-195)" />
+                <text x="295" y="0" fill="#333" font-size="14" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle" transform="rotate(195) rotate(90, 295, 0)">ASTER GDEM</text>
+
+                <!-- Figure 8 (225 degrees) -->
+                <circle cx="0" cy="0" r="20" fill="#ddd" stroke="#999" stroke-width="2" transform="rotate(225) translate(255) rotate(-225)" />
+                <text x="295" y="0" fill="#333" font-size="14" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle" transform="rotate(225) rotate(90, 295, 0)">Sentinel-1</text>
+
+                <!-- Figure 9 (255 degrees) -->
+                <circle cx="0" cy="0" r="20" fill="#ddd" stroke="#999" stroke-width="2" transform="rotate(255) translate(255) rotate(-255)" />
+                <text x="295" y="0" fill="#333" font-size="14" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle" transform="rotate(255) rotate(90, 295, 0)">Sentinel-2</text>
+
+                <!-- Figure 10 (285 degrees) -->
+                <g transform="rotate(285) translate(255) rotate(-285)">
+                    <svg x="-20" y="-20" width="40" height="40" viewBox="0 0 24 24" fill="none">
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M12 3C9.79086 3 8 4.79086 8 7V8H7C4.80497 8 3.5 9.28211 3.5 10.5C3.5 11.233 3.7651 11.815 4.26518 12.2318C4.78401 12.6641 5.65684 13 7 13H17C18.3432 13 19.216 12.6641 19.7348 12.2318C20.2349 11.815 20.5 11.233 20.5 10.5C20.5 9.28211 19.195 8 17 8H16V7C16 4.79086 14.2091 3 12 3ZM6.07261 6.0638C6.52214 3.19476 9.00476 1 12 1C14.9952 1 17.4779 3.19476 17.9274 6.0638C20.3519 6.39838 22.5 8.02966 22.5 10.5C22.5 11.767 22.0151 12.935 21.0152 13.7682C20.034 14.5859 18.6568 15 17 15H7C5.34316 15 3.96599 14.5859 2.98482 13.7682C1.9849 12.935 1.5 11.767 1.5 10.5C1.5 8.02966 3.64807 6.39838 6.07261 6.0638ZM7 16.5C7.55228 16.5 8 16.9477 8 17.5V18C8 18.5523 7.55228 19 7 19C6.44772 19 6 18.5523 6 18V17.5C6 16.9477 6.44772 16.5 7 16.5ZM12 16.5C12.5523 16.5 13 16.9477 13 17.5V18C13 18.5523 12.5523 19 12 19C11.4477 19 11 18.5523 11 18V17.5C11 16.9477 11.4477 16.5 12 16.5ZM17 16.5C17.5523 16.5 18 16.9477 18 17.5V18C18 18.5523 17.5523 19 17 19C16.4477 19 16 18.5523 16 18V17.5C16 16.9477 16.4477 16.5 17 16.5ZM6 20.5C6.55228 20.5 7 20.9477 7 21.5V22C7 22.5523 6.55228 23 6 23C5.44772 23 5 22.5523 5 22V21.5C5 20.9477 5.44772 20.5 6 20.5ZM11 20.5C11.5523 20.5 12 20.9477 12 21.5V22C12 22.5523 11.5523 23 11 23C10.4477 23 10 22.5523 10 22V21.5C10 20.9477 10.4477 20.5 11 20.5ZM16 20.5C16.5523 20.5 17 20.9477 17 21.5V22C17 22.5523 16.5523 23 16 23C15.4477 23 15 22.5523 15 22V21.5C15 20.9477 15.4477 20.5 16 20.5Z" fill="#333"/>
+                    </svg>
+                </g>
+                <text x="295" y="0" fill="#333" font-size="14" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle" transform="rotate(285) rotate(90, 295, 0)">Precipitation</text>
+
+                <!-- Figure 11 (315 degrees) -->
+                <g transform="rotate(315) translate(255) rotate(-315)">
+                    <svg x="-20" y="-20" width="40" height="40" viewBox="0 0 24 24" fill="none">
+                        <path d="M11 9C11 8.44772 11.4477 8 12 8C12.5523 8 13 8.44772 13 9V16.2676C13.5978 16.6134 14 17.2597 14 18C14 19.1046 13.1046 20 12 20C10.8954 20 10 19.1046 10 18C10 17.2597 10.4022 16.6134 11 16.2676V9Z" fill="#333"/>
+                        <path fill-rule="evenodd" clip-rule="evenodd" d="M8 15V5C8 4.78832 8.02575 4.57525 8.06048 4.36685C8.11827 4.02011 8.23572 3.5425 8.48057 3.05279C8.72739 2.55916 9.11331 2.03511 9.71093 1.6367C10.3148 1.23412 11.075 1 12 1C12.925 1 13.6852 1.23412 14.2891 1.6367C14.8867 2.03511 15.2726 2.55916 15.5194 3.05279C15.7643 3.5425 15.8817 4.02011 15.9395 4.36685C15.9742 4.57498 15.9996 4.78759 16 4.99899V15C16.2821 15.3762 16.5116 15.7926 16.6793 16.2383C17.0608 17.2514 17.1031 18.3609 16.8 19.4001C16.4969 20.4393 15.8647 21.3521 14.9984 22.0013C14.1321 22.6504 13.0786 23.0009 11.996 23C10.9135 22.9992 9.86053 22.647 8.99528 21.9965C8.13004 21.346 7.49929 20.4322 7.19781 19.3925C6.89634 18.3528 6.94043 17.2434 7.32345 16.2309C7.49101 15.788 7.71946 15.374 8 15ZM10 15V5.00611C10.0099 4.64417 10.1083 4.26946 10.2694 3.94721C10.3976 3.69084 10.5742 3.46489 10.8203 3.3008C11.0602 3.14088 11.425 3 12 3C12.575 3 12.9398 3.14088 13.1797 3.3008C13.4258 3.46489 13.6024 3.69084 13.7306 3.94721C13.8911 4.26822 13.9878 4.63969 13.9998 4.99962L14 15C14 15.4069 14.0977 15.7744 14.3582 16.0973C14.5596 16.3469 14.7213 16.6284 14.8358 16.9324C15.0669 17.5463 15.0926 18.2187 14.9089 18.8485C14.7252 19.4783 14.3421 20.0315 13.8171 20.4249C13.2921 20.8183 12.6536 21.0307 11.9976 21.0301C11.3416 21.0296 10.7034 20.8162 10.1791 20.422C9.65473 20.0277 9.27248 19.474 9.08978 18.8439C8.90708 18.2138 8.9338 17.5415 9.16592 16.9279C9.28085 16.6241 9.44307 16.3428 9.64481 16.0936C9.9081 15.7683 10 15.4093 10 15Z" fill="#333"/>
+                    </svg>
+                </g>
+                <text x="295" y="0" fill="#333" font-size="14" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle" transform="rotate(315) rotate(90, 295, 0)">Temperature</text>
+
+                <!-- Figure 12 (345 degrees) -->
+                <g transform="rotate(345) translate(255) rotate(-345)">
+                    <svg x="-20" y="-20" width="40" height="40" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 21C15.5 17.4 19 14.1764 19 10.2C19 6.22355 15.866 3 12 3C8.13401 3 5 6.22355 5 10.2C5 14.1764 8.5 17.4 12 21Z" stroke="#333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M12 12C13.1046 12 14 11.1046 14 10C14 8.89543 13.1046 8 12 8C10.8954 8 10 8.89543 10 10C10 11.1046 10.8954 12 12 12Z" stroke="#333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </g>
+                <text x="295" y="0" fill="#333" font-size="14" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle" transform="rotate(345) rotate(90, 295, 0)">Geolocation</text>
+            </g>
+
+  </g>
+</svg>

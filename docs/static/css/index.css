@@ -324,19 +324,21 @@ body {
   transform: translate(-50%, -50%) rotate(var(--rotation));
 }
 
-/* Calculate positions for circle */
-.modality-item:nth-child(1) { --x: 0px; --y: -200px; --rotation: 0deg; } /* Sentinel-2 */
-.modality-item:nth-child(2) { --x: 100px; --y: -173px; --rotation: 30deg; } /* Sentinel-1 */
-.modality-item:nth-child(3) { --x: 173px; --y: -100px; --rotation: 60deg; } /* ASTER GDEM */
-.modality-item:nth-child(4) { --x: 200px; --y: 0px; --rotation: 90deg; } /* ETH Global Canopy Height */
-.modality-item:nth-child(5) { --x: 173px; --y: 100px; --rotation: 120deg; } /* Dynamic World */
-.modality-item:nth-child(6) { --x: 100px; --y: 173px; --rotation: 150deg; } /* ESA WorldCover */
-.modality-item:nth-child(7) { --x: 0px; --y: 200px; --rotation: 180deg; } /* Precipitation */
-.modality-item:nth-child(8) { --x: -100px; --y: 173px; --rotation: 210deg; } /* Temperature */
-.modality-item:nth-child(9) { --x: -173px; --y: 100px; --rotation: 240deg; } /* Geolocation */
-.modality-item:nth-child(10) { --x: -200px; --y: 0px; --rotation: 270deg; } /* Sentinel-2 date */
-.modality-item:nth-child(11) { --x: -173px; --y: -100px; --rotation: 300deg; } /* Biome */
-.modality-item:nth-child(12) { --x: -100px; --y: -173px; --rotation: 330deg; } /* Ecoregion */
+/* Left semicircle (first 6 modalities) */
+.modality-item:nth-child(1) { --x: -150px; --y: -150px; --rotation: 315deg; } /* Sentinel-2 */
+.modality-item:nth-child(2) { --x: -200px; --y: -50px; --rotation: 345deg; } /* Sentinel-1 */
+.modality-item:nth-child(3) { --x: -200px; --y: 50px; --rotation: 15deg; } /* ASTER GDEM */
+.modality-item:nth-child(4) { --x: -150px; --y: 150px; --rotation: 45deg; } /* ETH Global Canopy Height */
+.modality-item:nth-child(5) { --x: -80px; --y: 180px; --rotation: 75deg; } /* Dynamic World */
+.modality-item:nth-child(6) { --x: 0px; --y: 180px; --rotation: 90deg; } /* ESA WorldCover */
+
+/* Right semicircle (second 6 modalities) */
+.modality-item:nth-child(7) { --x: 0px; --y: 180px; --rotation: 90deg; } /* Precipitation */
+.modality-item:nth-child(8) { --x: 80px; --y: 180px; --rotation: 105deg; } /* Temperature */
+.modality-item:nth-child(9) { --x: 150px; --y: 150px; --rotation: 135deg; } /* Geolocation */
+.modality-item:nth-child(10) { --x: 200px; --y: 50px; --rotation: 165deg; } /* Sentinel-2 date */
+.modality-item:nth-child(11) { --x: 200px; --y: -50px; --rotation: 195deg; } /* Biome */
+.modality-item:nth-child(12) { --x: 150px; --y: -150px; --rotation: 225deg; } /* Ecoregion */
 
 /* Author images */
 .author-image-container {
