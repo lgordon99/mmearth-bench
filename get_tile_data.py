@@ -46,10 +46,10 @@ def get_tile_data(task):
     for point_id in tile_ids_to_run:
         print(f'Processing tile {point_id}/{end_id-1}')
 
-        while utils.count_running_tile_jobs() > 29: # if more than 29 jobs are running
+        while utils.count_running_tile_jobs() > 26: # if more than 26 jobs are running
             time.sleep(1) # checks again after 1 second
 
-        subprocess.run(['sbatch', '-t', '10', '-p', partitions, '--mem', '500M', '--job-name', f'{task}_get_tile_{point_id}_data', '-o', f'{data_dir_path}/{task}/output-files/get_tile_data/get_tile_{point_id}_data.out', '--account', 'tambe_lab', 'job.sh', env_path, 'ee_data.py', task, str(point_id)])
+        subprocess.run(['sbatch', '-t', '10', '-p', partitions, '--mem', '500M', '--job-name', f'{task}_get_tile_{point_id}_data', '-o', f'{data_dir_path}/{task}/output-files/get_tile_data/get_tile_{point_id}_data.out', '--account', 'gajos_lab', 'job.sh', env_path, 'ee_data.py', task, str(point_id)])
 
     print(f'Time taken: {utils.format_time(seconds=time.time()-start_time)}')
 
@@ -75,7 +75,7 @@ if __name__ == '__main__':
         partitions = utils.read_yaml('config-user.yml')['partitions'] # list of partition(s)
         env_path = utils.read_yaml('config-user.yml')['env_path'] # path to conda environment
         task = argv[1]
-        subprocess.run(['sbatch', '-t', '1-00:00', '-p', partitions, '--mem', '1G', '--job-name', f'{task}_mmearth_modalities', '-o', f'{data_dir_path}/{task}/output-files/{task}_mmearth_modalities.out', 'job.sh', env_path, 'get_tile_data.py', f'for_{task}'])
+        subprocess.run(['sbatch', '-t', '30:00:00', '-p', partitions, '--mem', '1G', '--job-name', f'{task}_mmearth_modalities', '-o', f'{data_dir_path}/{task}/output-files/{task}_mmearth_modalities.out', 'job.sh', env_path, 'get_tile_data.py', f'for_{task}'])
     elif 'for' in argv[1]: # python get_tile_data.py for_TASK
         task = argv[1].split('for_')[1]
         print(f'Task = {task}')
