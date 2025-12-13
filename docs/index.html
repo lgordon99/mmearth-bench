@@ -494,17 +494,17 @@
 <!-- Navigation Menu -->
 <nav id="section-nav" class="section-nav" style="margin-top: -2rem;">
   <div class="nav-container">
-    <a href="#explorer" class="nav-item">
-      <i class="fas fa-globe"></i>
-      <span>Explorer</span>
+    <a href="#motivation" class="nav-item">
+      <i class="fas fa-lightbulb"></i>
+      <span>Motivation</span>
     </a>
     <a href="#abstract" class="nav-item">
       <i class="fas fa-file-alt"></i>
       <span>Abstract</span>
     </a>
-    <a href="#motivation" class="nav-item">
-      <i class="fas fa-lightbulb"></i>
-      <span>Motivation</span>
+    <a href="#explorer" class="nav-item">
+      <i class="fas fa-globe"></i>
+      <span>Explorer</span>
     </a>
     <a href="#method" class="nav-item">
       <i class="fas fa-cogs"></i>
@@ -522,33 +522,65 @@
 </nav>
 <!-- End Navigation Menu -->
 
-<!-- Interactive App -->
-<section id="explorer" class="section hero is-light" style="padding-left: 0; padding-right: 0;">
-  <div class="container is-fluid" style="max-width: 95%; padding-left: 1rem; padding-right: 1rem; margin: 0 auto;">
+<!-- Motivation section -->
+<section id="motivation" class="section hero is-light">
+  <div class="container is-max-desktop">
     <div class="columns is-centered has-text-centered">
       <div class="column is-full">
-        <h2 class="title is-3">Explorer</h2>
-        <div class="content" style="max-width: 800px; margin: 0 auto;">
-          <p class="has-text-justified">
-            Explore the MMEarth-Bench dataset interactively. Zoom in to view pixel-level data, hover over tiles to see tile-level data, and filter by task, split, and species.
+        <h2 class="title is-3">Motivation</h2>
+        <div class="content has-text-justified">
+          <p>
+            Self-supervised multimodal pretraining promises to overcome the grand challenges in Earth observation. Crucial applications like the SDGs have to rely on limited and sparse (e.g., field measurements) and geographically biased (i.e., no labels for large parts of the world) training data. Furthermore, models conditioned on multiple modalities may resolve ambiguities inherent to modeling biophysical quantities with remotely sensed data.
           </p>
         </div>
-        <iframe
-          src="https://lgordon99.github.io/mmearth-bench-app/"
-          style="width: 90%; max-width: 90%; height: 800px; margin: 2rem auto 0 auto; display: block; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15), inset 0 0 0 1px rgba(255, 255, 255, 0.05);"
-          title="MMEarth-Bench Interactive Explorer"
-          allowfullscreen>
-        </iframe>
-        <div class="content has-text-centered" style="margin-top: 1rem;">
-          <a href="https://lgordon99.github.io/mmearth-bench-app/" target="_blank" class="button is-link is-outlined">
-            <span>Open in new tab</span>
-            <span class="icon">
-              <i class="fas fa-external-link-alt"></i>
-            </span>
-          </a>
+        <div class="content">
+          <img src="static/images/teaser_figure.svg" alt="Teaser figure showing MMEarth-Bench motivation" style="width: 70%; height: auto; margin-top: 1rem; border-radius: 12px;" loading="lazy"/>
         </div>
       </div>
     </div>
+  </div>
+</section>
+<!-- End motivation section -->
+
+<!-- Paper abstract -->
+<section id="abstract" class="section hero is-light">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Abstract</h2>
+        <div class="content has-text-justified">
+          <!-- TODO: Replace with your paper abstract -->
+          <p>
+            Recent research in geospatial machine learning has demonstrated that models pretrained with self-supervised learning on Earth observation data can perform well on downstream tasks with limited training data. However, most of the existing geospatial benchmark datasets have few data modalities and poor global representation, limiting the ability to evaluate multimodal pretrained models at global scales. To fill this gap, we introduce MMEarth-Bench, a collection of five new multimodal downstream tasks with 12 input modalities, globally distributed data, and both in- and out-of-distribution test splits. We benchmark a diverse set of pretrained models on MMEarth-Bench and find that multimodal models generally perform best. While pretraining tends to improve model robustness in limited data settings, geographic generalization abilities remain poor and using multimodal inputs at test time can sometimes lead to geographic overfitting. In order to facilitate model adaptation to new downstream tasks and geographic domains, we propose a model-agnostic method for test-time training with multimodal reconstruction (TTT-MMR) that uses all the modalities available at test time, regardless of whether the pretrained model accepts them as input. We show that TTT-MMR improves model performance on both random and geographic test splits, and that geographic batching leads to a good trade-off between regularization and specialization during TTT. Our code, dataset, and visualization tool will be released upon publication.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End paper abstract -->
+
+<!-- Interactive App -->
+<section id="explorer" class="section hero is-light" style="padding-left: 0; padding-right: 0;">
+  <h2 class="title is-3" style="text-align: center;">Explorer</h2>
+  <div class="content" style="max-width: 800px; margin: 0 auto;">
+    <p class="has-text-justified">
+      Explore the MMEarth-Bench dataset interactively. Zoom in to view pixel-level data, hover over tiles to see tile-level data, and filter by task, split, and species.
+    </p>
+  </div>
+  <iframe
+    src="https://lgordon99.github.io/mmearth-bench-app/"
+    style="width: 90%; max-width: 90%; height: 800px; margin: 2rem auto 0 auto; display: block; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15), inset 0 0 0 1px rgba(255, 255, 255, 0.05);"
+    title="MMEarth-Bench Interactive Explorer"
+    allowfullscreen>
+  </iframe>
+  <div class="content has-text-centered" style="margin-top: 1rem;">
+    <a href="https://lgordon99.github.io/mmearth-bench-app/" target="_blank" class="button is-link is-outlined">
+      <span>Open in new tab</span>
+      <span class="icon">
+        <i class="fas fa-external-link-alt"></i>
+      </span>
+    </a>
   </div>
 </section>
 <!-- End Interactive App -->
@@ -570,44 +602,6 @@
   </div>
 </section> -->
 <!-- End teaser video -->
-
-<!-- Paper abstract -->
-<section id="abstract" class="section hero is-light">
-  <div class="container is-max-desktop">
-    <div class="columns is-centered has-text-centered">
-      <div class="column is-four-fifths">
-        <h2 class="title is-3">Abstract</h2>
-        <div class="content has-text-justified">
-          <!-- TODO: Replace with your paper abstract -->
-          <p>
-            Recent research in geospatial machine learning has demonstrated that models pretrained with self-supervised learning on Earth observation data can perform well on downstream tasks with limited training data. However, most of the existing geospatial benchmark datasets have few data modalities and poor global representation, limiting the ability to evaluate multimodal pretrained models at global scales. To fill this gap, we introduce MMEarth-Bench, a collection of five new multimodal downstream tasks with 12 input modalities, globally distributed data, and both in- and out-of-distribution test splits. We benchmark a diverse set of pretrained models on MMEarth-Bench and find that multimodal models generally perform best. While pretraining tends to improve model robustness in limited data settings, geographic generalization abilities remain poor and using multimodal inputs at test time can sometimes lead to geographic overfitting. In order to facilitate model adaptation to new downstream tasks and geographic domains, we propose a model-agnostic method for test-time training with multimodal reconstruction (TTT-MMR) that uses all the modalities available at test time, regardless of whether the pretrained model accepts them as input. We show that TTT-MMR improves model performance on both random and geographic test splits, and that geographic batching leads to a good trade-off between regularization and specialization during TTT. Our code, dataset, and visualization tool will be released upon publication.
-          </p>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-<!-- End paper abstract -->
-
-<!-- Motivation section -->
-<section id="motivation" class="section hero is-light">
-  <div class="container is-max-desktop">
-    <div class="columns is-centered has-text-centered">
-      <div class="column is-full">
-        <h2 class="title is-3">Motivation</h2>
-        <div class="content has-text-justified">
-          <p>
-            Self-supervised multimodal pretraining promises to overcome the grand challenges in Earth observation. Crucial applications like the SDGs have to rely on limited and sparse (e.g., field measurements) and geographically biased (i.e., no labels for large parts of the world) training data. Furthermore, models conditioned on multiple modalities may resolve ambiguities inherent to modeling biophysical quantities with remotely sensed data.
-          </p>
-        </div>
-        <div class="content">
-          <img src="static/images/teaser_figure.svg" alt="Teaser figure showing MMEarth-Bench motivation" style="width: 70%; height: auto; margin-top: 1rem; border-radius: 12px;" loading="lazy"/>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-<!-- End motivation section -->
 
 <!-- Method section -->
 <section id="method" class="section hero is-light">
