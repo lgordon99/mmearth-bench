@@ -195,6 +195,12 @@ class EEData:
         self.tile_level_data['SCL_NO_DATA_PIXEL_FRACTION'] = s2_image.select('SCL').unmask().eq(0).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=scl_res).get('SCL').getInfo()
         self.pixel_level_data['sentinel2'] = s2_image.rename([f'Sentinel2_{band}' if band not in ['MSK_CLDPRB', 'S2CLOUDLESS', 'SCL'] else band for band in bands])
 
+        sentinel2_image_main_bands = self.pixel_level_data['sentinel2'].select([band for band in self.pixel_level_data['sentinel2'].bandNames().getInfo() if 'Sentinel2' in band])
+        band_nan_fractions = sentinel2_image_main_bands.eq(no_data_values['Sentinel2']).reduceRegion(reducer=ee.Reducer.mean(), geometry=self.tile, scale=resolution).getInfo()
+
+        if all(value == 1 for value in band_nan_fractions.values()): # if all Sentinel-2 pixels are no data
+            return False
+
     def sentinel1(self):
         bands = ['VV', 'VH', 'HH', 'HV']
         sentinel1_images = (ee.ImageCollection('COPERNICUS/S1_GRD')
