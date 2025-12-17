@@ -97,7 +97,7 @@ def check_h5(task):
                 if key in pixel_level_modalities or key in tile_level_modalities or 'soil' in key:
                     if key in no_data_values:
                         value = np.ma.masked_equal(value, no_data_values[key])
-                        out_file.write(f'NaN pixels = {(value.mask.sum() / value.size) * 100:.2f}%\n')
+                        out_file.write(f'NaN pixels = {(value.mask.sum() / value.size) * 100}%\n')
 
                     if key == 'ASTER_GDEM':
                         out_file.write('Elevation band\n')
