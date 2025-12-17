@@ -313,6 +313,26 @@
       color: #ffffff !important;
       font-weight: 800 !important;
       white-space: nowrap !important;
+      position: relative;
+    }
+
+    /* Fix for pink line artifact above Species section */
+    #species.section {
+      border-top: none !important;
+      margin-top: 2rem !important;
+      overflow: visible !important;
+    }
+
+    #species.section::before,
+    #species.section::after {
+      display: none !important;
+      content: none !important;
+    }
+
+    #species .title.is-3::before,
+    #species .title.is-3::after {
+      display: none !important;
+      content: none !important;
     }
 
 
@@ -597,14 +617,12 @@
     <div class="columns is-centered has-text-centered">
       <div class="column is-full">
         <h2 class="title is-3">Overview</h2>
-        <div class="content has-text-justified" style="max-width: 1100px; margin: 0 auto; font-size: 1rem; display: flex; align-items: center; gap: 2rem;">
-          <div style="flex: 1;">
-            <!-- TODO: Replace with your overview text -->
-            <p>
-              Recent research in geospatial machine learning has demonstrated that models pretrained with self-supervised learning on Earth observation data can perform well on downstream tasks with limited training data. However, most of the existing geospatial benchmark datasets have few data modalities and poor global representation, limiting the ability to evaluate multimodal pretrained models at global scales. To fill this gap, we introduce MMEarth-Bench, a collection of five new multimodal downstream tasks with 12 input modalities, globally distributed data, and both in- and out-of-distribution test splits. We benchmark a diverse set of pretrained models on MMEarth-Bench and find that multimodal models generally perform best. While pretraining tends to improve model robustness in limited data settings, geographic generalization abilities remain poor and using multimodal inputs at test time can sometimes lead to geographic overfitting. In order to facilitate model adaptation to new downstream tasks and geographic domains, we propose a model-agnostic method for test-time training with multimodal reconstruction (TTT-MMR) that uses all the modalities available at test time, regardless of whether the pretrained model accepts them as input. We show that TTT-MMR improves model performance on both random and geographic test splits, and that geographic batching leads to a good trade-off between regularization and specialization during TTT. Our code, dataset, and visualization tool will be released upon publication.
-            </p>
-          </div>
-          <img src="static/images/mmearth_bench_figure.svg" alt="MMEarth-Bench figure" class="overview-figure" style="width: 60%; max-width: 700px; height: auto; flex-shrink: 0;" loading="lazy"/>
+        <div class="content has-text-justified" style="max-width: 1100px; margin: 0 auto; font-size: 1rem;">
+          <!-- TODO: Replace with your overview text -->
+          <p>
+            <img src="static/images/mmearth_bench_figure.svg" alt="MMEarth-Bench figure" class="overview-figure" style="width: 60%; max-width: 700px; height: auto;" loading="lazy"/>
+            Recent research in geospatial machine learning has demonstrated that models pretrained with self-supervised learning on Earth observation data can perform well on downstream tasks with limited training data. However, most of the existing geospatial benchmark datasets have few data modalities and poor global representation, limiting the ability to evaluate multimodal pretrained models at global scales. To fill this gap, we introduce MMEarth-Bench, a collection of five new multimodal downstream tasks with 12 input modalities, globally distributed data, and both in- and out-of-distribution test splits. We benchmark a diverse set of pretrained models on MMEarth-Bench and find that multimodal models generally perform best. While pretraining tends to improve model robustness in limited data settings, geographic generalization abilities remain poor and using multimodal inputs at test time can sometimes lead to geographic overfitting. In order to facilitate model adaptation to new downstream tasks and geographic domains, we propose a model-agnostic method for test-time training with multimodal reconstruction (TTT-MMR) that uses all the modalities available at test time, regardless of whether the pretrained model accepts them as input. We show that TTT-MMR improves model performance on both random and geographic test splits, and that geographic batching leads to a good trade-off between regularization and specialization during TTT. Our code, dataset, and visualization tool will be released upon publication.
+          </p>
         </div>
       </div>
     </div>
