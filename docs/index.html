@@ -427,6 +427,70 @@
         shape-outside: polygon(40% 0, 100% 0, 100% 100%, 0 100%, 0 80%);
       }
     }
+
+    /* Species grid styles */
+    .species-grid-container {
+      max-width: 1200px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+
+    .species-grid {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      gap: 1rem;
+      justify-items: center;
+      align-items: start;
+    }
+
+    .species-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      transition: transform 0.3s ease;
+      text-align: center;
+      position: relative;
+      width: 100%;
+    }
+
+    .species-item img {
+      width: 100%;
+      height: auto;
+      border-radius: 4px;
+      transition: transform 0.3s ease;
+      object-fit: cover;
+      aspect-ratio: 1;
+      display: block;
+    }
+
+    .species-item .species-name {
+      color: white;
+      font-size: 0.75rem;
+      margin-top: 0.5rem;
+      font-weight: 500;
+      transition: transform 0.3s ease, font-size 0.3s ease;
+      text-align: center;
+      line-height: 1.2;
+      width: 100%;
+    }
+
+    .species-item:hover {
+      transform: scale(1.2);
+      z-index: 100;
+      position: relative;
+    }
+
+    .species-item:hover img {
+      transform: scale(1.1);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .species-item:hover .species-name {
+      transform: scale(1.15);
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -674,7 +738,7 @@
               <object data="static/images/globe.svg" type="image/svg+xml" width="200" height="65" style="margin-left: 30px;">
                 <img src="static/images/globe.svg" alt="Globe visualization" />
               </object>
-              <object data="static/images/histogram.svg" type="image/svg+xml" width="607" height="196" style="margin-left: -10px;">
+              <object data="static/images/histogram.svg" type="image/svg+xml" width="486" height="157" style="margin-left: -10px;">
                 <img src="static/images/histogram.svg" alt="Histogram visualization" />
               </object>
             </div>
@@ -805,7 +869,11 @@
     </div>
   </div>
   <div style="padding: 0 2rem;">
-    <img src="static/images/species_grid.svg" alt="Species distribution grid visualization" style="width: 100%; height: auto; margin-top: 1rem; display: block;" loading="lazy"/>
+    <div class="species-grid-container">
+      <div class="species-grid" id="species-grid">
+        <!-- Species grid items will be generated here -->
+      </div>
+    </div>
   </div>
 </section>
 <!-- End species section -->
@@ -977,6 +1045,64 @@
 <!-- You can add a tracker to track page visits by creating an account at statcounter.com -->
 
     <!-- End of Statcounter Code -->
+
+  <script>
+    // Generate species grid
+    function generateSpeciesGrid() {
+      const grid = document.getElementById('species-grid');
+      if (!grid) return;
+
+      // Species names extracted from filenames (format: 00_Mus_musculus.jpg -> Mus musculus)
+      const speciesNames = [
+        'Mus musculus', 'Canis lupus', 'Pipistrellus kuhlii', 'Hyaena hyaena', 'Rattus rattus',
+        'Acinonyx jubatus', 'Felis lybica', 'Panthera pardus', 'Asellia tridens', 'Mellivora capensis',
+        'Sus scrofa', 'Rhinopoma hardwickii', 'Panthera leo', 'Lepus capensis', 'Rhinopoma cystops',
+        'Jaculus jaculus', 'Mustela nivalis', 'Rhinolophus hipposideros', 'Caracal caracal', 'Genetta genetta',
+        'Gerbillus nanus', 'Paraechinus aethiopicus', 'Rhinolophus ferrumequinum', 'Gerbillus henleyi', 'Suncus etruscus',
+        'Tadarida teniotis', 'Rattus norvegicus', 'Meriones crassus', 'Pipistrellus pipistrellus', 'Procavia capensis',
+        'Myotis emarginatus', 'Herpestes ichneumon', 'Vulpes rueppellii', 'Vulpes cana', 'Ursus arctos',
+        'Meriones libycus', 'Acomys dimidiatus', 'Nycteris thebaica', 'Rhinolophus euryale', 'Apodemus sylvaticus',
+        'Miniopterus schreibersii', 'Rhinolophus clivosus', 'Hypsugo savii', 'Crocidura gueldenstaedtii', 'Ichneumia albicauda',
+        'Gerbillus dasyurus', 'Rhinopoma microphyllum', 'Rhinolophus blasii', 'Eptesicus bottae', 'Rhinolophus mehelyi',
+        'Acomys russatus', 'Nyctalus leisleri', 'Mustela putorius', 'Felis chaus', 'Rousettus aegyptiacus',
+        'Psammomys obesus', 'Tadarida aegyptiaca', 'Gazella dorcas', 'Barbastella barbastellus', 'Cervus elaphus',
+        'Crocidura russula', 'Myotis mystacinus', 'Hemiechinus auritus', 'Vormela peregusna', 'Gerbillus gerbillus',
+        'Mus spretus', 'Myotis capaccinii', 'Hypsugo ariel', 'Hystrix cristata', 'Nesokia indica',
+        'Miniopterus natalensis', 'Atelerix algirus', 'Taphozous perforatus', 'Eptesicus isabellinus', 'Myotis punicus',
+        'Felis margarita', 'Mops pumilus', 'Eidolon helvum', 'Suncus murinus', 'Nyctalus lasiopterus',
+        'Jaculus orientalis', 'Papio hamadryas', 'Otonycteris hemprichii', 'Pipistrellus rueppellii', 'Barbastella leucomelas',
+        'Capra nubiana', 'Eliomys melanurus', 'Arvicanthis niloticus', 'Nannospalax ehrenbergi', 'Taphozous nudiventris',
+        'Myotis bocagii', 'Sekeetamys calurus', 'Otomops harrisoni', 'Eptesicus anatolicus', 'Gerbillus andersoni',
+        'Triaenops persicus', 'Crocidura pachyura', 'Hipposideros tephrus', 'Pipistrellus hanaki', 'Mops midas'
+      ];
+
+      for (let i = 0; i < 100; i++) {
+        const item = document.createElement('div');
+        item.className = 'species-item';
+
+        const img = document.createElement('img');
+        const num = i.toString().padStart(2, '0');
+        img.src = `static/images/species_images/${num}_${speciesNames[i].replace(/ /g, '_')}.jpg`;
+        img.alt = speciesNames[i];
+        img.loading = 'lazy';
+
+        const name = document.createElement('div');
+        name.className = 'species-name';
+        name.textContent = speciesNames[i];
+
+        item.appendChild(img);
+        item.appendChild(name);
+        grid.appendChild(item);
+      }
+    }
+
+    // Generate grid when DOM is loaded
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', generateSpeciesGrid);
+    } else {
+      generateSpeciesGrid();
+    }
+  </script>
 
   </body>
   </html>
