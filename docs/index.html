@@ -684,6 +684,10 @@
       <i class="fas fa-paw"></i>
       <span>Species</span>
     </a>
+    <a href="#download" class="nav-item">
+      <i class="fas fa-download"></i>
+      <span>Download</span>
+    </a>
     <a href="#BibTeX" class="nav-item">
       <i class="fas fa-quote-right"></i>
       <span>BibTeX</span>
@@ -877,6 +881,24 @@
   </div>
 </section>
 <!-- End species section -->
+
+<!-- Download section -->
+<section id="download" class="section hero is-light">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Download</h2>
+        <div class="content">
+          <div class="bibtex-container">
+            <button class="bibtex-copy-btn" onclick="copyDownloadCode()" title="Copy download command">📋</button>
+            <pre id="download-code"><code>mkdir -p mmearth-bench-data/{biomass,soil_nitrogen,soil_organic_carbon,soil_pH,species} && for task in biomass soil_nitrogen soil_organic_carbon soil_pH species; do wget -c -P "mmearth-bench-data/$task" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/$task.h5" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/${task}_split_data.json"; done && wget -c -P mmearth-bench-data/species "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/species/species_labels.json"</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End download section -->
 
 <!-- Image carousel -->
 <!-- <section class="hero is-small">
@@ -1101,6 +1123,49 @@
       document.addEventListener('DOMContentLoaded', generateSpeciesGrid);
     } else {
       generateSpeciesGrid();
+    }
+
+    // Copy download code to clipboard
+    function copyDownloadCode() {
+      const downloadElement = document.getElementById('download-code');
+      const downloadSection = document.getElementById('download');
+      const copyButton = downloadSection ? downloadSection.querySelector('.bibtex-copy-btn') : null;
+
+      if (downloadElement) {
+        navigator.clipboard.writeText(downloadElement.textContent).then(function() {
+          // Success feedback
+          if (copyButton) {
+            const originalEmoji = copyButton.textContent;
+            copyButton.textContent = '✓';
+            copyButton.classList.add('copied');
+
+            setTimeout(function() {
+              copyButton.textContent = originalEmoji;
+              copyButton.classList.remove('copied');
+            }, 2000);
+          }
+        }).catch(function(err) {
+          console.error('Failed to copy: ', err);
+          // Fallback for older browsers
+          const textArea = document.createElement('textarea');
+          textArea.value = downloadElement.textContent;
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+
+          if (copyButton) {
+            const originalEmoji = copyButton.textContent;
+            copyButton.textContent = '✓';
+            copyButton.classList.add('copied');
+
+            setTimeout(function() {
+              copyButton.textContent = originalEmoji;
+              copyButton.classList.remove('copied');
+            }, 2000);
+          }
+        });
+      }
     }
   </script>
 
