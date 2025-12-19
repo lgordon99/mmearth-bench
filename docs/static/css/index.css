@@ -515,6 +515,7 @@ code {
 
 .bibtex-container pre {
   text-align: left;
+  padding-right: 3.5rem;
 }
 
 .bibtex-copy-btn {

@@ -797,7 +797,8 @@
   </div>
   <div style="padding: 0 2rem;">
     <iframe
-      src="https://lgordon99.github.io/mmearth-bench-app/"
+      id="explorer-iframe"
+      data-src="https://lgordon99.github.io/mmearth-bench-app/"
       style="width: 100%; max-width: 100%; height: 800px; margin: 2rem auto 0 auto; display: block; border: none;"
       title="MMEarth-Bench Interactive Explorer"
       allowfullscreen>
@@ -889,6 +890,24 @@
       <div class="column is-four-fifths">
         <h2 class="title is-3">Download</h2>
         <div class="content">
+          <p>Run the following command in the command line to download the MMEarth-Bench data. This will take about 2 hours and yield the following folder structure:</p>
+          <pre><code>mmearth-bench-data/
+├── biomass/
+│   ├── biomass_split_data.json
+│   └── biomass.h5
+├── soil_nitrogen/
+│   ├── soil_nitrogen_split_data.json
+│   └── soil_nitrogen.h5
+├── soil_organic_carbon/
+│   ├── soil_organic_carbon_split_data.json
+│   └── soil_organic_carbon.h5
+├── soil_pH/
+│   ├── soil_pH_split_data.json
+│   └── soil_pH.h5
+└── species/
+    ├── species_labels.json
+    ├── species_split_data.json
+    └── species.h5</code></pre>
           <div class="bibtex-container">
             <button class="bibtex-copy-btn" onclick="copyDownloadCode()" title="Copy download command">📋</button>
             <pre id="download-code"><code>mkdir -p mmearth-bench-data/{biomass,soil_nitrogen,soil_organic_carbon,soil_pH,species} && for task in biomass soil_nitrogen soil_organic_carbon soil_pH species; do wget -c -P "mmearth-bench-data/$task" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/$task.h5" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/${task}_split_data.json"; done && wget -c -P mmearth-bench-data/species "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/species/species_labels.json"</code></pre>
@@ -1166,6 +1185,23 @@
           }
         });
       }
+    }
+
+    // Load iframe after page is fully loaded
+    function loadIframe() {
+      const iframe = document.getElementById('explorer-iframe');
+      if (iframe && iframe.dataset.src) {
+        iframe.src = iframe.dataset.src;
+      }
+    }
+
+    // Wait for the page to fully load before loading the iframe
+    if (document.readyState === 'complete') {
+      // Page is already loaded
+      loadIframe();
+    } else {
+      // Wait for page to fully load
+      window.addEventListener('load', loadIframe);
     }
   </script>
 
