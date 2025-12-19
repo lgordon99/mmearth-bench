@@ -890,7 +890,12 @@
       <div class="column is-full">
         <h2 class="title is-3">Download</h2>
         <div class="content has-text-justified" style="max-width: 800px; margin: 0 auto;">
-          <p>Run the following command in the command line to download the MMEarth-Bench data. This will take about 2 hours and yield the following folder structure:</p>
+          <p>Run the following command in the command line to download the MMEarth-Bench data.</p>
+          <div class="bibtex-container">
+            <button class="bibtex-copy-btn" onclick="copyDownloadCode()" title="Copy download command">📋</button>
+            <pre id="download-code"><code>mkdir -p mmearth-bench-data/{biomass,soil_nitrogen,soil_organic_carbon,soil_pH,species} && for task in biomass soil_nitrogen soil_organic_carbon soil_pH species; do wget -c -P "mmearth-bench-data/$task" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/$task.h5" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/${task}_split_data.json"; done && wget -c -P mmearth-bench-data/species "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/species/species_labels.json"</code></pre>
+          </div>
+          <p>This will take about 2 hours and yield the following folder structure:</p>
           <pre><code>mmearth-bench-data/
 ├── biomass/
 │   ├── biomass_split_data.json
@@ -908,10 +913,6 @@
     ├── species_labels.json
     ├── species_split_data.json
     └── species.h5</code></pre>
-          <div class="bibtex-container">
-            <button class="bibtex-copy-btn" onclick="copyDownloadCode()" title="Copy download command">📋</button>
-            <pre id="download-code"><code>mkdir -p mmearth-bench-data/{biomass,soil_nitrogen,soil_organic_carbon,soil_pH,species} && for task in biomass soil_nitrogen soil_organic_carbon soil_pH species; do wget -c -P "mmearth-bench-data/$task" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/$task.h5" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/${task}_split_data.json"; done && wget -c -P mmearth-bench-data/species "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/species/species_labels.json"</code></pre>
-          </div>
         </div>
       </div>
     </div>

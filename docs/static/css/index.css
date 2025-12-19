@@ -516,6 +516,8 @@ code {
 .bibtex-container pre {
   text-align: left;
   padding-right: 4.5rem;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .bibtex-copy-btn {
