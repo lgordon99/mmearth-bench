@@ -417,7 +417,7 @@
     /* Overview figure text wrapping */
     .overview-figure {
       float: right;
-      shape-outside: url('static/images/mmearth_bench_figure.svg');
+      shape-outside: circle(50%);
       shape-margin: 1rem;
     }
 
@@ -447,7 +447,7 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      cursor: pointer;
+      cursor: default;
       transition: transform 0.3s ease;
       text-align: center;
       position: relative;
@@ -705,7 +705,7 @@
         <div class="content has-text-justified" style="max-width: 1100px; margin: 0 auto; font-size: 1rem;">
           <!-- TODO: Replace with your overview text -->
           <p>
-            <img src="static/images/mmearth_bench_figure.svg" alt="MMEarth-Bench figure" class="overview-figure" style="width: 60%; max-width: 700px; height: auto;" loading="lazy"/>
+            <iframe src="static/images/mmearth_bench_figure.html" title="MMEarth-Bench figure" class="overview-figure" style="width: 60%; max-width: 700px; height: 700px; border: none;" loading="lazy"></iframe>
             Recent research in geospatial machine learning has demonstrated that models pretrained with self-supervised learning on Earth observation data can perform well on downstream tasks with limited training data. However, most of the existing geospatial benchmark datasets have few data modalities and poor global representation, limiting the ability to evaluate multimodal pretrained models at global scales. To fill this gap, we introduce MMEarth-Bench, a collection of five new multimodal downstream tasks with 12 input modalities, globally distributed data, and both in- and out-of-distribution test splits. We benchmark a diverse set of pretrained models on MMEarth-Bench and find that multimodal models generally perform best. While pretraining tends to improve model robustness in limited data settings, geographic generalization abilities remain poor and using multimodal inputs at test time can sometimes lead to geographic overfitting. In order to facilitate model adaptation to new downstream tasks and geographic domains, we propose a model-agnostic method for test-time training with multimodal reconstruction (TTT-MMR) that uses all the modalities available at test time, regardless of whether the pretrained model accepts them as input. We show that TTT-MMR improves model performance on both random and geographic test splits, and that geographic batching leads to a good trade-off between regularization and specialization during TTT. Our code, dataset, and visualization tool will be released upon publication.
           </p>
         </div>
@@ -731,7 +731,7 @@
             <div class="teaser-title">Limited data</div>
             <div class="teaser-line"></div>
             <div class="sparse-data-container">
-              <object data="static/images/sparse_data.svg" type="image/svg+xml" width="809" height="254" style="margin-left: 50px;">
+              <object data="static/images/sparse_data.svg" type="image/svg+xml" width="650" height="204" style="margin-left: 50px;">
                 <img src="static/images/sparse_data.svg" alt="Sparse data visualization" />
               </object>
             </div>
@@ -851,7 +851,7 @@
           </p>
         </div>
         <div class="content">
-          <video src="static/videos/TTT Video.mp4" autoplay loop muted playsinline style="width: 70%; height: auto; margin: 1rem auto; border-radius: 12px; display: block;" aria-label="TTT-MMR method diagram"></video>
+          <video src="static/videos/TTT Video.mp4" autoplay loop muted playsinline style="width: 85%; height: auto; margin: 1rem auto; border-radius: 12px; display: block;" aria-label="TTT-MMR method diagram"></video>
         </div>
       </div>
     </div>
@@ -895,6 +895,7 @@
             <button class="bibtex-copy-btn" onclick="copyDownloadCode()" title="Copy download command">📋</button>
             <pre id="download-code"><code>mkdir -p mmearth-bench-data/{biomass,soil_nitrogen,soil_organic_carbon,soil_pH,species} && for task in biomass soil_nitrogen soil_organic_carbon soil_pH species; do wget -c -P "mmearth-bench-data/$task" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/$task.h5" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/${task}_split_data.json"; done && wget -c -P mmearth-bench-data/species "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/species/species_labels.json"</code></pre>
           </div>
+          <br>
           <p>This will take about 2 hours and yield the following folder structure:</p>
           <pre><code>mmearth-bench-data/
 ├── biomass/
