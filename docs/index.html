@@ -702,6 +702,82 @@
       }
     }
 
+    /* Responsive styles for Download section */
+    #download .content {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+
+    #download pre {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      box-sizing: border-box;
+      margin: 0;
+    }
+
+    #download code {
+      display: block;
+      width: 100%;
+      overflow-x: auto;
+      white-space: pre;
+      word-wrap: normal;
+      box-sizing: border-box;
+    }
+
+    #download .bibtex-container {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      box-sizing: border-box;
+      position: relative;
+    }
+
+    @media (max-width: 768px) {
+      #download .content {
+        padding: 0 1rem;
+        max-width: 100% !important;
+      }
+
+      #download .content.has-text-justified {
+        max-width: 100% !important;
+        margin: 0 auto;
+        padding: 0 1rem;
+      }
+
+      #download pre {
+        font-size: 0.85rem;
+        padding: 0.75rem;
+        margin: 0.5rem 0;
+      }
+
+      #download code {
+        font-size: 0.85rem;
+      }
+    }
+
+    @media (max-width: 480px) {
+      #download .content {
+        padding: 0 0.5rem;
+      }
+
+      #download .content.has-text-justified {
+        padding: 0 0.5rem;
+      }
+
+      #download pre {
+        font-size: 0.75rem;
+        padding: 0.5rem;
+        margin: 0.5rem 0;
+      }
+
+      #download code {
+        font-size: 0.75rem;
+      }
+    }
+
     .species-item {
       display: flex;
       flex-direction: column;
