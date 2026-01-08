@@ -435,6 +435,20 @@
       object-fit: contain;
     }
 
+    /* Responsive: Put figure below text if screen is too narrow */
+    @media (max-width: 1200px) {
+      .overview-figure {
+        float: none;
+        display: block;
+        width: 100%;
+        max-width: 550px;
+        height: auto;
+        margin: 2rem auto;
+        shape-outside: none;
+        shape-margin: 0;
+      }
+    }
+
     /* Pie chart figure styles */
     .pie-container {
       position: absolute;
