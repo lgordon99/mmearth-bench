@@ -56,7 +56,6 @@ class GeographicBatchSampler(BatchSampler):
             # Base case: if points fit in one group (within tolerance)
             if n < 2 * batch_size:  # allows 20% tolerance
                 self.batches[batch_id] = points_subset # adds points to cluster
-                # self.batches.append(points_subset[:, 0]) # adds indices to cluster
                 print(f'Created batch {batch_id} with {n} tiles')
                 batch_id += 1 # increments cluster id
                 return # stops recursion
@@ -114,54 +113,6 @@ class GeographicBatchSampler(BatchSampler):
 
         partition_recursive(points, initial_bounds)
 
-        # polygons = {}
-
-        # for batch_id, points in self.batches.items():
-        #     points_array = np.array(points)
-
-        #     # Get bounding box of the points
-        #     min_x = points_array[:, 1].min()
-        #     max_x = points_array[:, 1].max()
-        #     min_y = points_array[:, 2].min()
-        #     max_y = points_array[:, 2].max()
-
-        #     # Create rectangle polygon
-        #     polygons[batch_id] = [[min_x, min_y],
-        #                           [max_x, min_y],
-        #                           [max_x, max_y],
-        #                           [min_x, max_y],
-        #                           [min_x, min_y]]
-
-        # features = []
-
-        # for batch_id in sorted(self.batches.keys()):
-        #     points = self.batches[batch_id]
-        #     polygon_coordinates = polygons[batch_id]
-        #     points_list = [[int(idx), float(lon), float(lat)] for idx, lon, lat in points] # converts points to list of floats
-        #     polygon_coordinates_clean = [[float(x), float(y)] for x, y in polygon_coordinates] # converts polygon coordinates to list of floats
-
-        #     feature = {
-        #         "type": "Feature",
-        #         "properties": {
-        #             "batch_id": int(batch_id),
-        #             "point_count": len(points),
-        #             "points": points_list
-        #         },
-        #         "geometry": {
-        #             "type": "Polygon",
-        #             "coordinates": [polygon_coordinates_clean]
-        #         }
-        #     }
-        #     features.append(feature)
-
-        # output_file = f'/n/home01/luciagordon/mmearth-bench/{split}_batches.geojson'
-
-        # with open(output_file, 'w') as f:
-        #     import json
-        #     json.dump({"type": "FeatureCollection", "features": features}, f, indent=2)
-
-        # print(f"GeoJSON saved to: {output_file}")
-        # exit()
     def __iter__(self):
         batches = [batch[:, 0].astype(int) for batch in self.batches.values()]
 
