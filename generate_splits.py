@@ -81,7 +81,7 @@ def generate_splits(task):
 
         # calculate normalization statistics
         for split in subset_splits:
-            for modality in ['Sentinel2', 'Sentinel1', 'AsterDEM', 'ETH_GCH', 'precipitation', 'temperature']:
+            for modality in ['Sentinel2', 'Sentinel1', 'ASTER_GDEM', 'ETH_GCH', 'precipitation', 'temperature']:
                 train_images = h5_file[modality][:][split_data[f'{split}_indices']]
                 masked = np.ma.masked_equal(train_images, no_data_values[modality])
                 axes_to_collapse = tuple(i for i in range(masked.ndim) if i != 1) # collapse all dimensions except the channel dimension
@@ -183,38 +183,16 @@ def generate_splits(task):
         txt_file.write(f'{task}: {task_data.shape}\n')
         txt_file.write(f'Tiles in Africa: {len(africa_boxes)}\n')
         txt_file.write(f'Tiles outside Africa: {len(non_africa_boxes)}\n')
-        txt_file.write(f'{len(split_data["train_100%_indices"])} training 100% tiles\n')
-        txt_file.write(f'{len(split_data["train_50%_indices"])} training 50% tiles\n')
-        txt_file.write(f'{len(split_data["train_5%_indices"])} training 5% tiles\n')
-        txt_file.write(f'{len(split_data["val_indices"])} validation tiles\n')
-        txt_file.write(f'{len(split_data["random_test_indices"])} random test tiles\n')
-        txt_file.write(f'{len(split_data["geographic_test_indices"])} geographic test tiles\n')
+
+        for split in ['train_100%', 'train_50%', 'train_5%', 'val', 'random_test', 'geographic_test']:
+            txt_file.write(f'{len(split_data[f"{split}_indices"])} {split.replace("_", " ")} tiles\n')
 
         if task != 'species':
-            txt_file.write(f'Mean of train 100% values: {round(float(np.mean(split_task_values["train_100%"])), 2)}\n')
-            txt_file.write(f'STD of train 100% values: {round(float(np.std(split_task_values["train_100%"])), 2)}\n')
-            txt_file.write(f'Min of train 100% values: {round(float(np.min(split_task_values["train_100%"])), 2)}\n')
-            txt_file.write(f'Max of train 100% values: {round(float(np.max(split_task_values["train_100%"])), 2)}\n')
-            txt_file.write(f'Mean of train 50% values: {round(float(np.mean(split_task_values["train_50%"])), 2)}\n')
-            txt_file.write(f'STD of train 50% values: {round(float(np.std(split_task_values["train_50%"])), 2)}\n')
-            txt_file.write(f'Min of train 50% values: {round(float(np.min(split_task_values["train_50%"])), 2)}\n')
-            txt_file.write(f'Max of train 50% values: {round(float(np.max(split_task_values["train_50%"])), 2)}\n')
-            txt_file.write(f'Mean of train 5% values: {round(float(np.mean(split_task_values["train_5%"])), 2)}\n')
-            txt_file.write(f'STD of train 5% values: {round(float(np.std(split_task_values["train_5%"])), 2)}\n')
-            txt_file.write(f'Min of train 5% values: {round(float(np.min(split_task_values["train_5%"])), 2)}\n')
-            txt_file.write(f'Max of train 5% values: {round(float(np.max(split_task_values["train_5%"])), 2)}\n')
-            txt_file.write(f'Mean of validation values: {round(float(np.mean(split_task_values["val"])), 2)}\n')
-            txt_file.write(f'STD of validation values: {round(float(np.std(split_task_values["val"])), 2)}\n')
-            txt_file.write(f'Min of validation values: {round(float(np.min(split_task_values["val"])), 2)}\n')
-            txt_file.write(f'Max of validation values: {round(float(np.max(split_task_values["val"])), 2)}\n')
-            txt_file.write(f'Mean of random test values: {round(float(np.mean(split_task_values["random_test"])), 2)}\n')
-            txt_file.write(f'STD of random test values: {round(float(np.std(split_task_values["random_test"])), 2)}\n')
-            txt_file.write(f'Min of random test values: {round(float(np.min(split_task_values["random_test"])), 2)}\n')
-            txt_file.write(f'Max of random test values: {round(float(np.max(split_task_values["random_test"])), 2)}\n')
-            txt_file.write(f'Mean of geographic test values: {round(float(np.mean(split_task_values["geographic_test"])), 2)}\n')
-            txt_file.write(f'STD of geographic test values: {round(float(np.std(split_task_values["geographic_test"])), 2)}\n')
-            txt_file.write(f'Min of geographic test values: {round(float(np.min(split_task_values["geographic_test"])), 2)}\n')
-            txt_file.write(f'Max of geographic test values: {round(float(np.max(split_task_values["geographic_test"])), 2)}\n')
+            for split in ['train_100%', 'train_50%', 'train_5%', 'val', 'random_test', 'geographic_test']:
+                txt_file.write(f'Mean of {split.replace("_", " ")} values: {round(float(np.mean(split_task_values[split])), 2)}\n')
+                txt_file.write(f'STD of {split.replace("_", " ")} values: {round(float(np.std(split_task_values[split])), 2)}\n')
+                txt_file.write(f'Min of {split.replace("_", " ")} values: {round(float(np.min(split_task_values[split])), 2)}\n')
+                txt_file.write(f'Max of {split.replace("_", " ")} values: {round(float(np.max(split_task_values[split])), 2)}\n')
 
             for split in ['val', 'random_test', 'geographic_test']:
                 for subset_split in subset_splits:
@@ -262,7 +240,6 @@ def plot_dataset_split(task):
               fontsize=12)
     plt.title(f'{task.replace("_", " ").title().replace("Ph", "pH")} Dataset Split', fontsize=16, fontweight='bold')
     plt.tight_layout()
-    plt.savefig(f'{data_dir_path}/{task}/{task}_split_map.png', dpi=300, bbox_inches='tight')
     plt.savefig(f'{data_dir_path}/{task}/{task}_split_map.pdf', dpi=300, bbox_inches='tight')
 
 def plot_all_splits():
@@ -307,7 +284,6 @@ def plot_all_splits():
 
     fig.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 0.05), ncol=4, fontsize=30, frameon=False, handletextpad=0.1)
     plt.tight_layout()
-    plt.savefig(f'{data_dir_path}/split_maps.png', dpi=300, bbox_inches='tight')
     plt.savefig(f'{data_dir_path}/split_maps.pdf', dpi=300, bbox_inches='tight')
 
 if __name__ == '__main__':
