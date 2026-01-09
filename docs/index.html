@@ -692,10 +692,28 @@
     }
 
     /* Responsive styles for Download section */
+    #download.section {
+      overflow-x: hidden;
+      width: 100%;
+    }
+
+    #download .container,
+    #download .columns,
+    #download .column {
+      overflow-x: hidden;
+      max-width: 100%;
+      width: 100%;
+    }
+
     #download .content {
       width: 100%;
-      max-width: 100%;
+      max-width: 100% !important;
       box-sizing: border-box;
+    }
+
+    #download .content.has-text-justified {
+      max-width: 100% !important;
+      margin: 0 auto;
     }
 
     #download pre {
@@ -705,6 +723,7 @@
       overflow-y: hidden;
       box-sizing: border-box;
       margin: 0;
+      word-break: break-all;
     }
 
     #download code {
@@ -713,6 +732,7 @@
       overflow-x: auto;
       white-space: pre;
       word-wrap: normal;
+      word-break: break-all;
       box-sizing: border-box;
     }
 
@@ -722,6 +742,7 @@
       overflow-x: auto;
       box-sizing: border-box;
       position: relative;
+      -webkit-overflow-scrolling: touch;
     }
 
     #download .bibtex-container pre,
@@ -732,6 +753,13 @@
     #download .bibtex-container code,
     .bibtex-container code {
       padding-right: 0;
+    }
+
+    @media (max-width: 900px) {
+      #download .content.has-text-justified {
+        max-width: 100% !important;
+        padding: 0 1.5rem;
+      }
     }
 
     @media (max-width: 768px) {
@@ -757,6 +785,21 @@
       }
     }
 
+    @media (max-width: 600px) {
+      #download .content.has-text-justified {
+        padding: 0 0.75rem;
+      }
+
+      #download pre {
+        font-size: 0.8rem;
+        padding: 0.6rem;
+      }
+
+      #download code {
+        font-size: 0.8rem;
+      }
+    }
+
     @media (max-width: 480px) {
       #download .content {
         padding: 0 0.5rem;
@@ -774,6 +817,25 @@
 
       #download code {
         font-size: 0.75rem;
+      }
+
+      #download .bibtex-container pre {
+        padding-right: 3rem !important;
+      }
+    }
+
+    @media (max-width: 400px) {
+      #download .content.has-text-justified {
+        padding: 0 0.25rem;
+      }
+
+      #download pre {
+        font-size: 0.7rem;
+        padding: 0.4rem;
+      }
+
+      #download code {
+        font-size: 0.7rem;
       }
     }
 
