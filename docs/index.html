@@ -317,6 +317,18 @@
     }
 
     /* Fix for pink line artifact above Species section */
+    #motivation.section {
+      overflow-x: hidden;
+      width: 100%;
+    }
+
+    #motivation .container,
+    #motivation .columns,
+    #motivation .column {
+      overflow-x: hidden;
+      max-width: 100%;
+    }
+
     #species.section {
       border-top: none !important;
       margin-top: 2rem !important;
@@ -391,12 +403,16 @@
       display: flex;
       justify-content: center;
       align-items: center;
+      width: 100%;
+      max-width: 100%;
+      overflow: hidden;
     }
 
     .sparse-data-container svg,
     .sparse-data-container object {
-      max-width: 100%;
-      height: auto;
+      max-width: 100% !important;
+      width: 100% !important;
+      height: auto !important;
     }
 
     .domain-shifts-container {
@@ -406,14 +422,25 @@
       align-items: center;
       gap: 30px;
       flex-wrap: wrap;
+      width: 100%;
+      max-width: 100%;
+      overflow: hidden;
     }
 
     .domain-shifts-container svg,
     .domain-shifts-container object {
-      max-width: 100%;
-      height: auto;
+      max-width: 100% !important;
+      height: auto !important;
+      flex-shrink: 1;
     }
 
+    @media (max-width: 800px) {
+      .sparse-data-container object,
+      .domain-shifts-container object {
+        width: auto !important;
+        max-width: 100% !important;
+      }
+    }
 
     /* Responsive scaling for Motivation section - scale everything proportionally */
     @media (max-width: 1200px) {
@@ -450,12 +477,21 @@
         transform: scale(0.5);
         transform-origin: center top;
       }
+
+      .domain-shifts-container {
+        gap: 15px;
+      }
     }
 
     @media (max-width: 600px) {
       .teaser-figure-container {
         transform: scale(0.45);
         transform-origin: center top;
+        padding: 15px;
+      }
+
+      .domain-shifts-container {
+        gap: 10px;
       }
     }
 
@@ -463,6 +499,20 @@
       .teaser-figure-container {
         transform: scale(0.4);
         transform-origin: center top;
+        padding: 10px;
+      }
+
+      .domain-shifts-container {
+        flex-direction: column;
+        gap: 15px;
+      }
+    }
+
+    @media (max-width: 400px) {
+      .teaser-figure-container {
+        transform: scale(0.35);
+        transform-origin: center top;
+        padding: 5px;
       }
     }
 
