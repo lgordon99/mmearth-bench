@@ -136,6 +136,8 @@ def display_arch_name(name: str) -> str:
         return 'Copernicus-FM'
     elif name =='CopernicusFMS2':
         return 'Copernicus-FM S2'
+    elif name == 'TerraMindS2':
+        return 'TerraMind S2'
     else:
         return name
 
@@ -298,11 +300,11 @@ def tabulate_results_task(task, adaptation_mode):
     latex = combined_df.to_latex(index=True, header=False, index_names=False, escape=False, column_format=column_format)
     latex = latex.replace('\\toprule', '\\toprule\n' + split_header + '\n' + seed_header + '\n' + train_header + '\n\\midrule', 1)
     latex = ("\\begin{table*}\n\\centering\n" +
+            f"\\caption{{{task.replace('_', ' ').capitalize().replace('ph', 'pH')} {mode_name} test {caption_metric}}}\n" +
             "\\resizebox{\\linewidth}{!}{%\n" +
             latex +
             "\n}\n" +
-            f"\\caption{{{task.replace('_', ' ').capitalize().replace('ph', 'pH')} {mode_name} test {caption_metric}}}\n" +
-            f"\\label{{tab:{task}}}\n" +
+            f"\\label{{tab:{adaptation_mode}-{task}}}\n" +
             "\\end{table*}\n")
 
     return latex
@@ -1402,7 +1404,6 @@ def plot_ttt_improvement_normalized():
             fontsize=LEGEND_FONTSIZE,
             frameon=False)
 
-    plt.savefig('results_figures/TTT_plot_normalized.png', dpi=300)
     plt.savefig('results_figures/TTT_plot_normalized.pdf', dpi=300)
 
 def tabulate_ttt_by_model():
@@ -1893,20 +1894,20 @@ def tabulate_ttt_ranks_by_model():
 
 if __name__ == '__main__':
     # main paper
-    # plot_rq1_performance('Random', 'FT') # Figure 4
-    # plot_rq2_performance('FT') # Figure 5
-    # plot_rq3_performance('FT') # Figure 6
-    # plot_ttt_improvement() # Figure 7
+    plot_rq1_performance('Random', 'FT') # Figure 4
+    plot_rq2_performance('FT') # Figure 5
+    plot_rq3_performance('FT') # Figure 6
+    plot_ttt_improvement() # Figure 7
     tabulate_ttt_ranks_by_model() # Table 5
 
     # supplementary
-    # plot_rq1_performance('Geographic', 'FT')
-    # plot_rq1_performance('Random', 'LP')
-    # plot_rq1_performance('Geographic', 'LP')
-    # plot_rq2_performance('LP')
-    # plot_rq3_performance('LP')
-    # plot_ttt_improvement_normalized()
-    # tabulate_ttt_by_model()
-    # tabulate_results('FT')
-    # tabulate_TTT_results()
-    # tabulate_results('LP')
+    plot_rq1_performance('Geographic', 'FT') # Figure S.17
+    plot_rq1_performance('Random', 'LP') # Figure S.18
+    plot_rq1_performance('Geographic', 'LP') # Figure S.19
+    plot_rq2_performance('LP') # Figure S.20
+    plot_rq3_performance('LP') # Figure S.21
+    plot_ttt_improvement_normalized() # Figure S.22
+    tabulate_ttt_by_model() # Table S.13
+    tabulate_results('FT') # Tables S.14-18
+    tabulate_TTT_results() # Tables S.19-33
+    tabulate_results('LP') # Tables S.34-38
