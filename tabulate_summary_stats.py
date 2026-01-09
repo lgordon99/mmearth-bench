@@ -647,8 +647,10 @@ def create_modality_stats_table():
 
     # Build LaTeX table
     latex_lines = []
-    latex_lines.append("\\begin{table}")
+    latex_lines.append("\\begin{table*}")
     latex_lines.append("\\centering")
+    latex_lines.append("\\caption{\\textbf{Modality statistics.} NaN percentage and [min, max] range across all tasks.}")
+    latex_lines.append("\\label{tab:modality_stats}")
     latex_lines.append("\\resizebox{\\linewidth}{!}{%")
     latex_lines.append("\\begin{tabular}{l" + "cc" * len(tasks) + "}")
     latex_lines.append("\\toprule")
@@ -658,7 +660,7 @@ def create_modality_stats_table():
     for task in tasks:
         task_name = task.replace('_', ' ').title().replace('Ph', 'pH')
         task_header_parts.append(f"\\multicolumn{{2}}{{c}}{{\\textbf{{{task_name}}}}}")
-    task_header = "Modality & " + " & ".join(task_header_parts) + " \\\\"
+    task_header = "\\multirow{2}{*}{\\textbf{Modality}} & " + " & ".join(task_header_parts) + " \\\\"
     latex_lines.append(task_header)
     # Generate cmidrule for each task (each spans 2 columns)
     cmidrules = []
@@ -671,7 +673,7 @@ def create_modality_stats_table():
     # Second header row: column labels
     column_header_parts = []
     for task in tasks:
-        column_header_parts.append("\\textbf{NaN pixel \\%}")
+        column_header_parts.append("\\textbf{NaN \\%}")
         column_header_parts.append("\\textbf{[Min, Max]}")
     column_header = " & " + " & ".join(column_header_parts) + " \\\\"
     latex_lines.append(column_header)
@@ -684,6 +686,8 @@ def create_modality_stats_table():
         # Capitalize first letter if it's not already capitalized
         if formatted_name and formatted_name[0].islower():
             formatted_name = formatted_name[0].upper() + formatted_name[1:]
+        # Rename Sentinel2 to Sentinel-2 and Sentinel1 to Sentinel-1
+        formatted_name = formatted_name.replace('Sentinel2', 'Sentinel-2').replace('Sentinel1', 'Sentinel-1')
         row_parts = [formatted_name]
         for task in tasks:
             task_stats = all_stats[task]
@@ -705,9 +709,7 @@ def create_modality_stats_table():
     latex_lines.append("\\bottomrule")
     latex_lines.append("\\end{tabular}")
     latex_lines.append("}")
-    latex_lines.append("\\caption{Modality statistics (NaN percentage and [min, max] range) across all tasks}")
-    latex_lines.append("\\label{tab:modality_stats}")
-    latex_lines.append("\\end{table}")
+    latex_lines.append("\\end{table*}")
 
     return "\n".join(latex_lines)
 
