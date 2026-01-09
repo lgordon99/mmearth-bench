@@ -199,10 +199,16 @@
       background-repeat: no-repeat;
       background-size: 100% 100%;
       min-height: 100vh;
+      overflow-x: hidden;
     }
 
     html {
       height: 100%;
+      overflow-x: hidden;
+    }
+
+    #main-content {
+      overflow-x: hidden;
     }
 
     /* Remove white background from the main hero section with title/authors/buttons */
@@ -318,15 +324,24 @@
 
     /* Fix for pink line artifact above Species section */
     #motivation.section {
-      overflow-x: hidden;
+      overflow: visible;
       width: 100%;
     }
 
     #motivation .container,
     #motivation .columns,
     #motivation .column {
-      overflow-x: hidden;
+      overflow: visible;
       max-width: 100%;
+      width: 100%;
+    }
+
+    #motivation .content {
+      overflow: visible;
+    }
+
+    .teaser-figure-container {
+      overflow: visible;
     }
 
     #species.section {
@@ -381,6 +396,8 @@
       align-items: center;
       max-width: 100%;
       width: 100%;
+      overflow: hidden;
+      box-sizing: border-box;
     }
 
     .teaser-title {
