@@ -211,6 +211,13 @@
       overflow-x: hidden;
     }
 
+    /* Ensure navigation menu stays sticky */
+    .section-nav {
+      position: sticky !important;
+      top: 10px !important;
+      z-index: 1000 !important;
+    }
+
     /* Remove white background from the main hero section with title/authors/buttons */
     #main-content > section.hero:first-of-type,
     #main-content > section.hero:first-of-type .hero-body {
