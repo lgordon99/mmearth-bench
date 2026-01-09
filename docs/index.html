@@ -431,7 +431,6 @@
     .sparse-data-container svg,
     .sparse-data-container object {
       max-width: 100% !important;
-      width: 100% !important;
       height: auto !important;
     }
 
@@ -465,46 +464,61 @@
     /* Responsive scaling for Motivation section - scale everything proportionally */
     @media (max-width: 1200px) {
       .teaser-figure-container {
-        transform: scale(0.85);
-        transform-origin: center top;
-        padding: 15px;
-        margin-bottom: -15%;
+        padding: 20px;
+        transform: scale(1.0);
+        margin-bottom: 0;
+      }
+    }
+
+    @media (max-width: 1100px) {
+      .teaser-figure-container {
+        padding: 10px;
+        transform: scale(1.0);
+        margin-bottom: 0;
+      }
+    }
+
+    @media (max-width: 1050px) {
+      .teaser-figure-container {
+        padding: 0;
+        transform: scale(1.0);
+        margin-bottom: 0;
       }
     }
 
     @media (max-width: 1000px) {
       .teaser-figure-container {
-        transform: scale(0.75);
+        padding: 0;
+        transform: scale(0.9);
         transform-origin: center top;
-        padding: 10px;
-        margin-bottom: -25%;
+        margin-bottom: -10%;
       }
     }
 
     @media (max-width: 900px) {
       .teaser-figure-container {
-        transform: scale(0.65);
+        padding: 0;
+        transform: scale(0.8);
         transform-origin: center top;
-        padding: 8px;
-        margin-bottom: -35%;
+        margin-bottom: -20%;
       }
     }
 
     @media (max-width: 800px) {
       .teaser-figure-container {
-        transform: scale(0.55);
+        padding: 0;
+        transform: scale(0.7);
         transform-origin: center top;
-        padding: 5px;
-        margin-bottom: -45%;
+        margin-bottom: -30%;
       }
     }
 
     @media (max-width: 700px) {
       .teaser-figure-container {
-        transform: scale(0.5);
+        padding: 0;
+        transform: scale(0.6);
         transform-origin: center top;
-        padding: 3px;
-        margin-bottom: -50%;
+        margin-bottom: -40%;
       }
 
       .domain-shifts-container {
@@ -514,10 +528,10 @@
 
     @media (max-width: 600px) {
       .teaser-figure-container {
-        transform: scale(0.45);
+        padding: 0;
+        transform: scale(0.5);
         transform-origin: center top;
-        padding: 2px;
-        margin-bottom: -55%;
+        margin-bottom: -50%;
       }
 
       .domain-shifts-container {
@@ -527,9 +541,9 @@
 
     @media (max-width: 500px) {
       .teaser-figure-container {
+        padding: 0;
         transform: scale(0.4);
         transform-origin: center top;
-        padding: 1px;
         margin-bottom: -60%;
       }
 
@@ -541,9 +555,9 @@
 
     @media (max-width: 400px) {
       .teaser-figure-container {
+        padding: 0;
         transform: scale(0.35);
         transform-origin: center top;
-        padding: 0px;
         margin-bottom: -65%;
       }
     }
@@ -1120,7 +1134,7 @@
             <div class="teaser-title">Limited data</div>
             <div class="teaser-line"></div>
             <div class="sparse-data-container">
-              <object data="static/images/sparse_data.svg" type="image/svg+xml" width="500" height="157">
+              <object data="static/images/sparse_data.svg" type="image/svg+xml" width="250" height="78">
                 <img src="static/images/sparse_data.svg" alt="Sparse data visualization" />
               </object>
             </div>
