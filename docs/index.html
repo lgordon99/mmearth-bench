@@ -440,6 +440,8 @@
     .modalities-3d-svg {
       width: 100%;
       height: auto;
+      max-width: 100%; /* Ensure it doesn't overflow */
+      display: block; /* Remove inline spacing */
     }
 
     .icon-overlay {
@@ -469,6 +471,7 @@
         margin-left: 0;
         margin-top: 0;
         gap: 20px;
+        width: 100%; /* Ensure container takes full width */
       }
 
       .ambiguities-input-group {
@@ -561,6 +564,12 @@
       .domain-shifts-container object {
         width: auto !important;
         max-width: 100% !important;
+      }
+
+      /* Specific override for globe to prevent it from filling the screen */
+      .domain-shifts-container object[data*="globe"] {
+        width: 100% !important;
+        max-width: 200px !important;
       }
     }
 
@@ -1264,7 +1273,7 @@
                 </object>
               </div>
               <div class="modalities-3d-container">
-                <object class="modalities-3d-svg" data="static/images/3d_modalities_spherical.svg" type="image/svg+xml">
+                <object class="modalities-3d-svg" data="static/images/3d_modalities_spherical.svg" type="image/svg+xml" width="700" height="336">
                   <img src="static/images/3d_modalities_spherical.svg" alt="3D modalities visualization" />
                 </object>
                 <object class="icon-overlay icon-precipitation" data="static/images/precipitation_white.svg" type="image/svg+xml">
