@@ -462,23 +462,9 @@
     }
 
     /* Responsive scaling for Motivation section - scale everything proportionally */
+    /* Only scale when screen is narrower than the content (~800px) */
+
     @media (max-width: 1200px) {
-      .teaser-figure-container {
-        padding: 0;
-        transform: scale(1.0);
-        margin-bottom: 0;
-      }
-    }
-
-    @media (max-width: 1100px) {
-      .teaser-figure-container {
-        padding: 0;
-        transform: scale(1.0);
-        margin-bottom: 0;
-      }
-    }
-
-    @media (max-width: 1050px) {
       .teaser-figure-container {
         padding: 0;
         transform: scale(1.0);
@@ -489,6 +475,19 @@
     @media (max-width: 900px) {
       .teaser-figure-container {
         padding: 0;
+        transform: scale(1.0);
+        margin-bottom: 0;
+        width: 100%;
+      }
+    }
+
+    @media (max-width: 800px) {
+      .teaser-figure-container {
+        padding: 0;
+        width: 800px; /* Fix width to preserve layout */
+        max-width: none;
+        margin-left: calc(50% - 400px); /* Keep centered */
+        margin-right: auto;
         transform: scale(0.95);
         transform-origin: center top;
         margin-bottom: -5%;
@@ -497,19 +496,22 @@
 
     @media (max-width: 750px) {
       .teaser-figure-container {
-        padding: 0;
+        transform: scale(0.9);
+        margin-bottom: -10%;
+      }
+    }
+
+    @media (max-width: 700px) {
+      .teaser-figure-container {
         transform: scale(0.85);
-        transform-origin: center top;
         margin-bottom: -15%;
       }
     }
 
     @media (max-width: 650px) {
       .teaser-figure-container {
-        padding: 0;
-        transform: scale(0.75);
-        transform-origin: center top;
-        margin-bottom: -25%;
+        transform: scale(0.78);
+        margin-bottom: -22%;
       }
 
       .domain-shifts-container {
@@ -517,11 +519,16 @@
       }
     }
 
+    @media (max-width: 600px) {
+      .teaser-figure-container {
+        transform: scale(0.72);
+        margin-bottom: -28%;
+      }
+    }
+
     @media (max-width: 550px) {
       .teaser-figure-container {
-        padding: 0;
         transform: scale(0.65);
-        transform-origin: center top;
         margin-bottom: -35%;
       }
 
@@ -530,12 +537,17 @@
       }
     }
 
+    @media (max-width: 500px) {
+      .teaser-figure-container {
+        transform: scale(0.58);
+        margin-bottom: -42%;
+      }
+    }
+
     @media (max-width: 450px) {
       .teaser-figure-container {
-        padding: 0;
-        transform: scale(0.55);
-        transform-origin: center top;
-        margin-bottom: -45%;
+        transform: scale(0.52);
+        margin-bottom: -48%;
       }
 
       .domain-shifts-container {
@@ -544,11 +556,19 @@
       }
     }
 
+    @media (max-width: 400px) {
+      .teaser-figure-container {
+        transform: scale(0.46);
+        margin-bottom: -54%;
+      }
+    }
+
     @media (max-width: 350px) {
       .teaser-figure-container {
-        padding: 0;
-        transform: scale(0.45);
-        transform-origin: center top;
+        transform: scale(0.4);
+        margin-bottom: -60%;
+      }
+    }
         margin-bottom: -65%;
       }
     }
