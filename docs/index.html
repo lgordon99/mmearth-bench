@@ -562,6 +562,49 @@
       }
     }
 
+    /* Reduce section padding/margins on narrow screens */
+    @media (max-width: 768px) {
+      .section,
+      .hero.is-light,
+      .hero:not(#main-content > section.hero:first-of-type) {
+        max-width: 95%;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .section,
+      .hero.is-light,
+      .hero:not(#main-content > section.hero:first-of-type) {
+        max-width: 98%;
+        margin: 0.5rem auto;
+      }
+    }
+
+    @media (max-width: 400px) {
+      .section,
+      .hero.is-light,
+      .hero:not(#main-content > section.hero:first-of-type) {
+        max-width: 100%;
+        margin: 0.25rem auto;
+        border-radius: 8px;
+      }
+    }
+
+    /* Override container padding for motivation section */
+    @media (max-width: 768px) {
+      #motivation .container {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+      }
+    }
+
+    @media (max-width: 400px) {
+      #motivation .container {
+        padding-left: 0.25rem;
+        padding-right: 0.25rem;
+      }
+    }
+
     /* Overview figure text wrapping */
     .overview-figure {
       float: right;
