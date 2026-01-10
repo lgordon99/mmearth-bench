@@ -596,6 +596,20 @@
       }
     }
 
+    /* Make teaser figure content match paragraph width */
+    #motivation .content {
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* Override on very narrow screens to use full width */
+    @media (max-width: 850px) {
+      #motivation .content {
+        max-width: 100%;
+      }
+    }
+
     /* Overview figure text wrapping */
     .overview-figure {
       float: right;
