@@ -413,7 +413,6 @@
 
     .teaser-line {
       width: 100%;
-      max-width: 800px;
       height: 2px;
       background-color: white;
       margin-bottom: 30px;
@@ -461,57 +460,18 @@
       }
     }
 
-    /* Responsive scaling for Motivation section - scale everything proportionally */
-    /* Only scale when screen is narrower than the content (~800px) */
-
-    @media (max-width: 1200px) {
-      .teaser-figure-container {
-        padding: 0;
-        transform: scale(1.0);
-        margin-bottom: 0;
-      }
-    }
-
-    @media (max-width: 900px) {
-      .teaser-figure-container {
-        padding: 0;
-        transform: scale(1.0);
-        margin-bottom: 0;
-        width: 100%;
-      }
-    }
-
+    /* Responsive scaling for Motivation section */
     @media (max-width: 800px) {
       .teaser-figure-container {
-        padding: 0;
-        width: 800px; /* Fix width to preserve layout */
-        max-width: none;
-        margin-left: calc(50% - 400px); /* Keep centered */
-        margin-right: auto;
-        transform: scale(0.95);
-        transform-origin: center top;
-        margin-bottom: -5%;
-      }
-    }
-
-    @media (max-width: 750px) {
-      .teaser-figure-container {
-        transform: scale(0.87);
-        margin-bottom: -10%;
-      }
-    }
-
-    @media (max-width: 700px) {
-      .teaser-figure-container {
-        transform: scale(0.81);
-        margin-bottom: -15%;
+        padding: 20px;
+        width: 100%;
+        max-width: 100%;
       }
     }
 
     @media (max-width: 650px) {
       .teaser-figure-container {
-        transform: scale(0.75);
-        margin-bottom: -22%;
+        padding: 10px;
       }
 
       .domain-shifts-container {
@@ -519,54 +479,16 @@
       }
     }
 
-    @media (max-width: 600px) {
-      .teaser-figure-container {
-        transform: scale(0.68);
-        margin-bottom: -28%;
-      }
-    }
-
     @media (max-width: 550px) {
-      .teaser-figure-container {
-        transform: scale(0.62);
-        margin-bottom: -35%;
-      }
-
       .domain-shifts-container {
         gap: 10px;
       }
     }
 
-    @media (max-width: 500px) {
-      .teaser-figure-container {
-        transform: scale(0.56);
-        margin-bottom: -42%;
-      }
-    }
-
     @media (max-width: 450px) {
-      .teaser-figure-container {
-        transform: scale(0.50);
-        margin-bottom: -48%;
-      }
-
       .domain-shifts-container {
         flex-direction: column;
         gap: 15px;
-      }
-    }
-
-    @media (max-width: 400px) {
-      .teaser-figure-container {
-        transform: scale(0.44);
-        margin-bottom: -54%;
-      }
-    }
-
-    @media (max-width: 350px) {
-      .teaser-figure-container {
-        transform: scale(0.38);
-        margin-bottom: -60%;
       }
     }
 
