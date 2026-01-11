@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import rasterio
-import subprocess
 import utils
 
 # ============================================== GLOBAL VARIABLES ============================================== #
@@ -86,7 +85,7 @@ def create_continuous_legend(vmin, vmax, modality_data, label, modality):
     cmap = plt.get_cmap('viridis')
     cmap.set_bad(color='black')
     norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
-    output_path = f'{data_dir_path}/map_data/legends/map_legend_{modality.lower()}.png'
+    output_path = f'{data_dir_path}/mmearth-bench-explorer/legends/map_legend_{modality.lower()}.png'
 
     # save colorbar
     if not os.path.exists(output_path):
@@ -102,7 +101,7 @@ def create_continuous_legend(vmin, vmax, modality_data, label, modality):
 def create_categorical_legend(colors_labels_dict, modality_data, modality):
     cmap = ListedColormap(colors_labels_dict.keys())
     cmap.set_bad(color='black')
-    output_path = f'{data_dir_path}/map_data/legends/map_legend_{modality.lower()}.png'
+    output_path = f'{data_dir_path}/mmearth-bench-explorer/legends/map_legend_{modality.lower()}.png'
 
     if not os.path.exists(output_path):
         fig, ax = plt.subplots(figsize=(10, 2))
@@ -206,7 +205,7 @@ def process_tile(tiff_name):
         tile_level_data[task] = task_value
 
     for modality in pixel_level_modalities:
-        os.makedirs(f'{data_dir_path}/map_data/{task}/png_tiles/{modality}', exist_ok=True)
+        os.makedirs(f'{data_dir_path}/mmearth-bench-explorer/{task}/png_tiles/{modality}', exist_ok=True)
 
         if modality == 'Sentinel1':
             pixel_level_data[modality] = create_continuous_legend(-80, 40, pixel_level_data[modality], 'Backscatter (dB)', modality)
@@ -223,23 +222,23 @@ def process_tile(tiff_name):
         elif modality == 'SCL':
             pixel_level_data[modality] = create_categorical_legend(scl_colors_labels, pixel_level_data[modality], modality)
 
-        plt.imsave(f'{data_dir_path}/map_data/{task}/png_tiles/{modality}/tile_{tile_id}_{modality}.png', pixel_level_data[modality].squeeze())
+        plt.imsave(f'{data_dir_path}/mmearth-bench-explorer/{task}/png_tiles/{modality}/tile_{tile_id}_{modality}.png', pixel_level_data[modality].squeeze())
 
     if task == 'biomass':
         colorized_biomass = create_continuous_legend(0, 2000, biomass, 'Biomass value (Mg/ha)', 'biomass')
-        os.makedirs(f'{data_dir_path}/map_data/{task}/png_tiles/biomass', exist_ok=True)
-        plt.imsave(f'{data_dir_path}/map_data/{task}/png_tiles/biomass/tile_{tile_id}_biomass.png', colorized_biomass)
+        os.makedirs(f'{data_dir_path}/mmearth-bench-explorer/{task}/png_tiles/biomass', exist_ok=True)
+        plt.imsave(f'{data_dir_path}/mmearth-bench-explorer/{task}/png_tiles/biomass/tile_{tile_id}_biomass.png', colorized_biomass)
 
     return tile_level_data
 
 def save_map_data(task):
-    os.makedirs(f'{data_dir_path}/map_data/legends', exist_ok=True)
+    os.makedirs(f'{data_dir_path}/mmearth-bench-explorer/legends', exist_ok=True)
     tiffs = sorted(os.listdir(f'{data_dir_path}/{task}/tiffs'), key=get_tile_id)
 
     with Pool() as pool: # parallel processing
         tile_level_data_list = list(tqdm(pool.imap(process_tile, tiffs), total=len(tiffs)))
 
-    gpd.GeoDataFrame(tile_level_data_list, crs='EPSG:4326').to_file(f'{data_dir_path}/map_data/{task}/{task}_map_gdf.geojson', driver='GeoJSON')
+    gpd.GeoDataFrame(tile_level_data_list, crs='EPSG:4326').to_file(f'{data_dir_path}/mmearth-bench-explorer/{task}/{task}_map_gdf.geojson', driver='GeoJSON')
 
 if __name__ == '__main__':
     task = argv[1]
