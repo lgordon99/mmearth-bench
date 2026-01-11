@@ -103,7 +103,7 @@ def make_global_map(tiles, color, path, title):
 
 def normalize(array):
     for i in range(array.shape[0]):
-        valid_mask = array[i] != -9999
+        valid_mask = array[i] != 65535
 
         if array[i][valid_mask].max() != array[i][valid_mask].min(): # check to avoid division by zero
             array[i][valid_mask] = (array[i][valid_mask] - array[i][valid_mask].min()) / (array[i][valid_mask].max() - array[i][valid_mask].min())
