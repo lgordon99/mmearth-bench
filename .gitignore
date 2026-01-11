@@ -15,3 +15,6 @@ figures
 scratch-output
 wandb
 config-user.yml
+*.tex
+teaser_subfigures
+summary_stats_PDF
