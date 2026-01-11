@@ -38,7 +38,7 @@ cat > $bash_file <<EOF
 #SBATCH --mem $MEM
 #SBATCH --gres gpu:nvidia_h200:1
 #SBATCH --output ${data_dir_path}/experiments/output-files/${task}/${task}_${architecture}_${adaptation_mode}_${train_percent}.out
-#SBATCH --account gajos_lab
+#SBATCH --account davies_lab
 
 source ~/.bashrc
 conda activate $data_dir_path/mmearth-bench-env
