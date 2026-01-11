@@ -1,3 +1,5 @@
+[![Website](https://img.shields.io/badge/🌍-Project_Page-black)](https://lgordon99.github.io/mmearth-bench/)
+
 # MMEarth-Bench
 
 ## Setup Google Earth Engine
