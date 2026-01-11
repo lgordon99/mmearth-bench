@@ -468,7 +468,12 @@
     }
 
     @media (max-width: 800px) {
-      /* Moved ambiguities-container styles to 450px breakpoint */
+      /* Reset margins when stacking occurs due to flex-wrap */
+      .ambiguities-container {
+        margin-top: 0;
+        margin-left: 0;
+        gap: 20px;
+      }
     }
 
     .teaser-figure-container {
@@ -862,6 +867,13 @@
       overflow: visible;
       max-width: 100%;
       width: 100%;
+    }
+
+    @media (max-width: 800px) {
+      #download .container {
+        padding-left: 20px;
+        padding-right: 20px;
+      }
     }
 
     #download .content {
