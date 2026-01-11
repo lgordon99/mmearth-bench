@@ -470,7 +470,6 @@
     @media (max-width: 800px) {
       /* Reset margins when stacking occurs due to flex-wrap */
       .ambiguities-container {
-        margin-top: 0;
         margin-left: 0;
         gap: 20px;
       }
@@ -594,7 +593,6 @@
       .ambiguities-container {
         flex-direction: column;
         margin-left: 0;
-        margin-top: 0;
         gap: 20px;
         width: 100%; /* Ensure container takes full width */
       }
@@ -604,8 +602,9 @@
       }
 
       .modalities-3d-container {
-        margin-left: 0;
-        width: 100%;
+        margin-left: auto;
+        margin-right: auto;
+        width: auto;
       }
 
       .multimodal-input-label {
@@ -873,6 +872,12 @@
       #download .container {
         padding-left: 20px;
         padding-right: 20px;
+      }
+      #download .content {
+        text-align: center !important;
+      }
+      #download pre {
+        text-align: left;
       }
     }
 
