@@ -1,24 +1,22 @@
 project: mmearth-bench
 entity: luciagordon-harvard-university
-name: biomass_random_mpmae_pixelwise_regression_mmearth_finetuning
+name: soil_nitrogen_g_resnet50_imagenet_lp
 program: train.py
 method: grid
 metric:
-  name: "Val loss"
+  name: "Val RMSE"
   goal: minimize
 parameters:
   model.max_lr:
-    # distribution: log_uniform
-    # min: 1e-5
-    # max: 1e-1
-    values: [1e-4, 1e-3, 1e-2]
+    values: [1e-2, 1e-1, 1e-0]
   model.weight_decay:
-    values: [1e-3, 1e-4]
-# run_cap: 50
+    values: [0, 1e-3, 1e-2, 1e-1]
+  # model.decay_factor:
+  #   values: [0.9, 0.8, 0.7, 0.6]
 command:
   - python
   - train.py
-  - +task=biomass
-  - +split_type=random
-  - +model_type=mpmae_pixelwise_regression_mmearth
-  - +adaptation_mode=finetuning
+  - +task=soil_nitrogen
+  - +split_type=geographic
+  - +model_type=resnet50_imagenet
+  - +adaptation_mode=lp
