@@ -1,0 +1,15 @@
+{
+    "Sentinel2": 65535,
+    "Sentinel1": -9999,
+    "ASTER_GDEM": -9999,
+    "ETH_GCH": 255,
+    "DynamicWorld": 9,
+    "ESA_WorldCover": 11,
+    "precipitation": -9999,
+    "temperature": -9999,
+    "biome": 14,
+    "ecoregion": 846,
+    "MSK_CLDPRB": 65535,
+    "S2CLOUDLESS": 65535,
+    "SCL": 0
+}
