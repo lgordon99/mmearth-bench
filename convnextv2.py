@@ -104,7 +104,7 @@ def load_custom_checkpoint(model, checkpoint_path):
     # function adapted from https://github.com/vishalned/MMEarth-train/blob/main/helpers.py
 
     checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
-    print(f'Load pre-trained checkpoint from: {checkpoint_path}')
+    print(f'Loaded pre-trained checkpoint from: {checkpoint_path}')
     checkpoint_model = checkpoint['model'] if 'model' in checkpoint else checkpoint
     state_dict = model.state_dict()
 
@@ -125,9 +125,9 @@ def load_custom_checkpoint(model, checkpoint_path):
     load_state_dict(model, checkpoint_model)
 
     # manually initialize fc layer
-    if isinstance(model.head, nn.Linear):
-        trunc_normal_(model.head.weight, std=2e-5)
-        torch.nn.init.constant_(model.head.bias, 0.)
+    # if isinstance(model.head, nn.Linear):
+    #     trunc_normal_(model.head.weight, std=2e-5)
+    #     torch.nn.init.constant_(model.head.bias, 0.)
 
     return model
 
@@ -158,15 +158,21 @@ class LayerNorm(nn.Module):
 
 class GRN(nn.Module):
     """ GRN (Global Response Normalization) layer enhances channels with stronger activations. """
-    def __init__(self, dim):
+    def __init__(self, dim, mode):
         super().__init__()
 
+        self.mode = mode
         self.gamma = nn.Parameter(torch.zeros(1, 1, 1, dim))
         self.beta = nn.Parameter(torch.zeros(1, 1, 1, dim))
 
     def forward(self, x):
-        Gx = torch.norm(x, p=2, dim=(1,2), keepdim=True) # computes the L2 norm across the width and height dimensions
-        Nx = Gx / (Gx.mean(dim=-1, keepdim=True) + 1e-4) # divides each channel's norm by the mean norm across all the channels
+        if self.mode == 'original':
+            Gx = torch.norm(x, p=2, dim=(1,2), keepdim=True) # computes the L2 norm across the width and height dimensions
+            Nx = Gx / (Gx.mean(dim=-1, keepdim=True) + 1e-4) # divides each channel's norm by the mean norm across all the channels
+        elif self.mode == 'simplified':
+            Gx = torch.sqrt((x ** 2).sum(dim=(1,2), keepdim=True).clamp(min=1e-5)) # computes the L2 norm across the width and height dimensions
+            Nx = Gx / Gx.mean(dim=-1, keepdim=True)
+
         return self.gamma * (x * Nx) + self.beta + x # scales the input by the normalized L2 norm, applies learnable scaling and shifting parameters, and adds the input as a skip connection
 
 class Block(nn.Module):
@@ -177,13 +183,13 @@ class Block(nn.Module):
         drop_path (float): Stochastic depth rate. Default: 0.0
     """
 
-    def __init__(self, dim, drop_path=0.0):
+    def __init__(self, dim, drop_path=0.0, grn_mode='original'):
         super().__init__()
         self.dwconv: nn.Module = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim) # depth-wise conv
         self.norm: nn.Module = LayerNorm(dim, eps=1e-6)
         self.pwconv1: nn.Module = nn.Linear(dim, 4 * dim) # point-wise/1x1 convs, implemented with linear layers
         self.act: nn.Module = nn.GELU()
-        self.grn: nn.Module = GRN(4 * dim)
+        self.grn: nn.Module = GRN(4 * dim, mode=grn_mode)
         self.pwconv2: nn.Module = nn.Linear(4 * dim, dim)
         self.drop_path: nn.Module = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
@@ -218,12 +224,13 @@ class ConvNeXtV2(nn.Module):
         patch_size: int = 8, # patch size used during pretraining
         img_size: int = 56, # image size used during pretraining
         in_chans: int = 12, # number of Sentinel-2 bands
-        num_classes: int = 1000,
+        # num_classes: int = 1000,
         depths: list[int] = [2, 2, 6, 2],
         dims: list[int] = [40, 80, 160, 320],
         drop_path_rate: float = 0.0,
-        head_init_scale: float = 1.0,
+        # head_init_scale: float = 1.0,
         use_orig_stem: bool = False,
+        grn_mode: str = 'original',
     ):
         super().__init__()
         self.depths = depths
@@ -276,19 +283,19 @@ class ConvNeXtV2(nn.Module):
         for i in range(self.num_stage):
             stage = nn.Sequential(
                 *[
-                    Block(dim=dims[i], drop_path=dp_rates[cur + j])
+                    Block(dim=dims[i], drop_path=dp_rates[cur + j], grn_mode=grn_mode)
                     for j in range(depths[i])
                 ]
             )
             self.stages.append(stage)
             cur += depths[i]
 
-        self.norm = nn.LayerNorm(dims[-1], eps=1e-6)  # final norm layer
-        self.head = nn.Linear(dims[-1], num_classes)
+        # self.norm = nn.LayerNorm(dims[-1], eps=1e-6)  # final norm layer
+        # self.head = nn.Linear(dims[-1], num_classes)
 
         self.apply(self._init_weights)
-        self.head.weight.data.mul_(head_init_scale)
-        self.head.bias.data.mul_(head_init_scale)
+        # self.head.weight.data.mul_(head_init_scale)
+        # self.head.bias.data.mul_(head_init_scale)
 
     def _init_weights(self, m):
         if isinstance(m, (nn.Conv2d, nn.Linear)):
@@ -308,7 +315,8 @@ class ConvNeXtV2(nn.Module):
             x = self.downsample_layers[i](x)
             x = self.stages[i + 1](x)
 
-        return self.norm(x.mean([-2, -1])) # global average pooling, (N, C, H, W) -> (N, C)
+        return x
+        # return self.norm(x.mean([-2, -1])) # global average pooling, (N, C, H, W) -> (N, C)
 
     def upsample_mask(self, mask, scale):
         assert len(mask.shape) == 2
@@ -342,6 +350,6 @@ class ConvNeXtV2(nn.Module):
             return x
 
         x = self.forward_features(x)
-        x = self.head(x)
+        # x = self.head(x)
 
         return x
