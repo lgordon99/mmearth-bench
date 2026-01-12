@@ -102,6 +102,20 @@
       border-radius: 0 !important;
       margin: 0 !important;
     }
+
+    /* Remove containing block constraints from parent section when map is fullscreen */
+    #explorer.fullscreen-parent {
+      transform: none !important;
+      filter: none !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      perspective: none !important;
+      contain: none !important;
+      /* Ensure it doesn't clip */
+      overflow: visible !important;
+      /* Ensure it is on top if z-index helps, but fixed child handles most */
+      z-index: auto !important;
+    }
   </style>
 
   <!-- Non-critical CSS - Load asynchronously -->
@@ -1738,12 +1752,18 @@
     window.addEventListener('message', function(event) {
       if (event.data && event.data.type === 'mmearth-map-fullscreen') {
         const container = document.getElementById('explorer-container');
+        const explorerSection = document.getElementById('explorer');
+
         if (event.data.action === 'enter') {
           // Enter fullscreen mode - expand iframe container to full browser width
           container.classList.add('fullscreen');
+          if (explorerSection) explorerSection.classList.add('fullscreen-parent');
+          document.body.style.overflow = 'hidden';
         } else if (event.data.action === 'exit') {
           // Exit fullscreen mode - restore original iframe size
           container.classList.remove('fullscreen');
+          if (explorerSection) explorerSection.classList.remove('fullscreen-parent');
+          document.body.style.overflow = '';
         }
       }
     });
