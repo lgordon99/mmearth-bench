@@ -83,6 +83,26 @@
   <!-- Critical CSS - Load synchronously -->
   <link rel="stylesheet" href="static/css/bulma.min.css">
   <link rel="stylesheet" href="static/css/index.css">
+  <style>
+    /* Fullscreen map styles */
+    #explorer-container.fullscreen {
+      width: 100% !important;
+      height: 100vh !important;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 9999;
+      padding: 0 !important;
+      margin: 0 !important;
+      background: white;
+    }
+
+    #explorer-container.fullscreen #explorer-iframe {
+      height: 100vh !important;
+      border-radius: 0 !important;
+      margin: 0 !important;
+    }
+  </style>
 
   <!-- Non-critical CSS - Load asynchronously -->
   <link rel="preload" href="static/css/bulma-carousel.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
@@ -1308,11 +1328,11 @@
       </div>
     </div>
   </div>
-  <div style="padding: 0 2rem;">
+  <div id="explorer-container" style="padding: 0 2rem; transition: all 0.3s ease;">
     <iframe
       id="explorer-iframe"
       data-src="https://lgordon99.github.io/mmearth-bench-app/"
-      style="width: 100%; max-width: 100%; height: 800px; margin: 2rem auto 0 auto; display: block; border: none;"
+      style="width: 100%; max-width: 100%; height: 800px; margin: 2rem auto 0 auto; display: block; border: none; transition: height 0.3s ease;"
       title="MMEarth-Bench Interactive Explorer"
       allowfullscreen>
     </iframe>
@@ -1713,6 +1733,20 @@
         iframe.src = iframe.dataset.src;
       }
     }
+
+    // Listen for messages from the iframe for fullscreen toggle
+    window.addEventListener('message', function(event) {
+      if (event.data && event.data.type === 'mmearth-map-fullscreen') {
+        const container = document.getElementById('explorer-container');
+        if (event.data.action === 'enter') {
+          // Enter fullscreen mode - expand iframe container to full browser width
+          container.classList.add('fullscreen');
+        } else if (event.data.action === 'exit') {
+          // Exit fullscreen mode - restore original iframe size
+          container.classList.remove('fullscreen');
+        }
+      }
+    });
 
     // Wait for the page to fully load before loading the iframe
     if (document.readyState === 'complete') {
