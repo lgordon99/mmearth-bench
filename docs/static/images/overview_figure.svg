@@ -9,10 +9,10 @@
     </clipPath>
   </defs>
   <g clip-path="url(#circle-clip)">
-  
+
   <!-- Background ring (box-shadow effect) -->
   <circle cx="600" cy="600" r="185" fill="none" stroke="none" />
-  
+
   <!-- Pie Chart Sectors -->
   <g>
     <path d="M 600 600 L 600.0 450.0 A 150 150 0 0 1 742.658477444273 553.6474508437578 Z" fill="green" stroke="none" />
@@ -21,7 +21,7 @@
     <path d="M 600 600 L 511.83221215612906 721.3525491562422 A 150 150 0 0 1 457.34152255572695 553.647450843758 Z" fill="purple" stroke="none" />
     <path d="M 600 600 L 457.34152255572695 553.647450843758 A 150 150 0 0 1 600.0 450.0 Z" fill="red" stroke="none" />
   </g>
-  
+
   <!-- Pie Chart Labels -->
   <g>
     <text x="652.9" y="527.2" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)">Biomass</text>
@@ -34,14 +34,14 @@
     <text x="514.4" y="627.8" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)">Soil pH</text>
     <text x="547.1" y="527.2" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)">Species</text>
   </g>
-  
+
   <!-- Outer Content -->
 
             <defs>
                 <path id="donut-curve" d="M 435 600 A 165 165 0 0 1 765 600" />
                 <path id="donut-curve-bottom" d="M 395 600 A 205 205 0 0 0 805 600" />
             </defs>
-            
+
             <!-- Outer enclosing circle backgrounds (donut shape) -->
             <!-- Left Half (Pink): Outer arc (R350) ccw, Line in, Inner arc (R185) cw, Line out -->
             <path d="M 600 250 A 350 350 0 0 0 600 950 L 600 785 A 185 185 0 0 1 600 415 Z" fill="#f6eff0" />
@@ -66,7 +66,7 @@
                     Tile-level
                 </textPath>
             </text>
-            
+
             <!-- Outer enclosing circle border -->
             <circle cx="600" cy="600" r="350" fill="none" stroke="#ddd" stroke-width="2" />
             <!-- Inner enclosing circle border -->
@@ -91,11 +91,11 @@
                     </svg>
                 </g>
                 <text x="246.3" y="116.0" fill="#333" font-size="18" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle">Sentinel-2 date</text>
-                
+
                 <!-- Figure 2 (45 degrees) -->
                 <g transform="rotate(45) translate(255) rotate(-45)">
                     <svg x="-42" y="-21" width="84" height="42" viewBox="0 0 34490000 16780000" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-                        
+
   <path d="M 15190000.00,90000.00 L 15190000.00,100000.00 L 15210000.00,100000.00 L 15210000.00,90000.00 L 15190000.00,90000.00 Z" fill="rgb(100,150,200)" stroke="none" fill-rule="evenodd" />
   <path d="M 15280000.00,90000.00 L 15280000.00,100000.00 L 15290000.00,100000.00 L 15290000.00,90000.00 L 15280000.00,90000.00 Z" fill="rgb(100,150,200)" stroke="none" fill-rule="evenodd" />
   <path d="M 12820000.00,100000.00 L 12820000.00,110000.00 L 12830000.00,110000.00 L 12830000.00,100000.00 L 12820000.00,100000.00 Z" fill="rgb(100,150,200)" stroke="none" fill-rule="evenodd" />
@@ -4922,11 +4922,11 @@
                     </svg>
                 </g>
                 <text x="180.3" y="230.3" fill="#333" font-size="18" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle">Biome</text>
-                
+
                 <!-- Figure 3 (75 degrees) -->
                 <g transform="rotate(75) translate(255) rotate(-75)">
                     <svg x="-42" y="-21" width="84" height="42" viewBox="0 0 34490000 16780000" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-                        
+
   <path d="M 15190000.00,90000.00 L 15190000.00,100000.00 L 15210000.00,100000.00 L 15210000.00,90000.00 L 15190000.00,90000.00 Z" fill="rgb(100,150,200)" stroke="none" fill-rule="evenodd" />
   <path d="M 15280000.00,90000.00 L 15280000.00,100000.00 L 15290000.00,100000.00 L 15290000.00,90000.00 L 15280000.00,90000.00 Z" fill="rgb(100,150,200)" stroke="none" fill-rule="evenodd" />
   <path d="M 12820000.00,100000.00 L 12820000.00,110000.00 L 12830000.00,110000.00 L 12830000.00,100000.00 L 12820000.00,100000.00 Z" fill="rgb(100,150,200)" stroke="none" fill-rule="evenodd" />
@@ -12435,11 +12435,11 @@
                     </svg>
                 </g>
                 <text x="66.0" y="296.3" fill="#333" font-size="18" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle">Ecoregion</text>
-                
+
                 <!-- Figure 4 (105 degrees) -->
                 <g transform="rotate(105) translate(255) rotate(-105)">
                     <svg x="-30" y="-30" width="60" height="60" viewBox="0 0 554.4 554.4" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-                        
+
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -12459,10 +12459,10 @@
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 554.4 
-L 554.4 554.4 
-L 554.4 0 
-L 0 0 
+   <path d="M 0 554.4
+L 554.4 554.4
+L 554.4 0
+L 0 0
 z
 " style="fill: #ffffff"/>
   </g>
@@ -12485,11 +12485,11 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAAApCUlEQVR4nO3cL48cx9o34JlXmwMO2YBg
                     <tspan x="-66.0" dy="-0.6em">ESA</tspan>
                     <tspan x="-66.0" dy="1.2em">WorldCover</tspan>
                 </text>
-                
+
                 <!-- Figure 5 (135 degrees) -->
                 <g transform="rotate(135) translate(255) rotate(-135)">
                     <svg x="-30" y="-30" width="60" height="60" viewBox="0 0 554.4 554.4" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-                        
+
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -12509,10 +12509,10 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAAApCUlEQVR4nO3cL48cx9o34JlXmwMO2YBg
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 554.4 
-L 554.4 554.4 
-L 554.4 0 
-L 0 0 
+   <path d="M 0 554.4
+L 554.4 554.4
+L 554.4 0
+L 0 0
 z
 " style="fill: #ffffff"/>
   </g>
@@ -12535,11 +12535,11 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAAAiqUlEQVR4nO3csWtlV4Ln8dIgsc4asUpU
                     <tspan x="-180.3" dy="-0.6em">Dynamic</tspan>
                     <tspan x="-180.3" dy="1.2em">World</tspan>
                 </text>
-                
+
                 <!-- Figure 6 (165 degrees) -->
                 <g transform="rotate(165) translate(255) rotate(-165)">
                     <svg x="-30" y="-30" width="60" height="60" viewBox="0 0 554.4 554.4" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-                        
+
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -12559,10 +12559,10 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAAAiqUlEQVR4nO3csWtlV4Ln8dIgsc4asUpU
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 554.4 
-L 554.4 554.4 
-L 554.4 0 
-L 0 0 
+   <path d="M 0 554.4
+L 554.4 554.4
+L 554.4 0
+L 0 0
 z
 " style="fill: #ffffff"/>
   </g>
@@ -12585,11 +12585,11 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAACJO0lEQVR4nO3cy681a17Y93pq1Vr7/r7n
                     <tspan x="-246.3" dy="-0.6em">ETH Global</tspan>
                     <tspan x="-246.3" dy="1.2em">Canopy Height</tspan>
                 </text>
-                
+
                 <!-- Figure 7 (195 degrees) -->
                 <g transform="rotate(195) translate(255) rotate(-195)">
                     <svg x="-30" y="-30" width="60" height="60" viewBox="0 0 554.4 554.4" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-                        
+
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -12609,10 +12609,10 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAACJO0lEQVR4nO3cy681a17Y93pq1Vr7/r7n
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 554.4 
-L 554.4 554.4 
-L 554.4 0 
-L 0 0 
+   <path d="M 0 554.4
+L 554.4 554.4
+L 554.4 0
+L 0 0
 z
 " style="fill: #ffffff"/>
   </g>
@@ -12632,11 +12632,11 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAACfS0lEQVR4nO2825IlOZZYB4e7n0tkZlVX
                     </svg>
                 </g>
                 <text x="-246.3" y="-111.0" fill="#333" font-size="18" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle">ASTER GDEM</text>
-                
+
                 <!-- Figure 8 (225 degrees) -->
                 <g transform="rotate(225) translate(255) rotate(-225)">
                     <svg x="-30" y="-30" width="60" height="60" viewBox="0 0 554.4 554.4" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-                        
+
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -12656,10 +12656,10 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAACfS0lEQVR4nO2825IlOZZYB4e7n0tkZlVX
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 554.4 
-L 554.4 554.4 
-L 554.4 0 
-L 0 0 
+   <path d="M 0 554.4
+L 554.4 554.4
+L 554.4 0
+L 0 0
 z
 " style="fill: #ffffff"/>
   </g>
@@ -12679,11 +12679,11 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAACGeElEQVR4nO38UZbjWIBl2ZE0euSSZqJR
                     </svg>
                 </g>
                 <text x="-180.3" y="-225.3" fill="#333" font-size="18" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle">Sentinel-1</text>
-                
+
                 <!-- Figure 9 (255 degrees) -->
                 <g transform="rotate(255) translate(255) rotate(-255)">
                     <svg x="-30" y="-30" width="60" height="60" viewBox="0 0 554.4 554.4" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-                        
+
  <metadata>
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
@@ -12703,10 +12703,10 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAACGeElEQVR4nO38UZbjWIBl2ZE0euSSZqJR
  </defs>
  <g id="figure_1">
   <g id="patch_1">
-   <path d="M 0 554.4 
-L 554.4 554.4 
-L 554.4 0 
-L 0 0 
+   <path d="M 0 554.4
+L 554.4 554.4
+L 554.4 0
+L 0 0
 z
 " style="fill: #ffffff"/>
   </g>
@@ -12726,7 +12726,7 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAAEAAElEQVR4nOz8Sa8tS5qeiZn37qvba3en
                     </svg>
                 </g>
                 <text x="-66.0" y="-291.3" fill="#333" font-size="18" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle">Sentinel-2</text>
-                
+
                 <!-- Figure 10 (285 degrees) -->
                 <g transform="rotate(285) translate(255) rotate(-285)">
                     <svg x="-30" y="-30" width="60" height="60" viewBox="0 0 24 24" fill="none">
@@ -12734,7 +12734,7 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAAEAAElEQVR4nOz8Sa8tS5qeiZn37qvba3en
                     </svg>
                 </g>
                 <text x="66.0" y="-291.3" fill="#333" font-size="18" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle">Precipitation</text>
-                
+
                 <!-- Figure 11 (315 degrees) -->
                 <g transform="rotate(315) translate(255) rotate(-315)">
                     <svg x="-30" y="-30" width="60" height="60" viewBox="0 0 24 24" fill="none">
@@ -12743,7 +12743,7 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAAEAAElEQVR4nOz8Sa8tS5qeiZn37qvba3en
                     </svg>
                 </g>
                 <text x="180.3" y="-225.3" fill="#333" font-size="18" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle">Temperature</text>
-                
+
                 <!-- Figure 12 (345 degrees) -->
                 <g transform="rotate(345) translate(255) rotate(-345)">
                     <svg x="-30" y="-30" width="60" height="60" viewBox="0 0 24 24" fill="none">
@@ -12753,7 +12753,7 @@ iVBORw0KGgoAAAANSUhEUgAAAwIAAAMDCAYAAAAR4KIdAAEAAElEQVR4nOz8Sa8tS5qeiZn37qvba3en
                 </g>
                 <text x="246.3" y="-111.0" fill="#333" font-size="18" font-family="Arial" font-weight="bold" dominant-baseline="middle" text-anchor="middle">Geolocation</text>
             </g>
-        
+
 
   </g>
 </svg>
