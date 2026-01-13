@@ -2,7 +2,12 @@
 
 # MMEarth-Bench
 
-## Setup Google Earth Engine
+<img src="docs/static/images/overview_figure.svg" alt="Overview figure" width="500" />
+
+<details>
+<summary><strong>Recreating the dataset</strong></summary>
+
+### Setup Google Earth Engine
 1. Run
 ```
 bash bash-scripts/install_gcloud_CLI.sh
@@ -19,7 +24,7 @@ bash bash-scripts/install_gcloud_CLI.sh
 11. Click `CONTINUE TO SUMMARY`
 12. Click `CONFIRM`
 
-## Setup conda environment
+### Setup conda environment
 1. Open a new terminal
 2. To initialize the Google Cloud CLI and create the conda environment, run
 ```
@@ -34,7 +39,7 @@ conda activate PATH_TO_ENV_DIR/mmearth-bench-env
 bash bash-scripts/install_packages.sh
 ```
 
-## Generate biomass points
+### Generate biomass points
 1. To generate the points, run
 ```
 python generate_biomass_points.py
@@ -44,7 +49,7 @@ python generate_biomass_points.py
 python generate_biomass_points.py merge_ecoregion_points
 ```
 
-## Generate soil points
+### Generate soil points
 1. Download the [WoSIS December 2023 snapshot](https://files.isric.org/public/wosis_snapshot/WoSIS_2023_December.zip)
 2. Move the unzipped folder into your data directory located at `data_dir_path`
 3. To generate points, run
@@ -52,7 +57,7 @@ python generate_biomass_points.py merge_ecoregion_points
 python generate_soil_points.py
 ```
 
-## Generate species points
+### Generate species points
 1. Download the GeoJSON product for the [World Administrative Boundaries](https://public.opendatasoft.com/explore/dataset/world-administrative-boundaries/export/)
 2. Move the file into the data directory
 3. Download the terrestrial mammals polygon shapefile from the [Spatial Data Download](https://www.iucnredlist.org/resources/spatial-data-download) page on the IUCN Red List
@@ -62,7 +67,7 @@ python generate_soil_points.py
 python generate_species_points.py
 ```
 
-## Generate tiles
+### Generate tiles
 To generate tiles, do the following for each task.
 
 1. To save aligned modality and task data as a TIFF for every tile, run
@@ -74,7 +79,19 @@ python get_tile_data.py TASK
 python convert_to_h5.py TASK
 ```
 
-## Generate splits
+### Generate splits
 ```
 python generate_splits.py TASK
 ```
+
+</details>
+
+<details>
+<summary><strong>Reproducing the results</strong></summary>
+
+</details>
+
+<details>
+<summary><strong>Recreating the figures</strong></summary>
+
+</details>
