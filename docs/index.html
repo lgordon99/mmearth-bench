@@ -446,8 +446,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-left: 0;
-      transform: translateX(20px);
+      margin-left: 20px;
       width: 120px;
       height: 200px;
     }
@@ -464,8 +463,14 @@
     .encoder-svg {
       width: 140px;
       height: 180px;
-      margin-left: 0;
-      transform: translateX(-50px);
+      margin-left: -50px;
+    }
+
+    /* Stacked view: keep label↔encoder spacing identical, but nudge the *group* to center */
+    @media (max-width: 949px) {
+      .ambiguities-input-group {
+        transform: translateX(15px);
+      }
     }
 
     .modalities-3d-container {
@@ -512,14 +517,8 @@
         flex-wrap: wrap;
       }
 
-      .multimodal-input-label {
+      .ambiguities-input-group {
         transform: none;
-        margin-left: 20px;
-      }
-
-      .encoder-svg {
-        transform: none;
-        margin-left: -50px;
       }
     }
 
