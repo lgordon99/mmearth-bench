@@ -3,6 +3,16 @@
 <h1 align="center">MMEarth-Bench</h1>
 
 <p align="center">
+  Lucia Gordon<sup>1,2</sup>, Serge Belongie<sup>2</sup>, Christian Igel<sup>2</sup>, Nico Lang<sup>2</sup>
+</p>
+
+<p align="center">
+  <sup>1</sup> <img src="docs/static/images/harvard_logo.svg" alt="Harvard" height="70" style="vertical-align: middle;" />
+  &nbsp;&nbsp;
+  <sup>2</sup> <img src="docs/static/images/ku_logo.png" alt="University of Copenhagen" height="60" style="vertical-align: middle;" />
+</p>
+
+<p align="center">
 	<img src="docs/static/images/overview_figure.svg" alt="Overview figure" width="500" />
 </p>
 
