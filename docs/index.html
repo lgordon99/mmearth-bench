@@ -466,10 +466,18 @@
       margin-left: -50px;
     }
 
-    /* Stacked view: keep label↔encoder spacing identical, but nudge the *group* to center */
+    /* Stacked view: Remove layout margins and use relative positioning for visual offset */
     @media (max-width: 949px) {
-      .ambiguities-input-group {
-        transform: translateX(15px);
+      .multimodal-input-label {
+        margin-left: 0;
+        position: relative;
+        left: 20px;
+      }
+
+      .encoder-svg {
+        margin-left: 0;
+        position: relative;
+        left: -50px;
       }
     }
 
@@ -517,8 +525,12 @@
         flex-wrap: wrap;
       }
 
-      .ambiguities-input-group {
-        transform: none;
+      .multimodal-input-label {
+        left: 0;
+      }
+
+      .encoder-svg {
+        left: 0;
       }
     }
 
