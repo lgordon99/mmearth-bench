@@ -186,7 +186,6 @@ def plot_missing_modalities(task):
 
     plt.ylabel('Tile count', fontsize=12)
     plt.tight_layout()
-    plt.savefig(f'{data_dir_path}/{task}/{task}_missing_modality_counts.png')
     plt.savefig(f'{data_dir_path}/{task}/{task}_missing_modality_counts.pdf')
     plt.close()
 
@@ -215,7 +214,6 @@ def plot_species_statistics():
         plt.xlabel('Species', fontsize=12)
         plt.ylabel('Number of tiles', fontsize=12)
         plt.tight_layout()
-        plt.savefig(f'{data_dir_path}/species/tiles_per_species.png')
         plt.savefig(f'{data_dir_path}/species/tiles_per_species.pdf')
 
         out_file.write(f'Max number of tiles for a species: {max(counts)}\n')
@@ -232,7 +230,6 @@ def plot_species_statistics():
         plt.xlabel('Number of species', fontsize=12)
         plt.ylabel('Number of tiles', fontsize=12)
         plt.tight_layout()
-        plt.savefig(f'{data_dir_path}/species/tile_species_counts.png')
         plt.savefig(f'{data_dir_path}/species/tile_species_counts.pdf')
 
         with open(f'{data_dir_path}/species/species_labels.json', 'w') as file:

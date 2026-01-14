@@ -10,6 +10,7 @@ soil_pH
 biomes_ecoregions_data
 tiles
 scratch.py
+scratch2.py
 .pre-commit-config.yaml
 figures
 scratch-output
@@ -18,3 +19,4 @@ config-user.yml
 *.tex
 teaser_subfigures
 summary_stats_PDF
+*.out

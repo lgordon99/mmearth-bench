@@ -149,7 +149,6 @@ def generate_splits(task):
         fig.supylabel('Percentage (%)', fontsize=14)
         axes[-1].set_xlabel(xlabel, fontsize=14) # sets common x-label
         plt.tight_layout(rect=[0, 0, 1, 0.99])
-        plt.savefig(f'{data_dir_path}/{task}/{task}_distributions.png', dpi=300, bbox_inches='tight')
         plt.savefig(f'{data_dir_path}/{task}/{task}_distributions.pdf', dpi=300, bbox_inches='tight')
         plt.close()
     else:
@@ -172,7 +171,6 @@ def generate_splits(task):
         fig.supylabel('Percentage (%)', fontsize=14)
         axes[-1].set_xlabel('Species', fontsize=14) # sets common x-label
         plt.tight_layout(rect=[0, 0, 1, 0.99])
-        plt.savefig(f'{data_dir_path}/species/species_distributions.png', dpi=300, bbox_inches='tight')
         plt.savefig(f'{data_dir_path}/species/species_distributions.pdf', dpi=300, bbox_inches='tight')
         plt.close()
 

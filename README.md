@@ -22,7 +22,7 @@ mkdir -p mmearth-bench-data/{biomass,soil_nitrogen,soil_organic_carbon,soil_pH,s
 ```
 
 This will create the following folder structure, occupying 59 GB.
-```
+<pre>
 mmearth-bench-data/
 ├── biomass/
 │   ├── biomass_split_data.json
@@ -40,7 +40,7 @@ mmearth-bench-data/
     ├── species_labels.json
     ├── species_split_data.json
     └── species.h5
-```
+</pre>
 
 <details>
 <summary><strong>Recreating the dataset</strong></summary>
@@ -126,13 +126,14 @@ python generate_splits.py TASK
 
 <details>
 <summary><strong>Reproducing the results</strong></summary>
-To run the finetuning, linear probing, and joint training experiments, run
+
+To run the finetuning, linear probing, and joint training experiments, execute
 
 ```
 bash run_FT_LP_JT.sh
 ```
 
-Once these runs are complete, you can run the test-time training experiments with
+Once these experiments are complete, you can run the test-time training experiments with
 ```
 bash run_TTT.sh
 ```
@@ -140,5 +141,19 @@ bash run_TTT.sh
 
 <details>
 <summary><strong>Recreating the figures</strong></summary>
+
+`make_teaser_subfigures.py` --> Figure 1
+
+`generate_splits.py` --> Figure 2, S.10
+
+`view_results.py` --> Figures 4-7, S.17-22 and Tables 5, S.13-38
+
+`tabulate_summary_stats.py` --> Tables S.6, S.8-S.10
+
+`python convert_to_h5.py plot_missing_modalities` --> Figure S.9
+
+`generate_species_points.py` --> Figure S.11
+
+`python convert_to_h5.py plot_species_statistics` --> Figure S.12-13
 
 </details>
