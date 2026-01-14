@@ -16,6 +16,32 @@
 	<img src="docs/static/images/overview_figure.svg" alt="Overview figure" width="500" />
 </p>
 
+To download the MMEarth-Bench data, run
+```
+mkdir -p mmearth-bench-data/{biomass,soil_nitrogen,soil_organic_carbon,soil_pH,species} && for task in biomass soil_nitrogen soil_organic_carbon soil_pH species; do wget -c -P "mmearth-bench-data/$task" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/$task.h5" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/${task}_split_data.json"; done && wget -c -P mmearth-bench-data/species "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/species/species_labels.json"
+```
+
+This will create the following folder structure, occupying 59 GB.
+```
+mmearth-bench-data/
+├── biomass/
+│   ├── biomass_split_data.json
+│   └── biomass.h5
+├── soil_nitrogen/
+│   ├── soil_nitrogen_split_data.json
+│   └── soil_nitrogen.h5
+├── soil_organic_carbon/
+│   ├── soil_organic_carbon_split_data.json
+│   └── soil_organic_carbon.h5
+├── soil_pH/
+│   ├── soil_pH_split_data.json
+│   └── soil_pH.h5
+└── species/
+    ├── species_labels.json
+    ├── species_split_data.json
+    └── species.h5
+```
+
 <details>
 <summary><strong>Recreating the dataset</strong></summary>
 
