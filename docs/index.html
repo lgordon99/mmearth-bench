@@ -466,18 +466,19 @@
       margin-left: -50px;
     }
 
-    /* Stacked view: Remove layout margins and use relative positioning for visual offset */
+    /* Stacked view: Remove child margins for true centering, preserve gap */
     @media (max-width: 949px) {
+      .ambiguities-input-group {
+        position: relative;
+        left: -15px; /* Compensates for the asymmetric margins */
+      }
+
       .multimodal-input-label {
         margin-left: 0;
-        position: relative;
-        left: 20px;
       }
 
       .encoder-svg {
         margin-left: 0;
-        position: relative;
-        left: -50px;
       }
     }
 
@@ -525,11 +526,7 @@
         flex-wrap: wrap;
       }
 
-      .multimodal-input-label {
-        left: 0;
-      }
-
-      .encoder-svg {
+      .ambiguities-input-group {
         left: 0;
       }
     }
