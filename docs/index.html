@@ -466,19 +466,11 @@
       margin-left: -50px;
     }
 
-    /* Stacked view: Remove child margins for true centering, preserve gap */
+    /* Stacked view: Center the group without changing internal spacing */
     @media (max-width: 949px) {
       .ambiguities-input-group {
         position: relative;
-        left: -15px; /* Compensates for the asymmetric margins */
-      }
-
-      .multimodal-input-label {
-        margin-left: 0;
-      }
-
-      .encoder-svg {
-        margin-left: 0;
+        left: -15px; /* Compensates for the asymmetric margins to center visually */
       }
     }
 
@@ -1135,7 +1127,7 @@
             <div class="is-size-5 publication-authors">
               <!-- TODO: Replace with your institutions and conference/journal info -->
               <span class="author-block">
-                <span class="institution-line"><sup>1</sup> Harvard University</span> <span class="institution-line"><sup>2</sup> University of Copenhagen</span>
+                <span class="institution-line"><sup>1 </sup>Harvard University</span> <span class="institution-line"><sup>2 </sup>University of Copenhagen</span>
                 <!-- Conference name and year -->
               </span>
             </div>

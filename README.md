@@ -7,9 +7,9 @@
 </p>
 
 <p align="center">
-  <sup>1</sup> <img src="docs/static/images/harvard_logo.svg" alt="Harvard" height="70" style="vertical-align: middle;" />
-  &nbsp;&nbsp;
-  <sup>2</sup> <img src="docs/static/images/ku_logo.png" alt="University of Copenhagen" height="60" style="vertical-align: middle;" />
+  <sup>1</sup>&nbsp;<img src="docs/static/images/harvard_logo.svg" alt="Harvard" height="80" style="vertical-align: middle;" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <sup>2</sup>&nbsp;<img src="docs/static/images/ku_logo.png" alt="University of Copenhagen" height="60" style="vertical-align: middle;" />
 </p>
 
 <p align="center">
@@ -100,7 +100,16 @@ python generate_splits.py TASK
 
 <details>
 <summary><strong>Reproducing the results</strong></summary>
+To run the finetuning, linear probing, and joint training experiments, run
 
+```
+bash run_FT_LP_JT.sh
+```
+
+Once these runs are complete, you can run the test-time training experiments with
+```
+bash run_TTT.sh
+```
 </details>
 
 <details>
