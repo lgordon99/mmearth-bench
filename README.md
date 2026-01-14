@@ -1,8 +1,10 @@
 [![Website](https://img.shields.io/badge/🌍-Project_Page-black)](https://lgordon99.github.io/mmearth-bench/)
 
-# MMEarth-Bench
+<h1 align="center">MMEarth-Bench</h1>
 
-<img src="docs/static/images/overview_figure.svg" alt="Overview figure" width="500" />
+<p align="center">
+	<img src="docs/static/images/overview_figure.svg" alt="Overview figure" width="500" />
+</p>
 
 <details>
 <summary><strong>Recreating the dataset</strong></summary>
