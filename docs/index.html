@@ -718,8 +718,14 @@
       float: right;
       width: 550px;
       height: 550px;
-      /* Circle matches the outer boundary: radius 350 in 740px viewBox = 47.3% */
-      shape-outside: circle(47.3% at 50% 50%);
+      /* Use polygon to better match the actual figure shape */
+      shape-outside: polygon(
+        50% 0%,
+        75% 5%, 90% 15%, 97% 30%, 100% 50%,
+        97% 70%, 90% 85%, 75% 95%, 50% 100%,
+        25% 95%, 10% 85%, 3% 70%, 0% 50%,
+        3% 30%, 10% 15%, 25% 5%
+      );
       shape-margin: 1.5rem;
       margin-left: 0;
       margin-right: 0.5rem;
