@@ -24,15 +24,15 @@
 
   <!-- Pie Chart Labels -->
   <g>
-    <text x="652.9" y="527.2" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased;">Biomass</text>
-    <text x="685.6" y="627.8" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased;">Soil Nitrogen</text>
-    <text x="600" y="690" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased;">
+    <text x="652.9" y="527.2" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased; text-shadow: 1px 1px 1px rgba(0,0,0,0.7);">Biomass</text>
+    <text x="685.6" y="627.8" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased; text-shadow: 1px 1px 1px rgba(0,0,0,0.7);">Soil Nitrogen</text>
+    <text x="600" y="690" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased; text-shadow: 1px 1px 1px rgba(0,0,0,0.7);">
         <tspan x="600" dy="-0.9em">Soil</tspan>
         <tspan x="600" dy="1.2em">Organic</tspan>
         <tspan x="600" dy="1.2em">Carbon</tspan>
     </text>
-    <text x="514.4" y="627.8" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased;">Soil pH</text>
-    <text x="547.1" y="527.2" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased;">Species</text>
+    <text x="514.4" y="627.8" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased; text-shadow: 1px 1px 1px rgba(0,0,0,0.7);">Soil pH</text>
+    <text x="547.1" y="527.2" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased; text-shadow: 1px 1px 1px rgba(0,0,0,0.7);">Species</text>
   </g>
 
   <!-- Outer Content -->
