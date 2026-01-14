@@ -62,7 +62,7 @@
             </text>
 
             <text font-size="20" font-family="Arial, sans-serif" font-weight="bold" fill="#62aeae">
-                <textPath href="#tile-curve" startOffset="50%" text-anchor="middle" side="right">
+                <textPath href="#tile-curve" startOffset="50%" text-anchor="middle">
                     Tile-level
                 </textPath>
             </text>
