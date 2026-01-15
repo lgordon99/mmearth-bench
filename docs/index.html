@@ -432,7 +432,7 @@
       justify-content: center;
       align-items: center;
       gap: 20px;
-      margin-top: 0;
+      margin-top: -10px;
       margin-left: 0;
     }
 
@@ -557,7 +557,7 @@
     }
 
     .teaser-line.ambiguities-line {
-      margin-bottom: 20px;
+      margin-bottom: 10px;
     }
 
     .sparse-data-container {
@@ -723,7 +723,7 @@
       width: 550px;
       height: 550px;
       /* Circle matches the outer boundary: radius 350 in 740px viewBox = 47.3% */
-      shape-outside: circle(47.3% at 50% 48%);
+      shape-outside: circle(47.3% at 50% 50%);
       shape-margin: 1.5rem;
       margin-left: 0;
       margin-right: 0.5rem;
@@ -834,7 +834,7 @@
     }
 
     /* Fallback for browsers that don't support shape-outside */
-    @supports not (shape-outside: url()) {
+    @supports not (shape-outside: circle(50% at 50% 50%)) {
       .overview-figure {
         shape-outside: polygon(40% 0, 100% 0, 100% 100%, 0 100%, 0 80%);
       }
@@ -851,7 +851,7 @@
       display: grid;
       grid-template-columns: repeat(10, 1fr);
       gap: 1rem;
-      justify-items: center;
+      justify-items: stretch;
       align-items: start;
     }
 
@@ -1002,11 +1002,27 @@
 
     .species-item img {
       width: 100%;
-      aspect-ratio: 1 / 1;
-      border-radius: 4px;
+      height: 100%;
       transition: transform 0.3s ease;
       object-fit: cover;
       display: block;
+    }
+
+    .species-image {
+      position: relative;
+      width: 100%;
+      padding-top: 100%;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .species-image img {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
 
     .species-item .species-name {
@@ -1682,11 +1698,15 @@
         img.alt = speciesNames[i];
         img.loading = 'lazy';
 
+        const imageWrapper = document.createElement('div');
+        imageWrapper.className = 'species-image';
+        imageWrapper.appendChild(img);
+
         const name = document.createElement('div');
         name.className = 'species-name';
         name.textContent = speciesNames[i];
 
-        item.appendChild(img);
+        item.appendChild(imageWrapper);
         item.appendChild(name);
         grid.appendChild(item);
       }
