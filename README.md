@@ -1,6 +1,8 @@
-[![Website](https://img.shields.io/badge/🌍-Project_Page-black)](https://lgordon99.github.io/mmearth-bench/)
-
 <h1 align="center">MMEarth-Bench</h1>
+
+<p align="center">
+  <a href="https://lgordon99.github.io/mmearth-bench/">Project page</a>
+</p>
 
 <p align="center">
   Lucia Gordon<sup>1,2</sup>, Serge Belongie<sup>2</sup>, Christian Igel<sup>2</sup>, Nico Lang<sup>2</sup>
@@ -142,13 +144,15 @@ python generate_splits.py TASK
 <details>
 <summary><h2 style="display: inline;">Reproducing the results</h2></summary>
 
-The code uses [Weights & Biases](https://wandb.ai/site) to track experiments. To run the finetuning, linear probing, and joint training experiments, execute
+1. Move `no_data_values.json`, `normalization_data.json`, and `task_modalities.json` into the data directory.
+
+2. The code uses [Weights & Biases](https://wandb.ai/site) to track experiments. To run the finetuning, linear probing, and joint training experiments, execute
 
 ```
 bash run_FT_LP_JT.sh
 ```
 
-Once these experiments are complete, you can run the test-time training experiments with
+3. Once these experiments are complete, you can run the test-time training experiments with
 ```
 bash run_TTT.sh
 ```
@@ -174,9 +178,6 @@ bash run_TTT.sh
 </details>
 
 ## BibTeX
-
-If you use MMEarth-Bench in your work, please cite:
-
 ```bibtex
 @misc{gordon2026mmearth-bench,
   title        = {MMEarth-Bench},
