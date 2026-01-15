@@ -45,6 +45,18 @@ mmearth-bench-data/
 <details>
 <summary><strong>Recreating the dataset</strong></summary>
 
+### Config file
+Create a file called `config-user.yml` in the code directory with the following contents.
+```
+data_dir_path: 'DATA_DIR_PATH'
+env_path: 'ENV_PATH'
+email: 'EMAIL'
+partitions: 'PARTITION_1,PARTITION_2'
+gpu_partitions: 'GPU_PARTITION_1,GPU_PARTITION_2'
+entity: 'WANDB_ENTITY'
+project: 'WANDB_PROJECT_NAME'
+```
+
 ### Setup Google Earth Engine
 We use Google Earth Engine to access much of the data.
 
