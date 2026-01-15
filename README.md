@@ -46,6 +46,8 @@ mmearth-bench-data/
 <summary><strong>Recreating the dataset</strong></summary>
 
 ### Setup Google Earth Engine
+We use Google Earth Engine to access much of the data.
+
 1. Run
 ```
 bash bash-scripts/install_gcloud_CLI.sh
@@ -63,8 +65,10 @@ bash bash-scripts/install_gcloud_CLI.sh
 12. Click `CONFIRM`
 
 ### Setup conda environment
+We use conda to manage packages for the project.
+
 1. Open a new terminal
-2. To initialize the Google Cloud CLI and create the conda environment, run
+2. To initialize the Google Cloud CLI and create the `mmearth-bench-env` conda environment, run
 ```
 bash bash-scripts/create_env.sh PATH_TO_ENV_DIR
 ```
@@ -88,36 +92,35 @@ python generate_biomass_points.py merge_ecoregion_points
 ```
 
 ### Generate soil points
+1. Within your data directory, create `soil_nitrogen`, `soil_organic_carbon`, and `soil_pH` folders
 1. Download the [WoSIS December 2023 snapshot](https://files.isric.org/public/wosis_snapshot/WoSIS_2023_December.zip)
-2. Move the unzipped folder into your data directory located at `data_dir_path`
+2. Move `wosis_202312_nitkjd.tsv` into the `soil_nitrogen` folder, `wosis_202312_orgc.tsv` into the `soil_organic_carbon` folder, and `wosis_202312_phaq.tsv` into the `soil_pH` folder
 3. To generate points, run
 ```
 python generate_soil_points.py
 ```
 
 ### Generate species points
-1. Download the GeoJSON product for the [World Administrative Boundaries](https://public.opendatasoft.com/explore/dataset/world-administrative-boundaries/export/)
-2. Move the file into the data directory
+1. Move `africa.geojson` into the data directory
 3. Download the terrestrial mammals polygon shapefile from the [Spatial Data Download](https://www.iucnredlist.org/resources/spatial-data-download) page on the IUCN Red List
-4. Move the shapefile, a folder called `MAMMALS_TERRESTRIAL_ONLY`, into `data_dir_path/species`
+4. Move the shapefile, a folder called `MAMMALS_TERRESTRIAL_ONLY`, into `DATA_DIR_PATH/species`
 6. To generate points, run
 ```
 python generate_species_points.py
 ```
 
-### Generate tiles
-To generate tiles, do the following for each task.
+### Generate datasets
+To generate each task dataset, do the following for each task.
 
 1. To save aligned modality and task data as a TIFF for every tile, run
 ```
 python get_tile_data.py TASK
 ```
-2. To convert the data to H5 format, run
+2. To merge the TIFFs to a single H5 file, run
 ```
 python convert_to_h5.py TASK
 ```
-
-### Generate splits
+3. To generate the train 5%, 50%, and 100%; validation; random test; and geographic test splits, run
 ```
 python generate_splits.py TASK
 ```
@@ -127,7 +130,7 @@ python generate_splits.py TASK
 <details>
 <summary><strong>Reproducing the results</strong></summary>
 
-The code uses Weights & Biases to track experiments. To run the finetuning, linear probing, and joint training experiments, execute
+The code uses [Weights & Biases](https://wandb.ai/site) to track experiments. To run the finetuning, linear probing, and joint training experiments, execute
 
 ```
 bash run_FT_LP_JT.sh
