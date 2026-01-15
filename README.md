@@ -43,7 +43,7 @@ mmearth-bench-data/
 </pre>
 
 <details>
-<summary><span style="font-size: 1.5em; font-weight: bold;">Recreating the dataset</span></summary>
+<summary><h2 style="display: inline;">Recreating the dataset</h2></summary>
 
 ### Config file
 Create a file called `config-user.yml` in the code directory with the following contents.
@@ -140,7 +140,7 @@ python generate_splits.py TASK
 </details>
 
 <details>
-<summary><span style="font-size: 1.5em; font-weight: bold;">Reproducing the results</span></summary>
+<summary><h2 style="display: inline;">Reproducing the results</h2></summary>
 
 The code uses [Weights & Biases](https://wandb.ai/site) to track experiments. To run the finetuning, linear probing, and joint training experiments, execute
 
@@ -155,7 +155,7 @@ bash run_TTT.sh
 </details>
 
 <details>
-<summary><span style="font-size: 1.5em; font-weight: bold;">Recreating the figures</span></summary>
+<summary><h2 style="display: inline;">Recreating the figures</h2></summary>
 
 `make_teaser_subfigures.py` <svg width="30" height="12" viewBox="0 0 30 12" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;"><line x1="0" y1="6" x2="24" y2="6" stroke="currentColor" stroke-width="2"/><polygon points="24,2 30,6 24,10" fill="currentColor"/></svg> Figure 1
 
