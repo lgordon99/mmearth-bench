@@ -1459,7 +1459,7 @@
     <div class="columns is-centered has-text-centered">
       <div class="column is-full">
         <h2 class="title is-3">Download</h2>
-        <div class="content has-text-justified" style="max-width: 800px; margin: 0 auto;">
+        <div class="content has-text-justified">
           <p>Run the following command in the command line to download the MMEarth-Bench data.</p>
         </div>
         <div class="content">
@@ -1467,8 +1467,8 @@
             <button class="bibtex-copy-btn" onclick="copyDownloadCode()" title="Copy download command">📋</button>
             <pre id="download-code"><code>mkdir -p mmearth-bench-data/{biomass,soil_nitrogen,soil_organic_carbon,soil_pH,species} && for task in biomass soil_nitrogen soil_organic_carbon soil_pH species; do wget -c -P "mmearth-bench-data/$task" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/$task.h5" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/${task}_split_data.json"; done && wget -c -P mmearth-bench-data/species "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/species/species_labels.json"</code></pre>
           </div>
-          <p class="has-text-justified" style="max-width: 800px; margin: 2rem auto 0 auto;">This will take about 2 hours and yield the following folder structure, occupying 59 GB:</p>
-          <pre style="text-align: left; max-width: 800px; margin: 1rem auto;"><code>mmearth-bench-data/
+          <p class="has-text-justified" style="margin: 2rem 0 0 0;">This will take about 2 hours and yield the following folder structure, occupying 59 GB:</p>
+          <pre style="text-align: left; margin: 1rem 0;"><code>mmearth-bench-data/
 ├── biomass/
 │   ├── biomass_split_data.json
 │   └── biomass.h5

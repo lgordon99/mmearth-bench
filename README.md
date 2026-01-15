@@ -43,7 +43,7 @@ mmearth-bench-data/
 </pre>
 
 <details>
-<summary><strong>Recreating the dataset</strong></summary>
+<summary><span style="font-size: 1.5em; font-weight: bold;">Recreating the dataset</span></summary>
 
 ### Config file
 Create a file called `config-user.yml` in the code directory with the following contents.
@@ -140,7 +140,7 @@ python generate_splits.py TASK
 </details>
 
 <details>
-<summary><strong>Reproducing the results</strong></summary>
+<summary><span style="font-size: 1.5em; font-weight: bold;">Reproducing the results</span></summary>
 
 The code uses [Weights & Biases](https://wandb.ai/site) to track experiments. To run the finetuning, linear probing, and joint training experiments, execute
 
@@ -155,20 +155,20 @@ bash run_TTT.sh
 </details>
 
 <details>
-<summary><strong>Recreating the figures</strong></summary>
+<summary><span style="font-size: 1.5em; font-weight: bold;">Recreating the figures</span></summary>
 
-`make_teaser_subfigures.py` ⟶ Figure 1
+`make_teaser_subfigures.py` <svg width="30" height="12" viewBox="0 0 30 12" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;"><line x1="0" y1="6" x2="24" y2="6" stroke="currentColor" stroke-width="2"/><polygon points="24,2 30,6 24,10" fill="currentColor"/></svg> Figure 1
 
-`generate_splits.py` ⟶ Figure 2, S.10
+`generate_splits.py` <svg width="30" height="12" viewBox="0 0 30 12" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;"><line x1="0" y1="6" x2="24" y2="6" stroke="currentColor" stroke-width="2"/><polygon points="24,2 30,6 24,10" fill="currentColor"/></svg> Figure 2, S.10
 
-`view_results.py` ⟶ Figures 4-7, S.17-22 and Tables 5, S.13-38
+`view_results.py` <svg width="30" height="12" viewBox="0 0 30 12" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;"><line x1="0" y1="6" x2="24" y2="6" stroke="currentColor" stroke-width="2"/><polygon points="24,2 30,6 24,10" fill="currentColor"/></svg> Figures 4-7, S.17-22 and Tables 5, S.13-38
 
-`tabulate_summary_stats.py` ⟶ Tables S.6, S.8-S.10
+`tabulate_summary_stats.py` <svg width="30" height="12" viewBox="0 0 30 12" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;"><line x1="0" y1="6" x2="24" y2="6" stroke="currentColor" stroke-width="2"/><polygon points="24,2 30,6 24,10" fill="currentColor"/></svg> Tables S.6, S.8-S.10
 
-`python convert_to_h5.py plot_missing_modalities` ⟶ Figure S.9
+`python convert_to_h5.py plot_missing_modalities` <svg width="30" height="12" viewBox="0 0 30 12" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;"><line x1="0" y1="6" x2="24" y2="6" stroke="currentColor" stroke-width="2"/><polygon points="24,2 30,6 24,10" fill="currentColor"/></svg> Figure S.9
 
-`generate_species_points.py` ⟶ Figure S.11
+`generate_species_points.py` <svg width="30" height="12" viewBox="0 0 30 12" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;"><line x1="0" y1="6" x2="24" y2="6" stroke="currentColor" stroke-width="2"/><polygon points="24,2 30,6 24,10" fill="currentColor"/></svg> Figure S.11
 
-`python convert_to_h5.py plot_species_statistics` ⟶ Figure S.12-13
+`python convert_to_h5.py plot_species_statistics` <svg width="30" height="12" viewBox="0 0 30 12" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;"><line x1="0" y1="6" x2="24" y2="6" stroke="currentColor" stroke-width="2"/><polygon points="24,2 30,6 24,10" fill="currentColor"/></svg> Figure S.12-13
 
 </details>
