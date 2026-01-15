@@ -44,6 +44,7 @@ mmearth-bench-data/
 
 <details>
 <summary><h2 style="display: inline;">Recreating the dataset</h2></summary>
+
 ### Config file
 Create a file called `config-user.yml` in the code directory with the following contents.
 ```

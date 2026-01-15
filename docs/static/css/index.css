@@ -515,7 +515,7 @@ code {
 
 .bibtex-container pre {
   text-align: left;
-  padding-right: 4.5rem !important;
+  padding-right: 4rem !important;
   white-space: pre-wrap;
   word-break: break-all;
 }
