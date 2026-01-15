@@ -1,17 +1,18 @@
 <h1 align="center">MMEarth-Bench</h1>
 
 <p align="center">
+  <img src="docs/static/images/harvard_logo.svg" alt="Harvard" height="48" style="vertical-align: middle;" />
+  &nbsp;&nbsp;
+  <span style="display: inline-block; padding-bottom: 0.15em; background-image: linear-gradient(90deg, #fbbf24, #ef4444); background-size: 100% 3px; background-position: 0 100%; background-repeat: no-repeat;">Lucia Gordon</span>,
+  <span style="display: inline-block; padding-bottom: 0.15em; background-image: linear-gradient(90deg, #ef4444, #ef4444); background-size: 100% 3px; background-position: 0 100%; background-repeat: no-repeat;">Serge Belongie</span>,
+  <span style="display: inline-block; padding-bottom: 0.15em; background-image: linear-gradient(90deg, #ef4444, #ef4444); background-size: 100% 3px; background-position: 0 100%; background-repeat: no-repeat;">Christian Igel</span>,
+  <span style="display: inline-block; padding-bottom: 0.15em; background-image: linear-gradient(90deg, #ef4444, #ef4444); background-size: 100% 3px; background-position: 0 100%; background-repeat: no-repeat;">Nico Lang</span>
+  &nbsp;&nbsp;
+  <img src="docs/static/images/ku_logo.png" alt="University of Copenhagen" height="48" style="vertical-align: middle;" />
+</p>
+
+<p align="center">
   <a href="https://lgordon99.github.io/mmearth-bench/">Project page</a>
-</p>
-
-<p align="center">
-  Lucia Gordon<sup>1,2</sup>, Serge Belongie<sup>2</sup>, Christian Igel<sup>2</sup>, Nico Lang<sup>2</sup>
-</p>
-
-<p align="center">
-  <sup>1</sup>&nbsp;<img src="docs/static/images/harvard_logo.svg" alt="Harvard" height="80" style="vertical-align: middle;" />
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <sup>2</sup>&nbsp;<img src="docs/static/images/ku_logo.png" alt="University of Copenhagen" height="60" style="vertical-align: middle;" />
 </p>
 
 <p align="center">
