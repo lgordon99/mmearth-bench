@@ -3,10 +3,11 @@
 <p align="center">
   <img src="docs/static/images/harvard_logo.svg" alt="Harvard" height="48" style="vertical-align: middle;" />
   &nbsp;&nbsp;
-  <span style="display: inline-block; padding-bottom: 0.15em; background-image: linear-gradient(90deg, #fbbf24, #ef4444); background-size: 100% 3px; background-position: 0 100%; background-repeat: no-repeat;">Lucia Gordon</span>,
-  <span style="display: inline-block; padding-bottom: 0.15em; background-image: linear-gradient(90deg, #ef4444, #ef4444); background-size: 100% 3px; background-position: 0 100%; background-repeat: no-repeat;">Serge Belongie</span>,
-  <span style="display: inline-block; padding-bottom: 0.15em; background-image: linear-gradient(90deg, #ef4444, #ef4444); background-size: 100% 3px; background-position: 0 100%; background-repeat: no-repeat;">Christian Igel</span>,
-  <span style="display: inline-block; padding-bottom: 0.15em; background-image: linear-gradient(90deg, #ef4444, #ef4444); background-size: 100% 3px; background-position: 0 100%; background-repeat: no-repeat;">Nico Lang</span>
+  <span style="display: inline-block; vertical-align: middle; padding-bottom: 0.08em; border-bottom: 3px solid #fbbf24;">Lucia</span>
+  <span style="display: inline-block; vertical-align: middle; padding-bottom: 0.08em; border-bottom: 3px solid #ef4444;">Gordon</span>,
+  <span style="display: inline-block; vertical-align: middle; padding-bottom: 0.08em; border-bottom: 3px solid #ef4444;">Serge Belongie</span>,
+  <span style="display: inline-block; vertical-align: middle; padding-bottom: 0.08em; border-bottom: 3px solid #ef4444;">Christian Igel</span>,
+  <span style="display: inline-block; vertical-align: middle; padding-bottom: 0.08em; border-bottom: 3px solid #ef4444;">Nico Lang</span>
   &nbsp;&nbsp;
   <img src="docs/static/images/ku_logo.png" alt="University of Copenhagen" height="48" style="vertical-align: middle;" />
 </p>
