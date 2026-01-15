@@ -171,3 +171,17 @@ bash run_TTT.sh
 `python convert_to_h5.py plot_species_statistics` <img src="docs/static/images/right-arrow.svg" alt="→" height="12" style="vertical-align: middle;" /> Figure S.12-13
 
 </details>
+
+## BibTeX
+
+If you use MMEarth-Bench in your work, please cite:
+
+```bibtex
+@misc{gordon2026mmearth-bench,
+  title        = {MMEarth-Bench},
+  author       = {Gordon, Lucia and Belongie, Serge and Igel, Christian and Lang, Nico},
+  year         = {2026},
+  howpublished = {\url{https://lgordon99.github.io/mmearth-bench/}},
+  note         = {Dataset and benchmark},
+}
+```
