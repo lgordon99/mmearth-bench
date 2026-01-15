@@ -157,18 +157,18 @@ bash run_TTT.sh
 <details>
 <summary><strong>Recreating the figures</strong></summary>
 
-`make_teaser_subfigures.py` ––> Figure 1
+`make_teaser_subfigures.py` ➜ Figure 1
 
-`generate_splits.py` ––> Figure 2, S.10
+`generate_splits.py` ➜ Figure 2, S.10
 
-`view_results.py` ––> Figures 4-7, S.17-22 and Tables 5, S.13-38
+`view_results.py` ➜ Figures 4-7, S.17-22 and Tables 5, S.13-38
 
-`tabulate_summary_stats.py` ––> Tables S.6, S.8-S.10
+`tabulate_summary_stats.py` ➜ Tables S.6, S.8-S.10
 
-`python convert_to_h5.py plot_missing_modalities` ––> Figure S.9
+`python convert_to_h5.py plot_missing_modalities` ➜ Figure S.9
 
-`generate_species_points.py` ––> Figure S.11
+`generate_species_points.py` ➜ Figure S.11
 
-`python convert_to_h5.py plot_species_statistics` ––> Figure S.12-13
+`python convert_to_h5.py plot_species_statistics` ➜ Figure S.12-13
 
 </details>
