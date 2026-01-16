@@ -30,6 +30,23 @@
 | Soil pH | 8,508 | Unitless | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
 | Species | 36,410 | Presence/absence | Tile-level | Multi-label classification | [Terms of Use](https://www.iucnredlist.org/terms/terms-of-use) |
 
+**MMEarth-Bench input modalities**
+
+| Modality | Bands | Scale | Type |
+|---|---|:---:|:---:|
+| Sentinel-2 (S2) | B1, B2, B3, B4, B5, B6, B7, B8, B8A, B9, B11, B12 | Pixel | Continuous |
+| Sentinel-1 (S1) | Ascending VV, VH, HH, HV;<br>Descending VV, VH, HH, HV | Pixel | Continuous |
+| ASTER GDEM | Elevation, slope | Pixel | Continuous |
+| ETH Global Canopy Height | Height, uncertainty | Pixel | Continuous |
+| Dynamic World | Landcover | Pixel | Categorical |
+| ESA WorldCover | Landcover | Pixel | Categorical |
+| Precipitation | Previous month, month, year | Tile | Continuous |
+| Temperature | Previous month max, mean, min;<br>month max, mean, min;<br>year max, mean, min | Tile | Continuous |
+| Geolocation | Longitude, latitude | Tile | Continuous |
+| Sentinel-2 date | Date | Tile | Continuous |
+| Biome | Biome number | Tile | Categorical |
+| Ecoregion | Ecoregion number | Tile | Categorical |
+
 To download the MMEarth-Bench data, run
 ```
 mkdir -p mmearth-bench-data/{biomass,soil_nitrogen,soil_organic_carbon,soil_pH,species} && for task in biomass soil_nitrogen soil_organic_carbon soil_pH species; do wget -c -P "mmearth-bench-data/$task" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/$task.h5" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/${task}_split_data.json"; done && wget -c -P mmearth-bench-data/species "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/species/species_labels.json"
