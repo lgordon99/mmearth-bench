@@ -171,7 +171,9 @@ bash run.sh TASK MODEL_NAME JT-TTT-Geo 100
 
 <details>
 <summary><h2 style="display: inline;">Downloading the MMEarth modalities for new tasks</h2></summary>
-Downloading the MMEarth modalities requires a GeoJSON of (lon, lat) coordinates for the task data. The user should populate the following with the locations where they have downstream task data.
+Downloading the MMEarth modalities requires a GeoJSON of (lon, lat) coordinates for the task data.
+
+1. The user should populate the following with the locations where they have downstream task data
 
 ```
 {
@@ -202,12 +204,24 @@ Downloading the MMEarth modalities requires a GeoJSON of (lon, lat) coordinates 
     ]
 }
 ```
-This GeoJSON should be accessible at a path such as `f'{DATA_DIR}/{TASK}/{TASK}_points.geojson'`. The modalities can then be downloaded using
+This GeoJSON should be located at the path `f'{DATA_DIR}/{TASK}/{TASK}_points.geojson'`.
 
+2. The modalities can then be downloaded using
 ```
 python get_tile_data.py TASK
 ```
 You can modify the `get_dates()` method in `ee_data.py` if you do not want to use the default date range for selecting a Sentinel-2 tile, which uses May - September for points in the northern hemisphere and November - March for points in the southern hemisphere, roughly corresponding to the growing season.
+
+3. Convert the data to H5 format with
+```
+python convert_to_h5.py TASK
+```
+optionally running `python convert_to_h5.py check_h5 TASK` and `python convert_to_h5.py plot_missing_modalities TASK` afterwards to inspect the dataset
+
+4. To generate the train 5%, 50%, and 100%; validation; random test; and geographic test (Africa) splits, run
+```
+python generate_splits.py TASK
+```
 
 Our test-time training method is not limited to the MMEarth-Bench tasks. Others wishing to adapt a pretrained model to their downstream task can extract the MMEarth modalities as above and then run JT followed by TTT-MMR in order to get more accurate predictions.
 </details>
