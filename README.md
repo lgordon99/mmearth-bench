@@ -110,6 +110,8 @@ stds = split_data[f'{MODALITY}_{SPLIT}_stds']
 ### Using our dataset and dataloaders
 Move `normalization_data.json` and `task_modalities.json` into the data directory. Then you can use `dataset.py` and `datamodule.py` to load the data with PyTorch and PyTorch Lightning.
 
+TODO: USE DATA WITH NEW MODELS
+
 ### Config file
 If you will be running our code files, create a file called `config-user.yml` in the code directory with the following contents.
 ```
@@ -164,6 +166,7 @@ This GeoJSON should be accessible at a path such as `f'{DATA_DIR}/{TASK}/{TASK}_
 ```
 python get_tile_data.py TASK
 ```
+You can modify the `get_dates()` method in `ee_data.py` if you do not want to use the default date range for selecting a Sentinel-2 tile, which uses May - September for points in the northern hemisphere and November - March for points in the southern hemisphere, roughly corresponding to the growing season.
 
 Our test-time training method is not limited to the MMEarth-Bench tasks. Others wishing to adapt a pretrained model to their downstream task can extract the MMEarth modalities as above and then run JT followed by TTT-MMR in order to get more accurate predictions.
 </details>
