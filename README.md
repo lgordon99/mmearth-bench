@@ -1,18 +1,12 @@
 <h1 align="center">MMEarth-Bench</h1>
 
-<table align="center">
-  <tr>
-    <td valign="middle">
-      <img src="docs/static/images/harvard_logo.svg" alt="Harvard" height="48" align="middle" />
-    </td>
-    <td valign="middle">
-      &nbsp;&nbsp;Lucia Gordon, Serge Belongie, Christian Igel, Nico Lang&nbsp;&nbsp;
-    </td>
-    <td valign="middle">
-      <img src="docs/static/images/ku_logo.png" alt="University of Copenhagen" height="48" align="middle" />
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/static/images/harvard_logo.svg" alt="Harvard" height="48" align="middle" />
+  &nbsp;&nbsp;
+  Lucia Gordon, Serge Belongie, Christian Igel, Nico Lang
+  &nbsp;&nbsp;
+  <img src="docs/static/images/ku_logo.png" alt="University of Copenhagen" height="48" align="middle" />
+</p>
 
 <p align="center">
   <a href="https://lgordon99.github.io/mmearth-bench/">Project page</a>
