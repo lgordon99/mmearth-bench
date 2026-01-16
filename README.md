@@ -25,8 +25,8 @@
 | Task | # Tiles | Unit | Scale | Type | License |
 |---|---:|---|---|---|---|
 | Biomass | 18,393 | Mg/ha | Pixel-level | Regression | [CC BY](https://creativecommons.org/licenses/by/4.0/) |
-| Soil N | 5,643 | g/kg | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
-| Soil OC | 7,982 | g/kg | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
+| Soil Nitrogen | 5,643 | g/kg | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
+| Soil Organic Carbon | 7,982 | g/kg | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
 | Soil pH | 8,508 | Unitless | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
 | Species | 36,410 | Presence/absence | Tile-level | Multi-label classification | [Terms of Use](https://www.iucnredlist.org/terms/terms-of-use) |
 
@@ -34,18 +34,20 @@
 
 | Modality | Bands | Scale | Type |
 |---|---|:---:|:---:|
-| Sentinel-2 (S2) | B1, B2, B3, B4, B5, B6, B7, B8, B8A, B9, B11, B12 | Pixel | Continuous |
-| Sentinel-1 (S1) | Ascending VV, VH, HH, HV;<br>Descending VV, VH, HH, HV | Pixel | Continuous |
-| ASTER GDEM | Elevation, slope | Pixel | Continuous |
-| ETH Global Canopy Height | Height, uncertainty | Pixel | Continuous |
-| Dynamic World | Landcover | Pixel | Categorical |
-| ESA WorldCover | Landcover | Pixel | Categorical |
-| Precipitation | Previous month, month, year | Tile | Continuous |
-| Temperature | Previous month max, mean, min;<br>month max, mean, min;<br>year max, mean, min | Tile | Continuous |
-| Geolocation | Longitude, latitude | Tile | Continuous |
-| Sentinel-2 date | Date | Tile | Continuous |
-| Biome | Biome number | Tile | Categorical |
-| Ecoregion | Ecoregion number | Tile | Categorical |
+| Sentinel-2 | B1, B2, B3, B4, B5, B6, B7, B8, B8A, B9, B11, B12 | Pixel-level | Continuous |
+| Sentinel-1 | Ascending VV, VH, HH, HV;<br>Descending VV, VH, HH, HV | Pixel-level | Continuous |
+| ASTER GDEM | Elevation, slope | Pixel-level | Continuous |
+| ETH Global Canopy Height | Height, uncertainty | Pixel-level | Continuous |
+| Dynamic World | Landcover | Pixel-level | Categorical |
+| ESA WorldCover | Landcover | Pixel-level | Categorical |
+| Precipitation | Previous month, month, year | Tile-level | Continuous |
+| Temperature | Previous month max, mean, min;<br>month max, mean, min;<br>year max, mean, min | Tile-level | Continuous |
+| Geolocation | Longitude, latitude | Tile-level | Continuous |
+| Sentinel-2 date | Date | Tile-level | Continuous |
+| Biome | Biome number | Tile-level | Categorical |
+| Ecoregion | Ecoregion number | Tile-level | Categorical |
+
+**Downloading the MMEarth-Bench data**
 
 To download the MMEarth-Bench data, run
 ```
