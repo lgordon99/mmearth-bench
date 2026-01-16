@@ -159,7 +159,7 @@ Downloading the MMEarth modalities requires a GeoJSON of (lon, lat) coordinates 
     ]
 }
 ```
-This GeoJSON should be accessible at a path such as f'{DATA_DIR}/{TASK}/{TASK}_points.geojson'. The modalities can then be downloaded using
+This GeoJSON should be accessible at a path such as `f'{DATA_DIR}/{TASK}/{TASK}_points.geojson'`. The modalities can then be downloaded using
 
 ```
 python get_tile_data.py TASK

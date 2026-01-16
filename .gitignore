@@ -20,3 +20,4 @@ config-user.yml
 teaser_subfigures
 summary_stats_PDF
 *.out
+sweep.sh
