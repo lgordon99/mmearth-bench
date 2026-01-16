@@ -47,7 +47,8 @@
 
 To download the MMEarth-Bench data, run
 ```
-mkdir -p mmearth-bench-data/{biomass,soil_nitrogen,soil_organic_carbon,soil_pH,species} && for task in biomass soil_nitrogen soil_organic_carbon soil_pH species; do wget -c -P "mmearth-bench-data/$task" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/$task.h5" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/${task}_split_data.json"; done && wget -c -P mmearth-bench-data/species "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/species/species_labels.json"
+mkdir -p mmearth-bench-data/{biomass,soil_nitrogen,soil_organic_carbon,soil_pH,species} && for task in biomass soil_nitrogen soil_organic_carbon soil_pH species; do wget -c -P "mmearth-bench-data/$task" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/$task.h5" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/${task}_split_data.json"; done && wget -c -P mmearth-bench-data/species "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/species/species_labels.json" &&
+wget -c -P mmearth-bench-data "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/no_data_values.json"
 ```
 
 This will create the following folder structure, occupying 59 GB.
@@ -65,13 +66,16 @@ mmearth-bench-data/
 ├── soil_pH/
 │   ├── soil_pH_split_data.json
 │   └── soil_pH.h5
-└── species/
-    ├── species_labels.json
-    ├── species_split_data.json
-    └── species.h5
+├── species/
+│   ├── species_labels.json
+│   ├── species_split_data.json
+│   └── species.h5
+└── no_data_values.json
 </pre>
 
 ## Using the MMEarth-Bench data
+
+### Reading data from H5 files
 Both input modalities and task names can be provided as keys to the H5 files. For any valid `KEY`, the following code extracts the relevant data from the H5 file at `PATH_TO_H5`.
 
 ```python
@@ -86,6 +90,9 @@ with h5py.File(PATH_TO_H5, 'r') as h5_file:
   elif KEY in ['Sentinel2', 'Sentinel1', 'ASTER_GDEM', 'ETH_GCH', 'DynamicWorld', 'ESA_WorldCover', 'precipitation', 'temperature',    'geolocation_encoding', 'month_encoding', 'biome', 'ecoregion', 'biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH', 'MSK_CLDPRB', 'S2CLOUDLESS', 'SCL', 'geolocation', 'MSK_CLDPRB_CLOUDY_PIXEL_FRACTION', 'S2CLOUDLESS_CLOUDY_PIXEL_FRACTION', 'SCL_NO_DATA_PIXEL_FRACTION', 'id', 'transform']:
     key_data = h5_file[KEY][:]
 ```
+
+### Using our dataset and dataloaders
+Move `normalization_data.json` and `task_modalities.json` into the data directory. Then you can use `dataset.py` and `datamodule.py` to load the data.
 
 <details>
 <summary><h2 style="display: inline;">Recreating the dataset</h2></summary>
@@ -187,7 +194,7 @@ python generate_splits.py TASK
 <details>
 <summary><h2 style="display: inline;">Reproducing the results</h2></summary>
 
-1. Move `no_data_values.json`, `normalization_data.json`, and `task_modalities.json` into the data directory.
+1. Move `normalization_data.json` and `task_modalities.json` into the data directory.
 
 2. The code uses [Weights & Biases](https://wandb.ai/site) to track experiments. To run the finetuning, linear probing, and joint training experiments, execute
 
