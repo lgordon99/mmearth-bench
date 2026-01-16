@@ -122,6 +122,7 @@ stds = split_data[f'{MODALITY}_{SPLIT}_stds']
 
 <details>
 <summary><h2 style="display: inline;">Benchmarking new models</h2></summary>
+
 Currently, our code supports the models `ConvNeXtV2A`, `ScaleMAE`, `DINOv3Web`, `DINOv3Sat`, `SatlasNet`, `MPMAE`, `TerraMind`, and `CopernicusFM`. You can also benchmark a new model on MMEarth-Bench by making some modifications to the code.
 
 1. Move `normalization_data.json` and `task_modalities.json` into the data directory
@@ -157,11 +158,11 @@ where `TRAIN_PERCENT` ∈ [5,50,100] is how much of the training data you wish t
 ```
 bash run.sh TASK MODEL_NAME JT 100
 ```
-Then you can run `TTT-MMR` (random batching)
+Then you can run TTT-MMR (random batching)
 ```
 bash run.sh TASK MODEL_NAME JT-TTT 100
 ```
-or `TTT-MMR-Geo` (geographic batching)
+or TTT-MMR-Geo (geographic batching)
 ```
 bash run.sh TASK MODEL_NAME JT-TTT-Geo 100
 ```
