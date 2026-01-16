@@ -1375,8 +1375,7 @@
             <pre id="download-code"><code>mkdir -p mmearth-bench-data/{biomass,soil_nitrogen,soil_organic_carbon,soil_pH,species} && for task in biomass soil_nitrogen soil_organic_carbon soil_pH species; do wget -c -P "mmearth-bench-data/$task" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/$task.h5" "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/$task/${task}_split_data.json"; done && wget -c -P mmearth-bench-data/species "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/species/species_labels.json" && wget -c -P mmearth-bench-data "https://sid.erda.dk/share_redirect/cbMhbwV1yP/mmearth-bench-data/no_data_values.json"</code></pre>
           </div>
           <p class="has-text-justified" style="margin: 2rem 0 0 0;">This will take about 2 hours and yield the following folder structure, occupying 59 GB:</p>
-          <pre style="text-align: left; margin: 1rem 0;">
-            <code>mmearth-bench-data/
+          <pre style="text-align: left; margin: 1rem 0;"><code>mmearth-bench-data/
 ├── biomass/
 │   ├── biomass_split_data.json
 │   └── biomass.h5
