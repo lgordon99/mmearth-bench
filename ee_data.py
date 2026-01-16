@@ -117,7 +117,7 @@ class EEData:
             leaf_on_off_dates = [[pd.to_datetime(pair[0], unit='D', origin=pd.Timestamp(f'{year}-01-01')).date().strftime('%Y-%m-%d'), pd.to_datetime(pair[1], unit='D', origin=pd.Timestamp(f'{year}-01-01')).date().strftime('%Y-%m-%d')] for pair in leaf_on_off_unique] # converts the days to dates
 
             return leaf_on_off_dates
-        elif 'soil' in self.task or self.task == 'species':
+        else:
             point_latitude = self.point['geometry']['coordinates'][1]
 
             if point_latitude > 0: # if the point is in the northern hemisphere
