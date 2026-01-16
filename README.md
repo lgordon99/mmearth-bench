@@ -72,10 +72,22 @@ mmearth-bench-data/
 └── no_data_values.json
 </pre>
 
-<details>
-<summary><h2 style="display: inline;">Using the MMEarth-Bench data</h2></summary>
+## Config file
+If you will be running our code files, create a file called `config-user.yml` in the code directory with the following contents.
+```
+data_dir_path: 'DATA_DIR_PATH'
+env_path: 'ENV_PATH'
+email: 'EMAIL'
+partitions: 'PARTITION_1,PARTITION_2'
 
-### Reading data directly
+# The below are only needed for training and evaluating models
+gpu_partitions: 'GPU_PARTITION_1,GPU_PARTITION_2'
+entity: 'WANDB_ENTITY'
+project: 'WANDB_PROJECT_NAME'
+```
+
+<details>
+<summary><h2 style="display: inline;">Reading the MMEarth-Bench data</h2></summary>
 Both input modalities and task names can be provided as keys to the H5 files. For any valid `KEY`, the following code extracts the relevant data from the H5 file at `PATH_TO_H5`.
 
 ```python
@@ -106,26 +118,55 @@ indices = split_data[f'{SPLIT}_indices']
 means = split_data[f'{MODALITY}_{SPLIT}_means']
 stds = split_data[f'{MODALITY}_{SPLIT}_stds']
 ```
+</details>
 
-### Using our dataset and dataloaders
-Move `normalization_data.json` and `task_modalities.json` into the data directory. Then you can use `dataset.py` and `datamodule.py` to load the data with PyTorch and PyTorch Lightning.
+<details>
+<summary><h2 style="display: inline;">Benchmarking new models</h2></summary>
+Currently, our code supports the models `ConvNeXtV2A`, `ScaleMAE`, `DINOv3Web`, `DINOv3Sat`, `SatlasNet`, `MPMAE`, `TerraMind`, and `CopernicusFM`. You can also benchmark a new model on MMEarth-Bench by making some modifications to the code.
 
-TODO: USE DATA WITH NEW MODELS
+1. Move `normalization_data.json` and `task_modalities.json` into the data directory
 
-### Config file
-If you will be running our code files, create a file called `config-user.yml` in the code directory with the following contents.
+2. Add an entry to `normalization_data.json` containing the means and STDs for the modalities and bands your pretrained model takes as input in the following form
+
 ```
-data_dir_path: 'DATA_DIR_PATH'
-env_path: 'ENV_PATH'
-email: 'EMAIL'
-partitions: 'PARTITION_1,PARTITION_2'
-
-# The below are only needed for training and evaluating models
-gpu_partitions: 'GPU_PARTITION_1,GPU_PARTITION_2'
-entity: 'WANDB_ENTITY'
-project: 'WANDB_PROJECT_NAME'
+"MODEL_NAME": {"MODALITY_1": {"bands": [LIST OF BAND INDICES],
+                              "means": [LIST OF BAND MEANS],
+                              "stds": [LIST OF BAND STDS]},
+               "MODALITY_2": {"bands": [LIST OF BAND INDICES],
+                              "means": [LIST OF BAND MEANS],
+                              "stds": [LIST OF BAND STDS]}}
 ```
 
+3. Modify `dataset.py` as needed to properly handle your model's bands and normalization method. By default, we extract the modalities `Sentinel2`, `Sentinel1`, `ASTER_GDEM`, `ETH_GCH`, `DynamicWorld`, `ESA_WorldCover`, `precipitation`, `temperature`, `geolocation_encoding`, `month_encoding`, `biome`, and `ecoregion` for each tile. If your model takes in a modality not on this list, you need to account for that in `dataset.py`. We perform z-score normalization on `Sentinel2`, `Sentinel1`, `ASTER_GDEM`, `ETH_GCH`, `precipitation`, and `temperature` using the statistics provided in `normalization_data.json` for the model. Again, if your model requires a different kind of data processing or normalization, you need to integrate that into `dataset.py`.
+
+4. Add your model's number of embedding dimensions to the dictionary at line 39 of `model.py`, ensuring the model name matches what you used in `normalization_data.json`
+
+5. Create a class for your model's encoder called `f'{MODEL_NAME}Encoder`. This class's constructor should load your encoder architecture and weights. Its forward function should take `images` as an argument and return 4D model embeddings of the form (`batch_size`, `embedding_dim`, `num_vertical_patches`, `num_horizontal_patches`).
+
+6. Depending on whether you want to perform finetuning (`FT`) or linear probing (`LP`), execute
+```
+bash run.sh TASK MODEL_NAME FT TRAIN_PERCENT
+```
+or
+```
+bash run.sh TASK MODEL_NAME LP TRAIN_PERCENT
+```
+where `TRAIN_PERCENT` ∈ [5,50,100] is how much of the training data you wish to use.
+
+7. If you want to perform test-time training with your model, first perform joint training (`JT`)
+```
+bash run.sh TASK MODEL_NAME JT 100
+```
+Then you can run `TTT-MMR` (random batching)
+```
+bash run.sh TASK MODEL_NAME JT-TTT 100
+```
+or `TTT-MMR-Geo` (geographic batching)
+```
+bash run.sh TASK MODEL_NAME JT-TTT-Geo 100
+```
+
+8. You can use our tabulating and plotting functions if desired by adding your model name to lines 114 and/or 117 in `view_results.py` to inspect your model's performance on MMEarth-Bench
 </details>
 
 <details>
@@ -259,7 +300,7 @@ python generate_splits.py TASK
 <details>
 <summary><h2 style="display: inline;">Reproducing the results</h2></summary>
 
-1. Move `normalization_data.json` and `task_modalities.json` into the data directory.
+1. Move `normalization_data.json` and `task_modalities.json` into the data directory
 
 2. The code uses [Weights & Biases](https://wandb.ai/site) to track experiments. To run the finetuning, linear probing, and joint training experiments, execute
 
