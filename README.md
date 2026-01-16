@@ -1,16 +1,18 @@
 <h1 align="center">MMEarth-Bench</h1>
 
-<p align="center">
-  <img src="docs/static/images/harvard_logo.svg" alt="Harvard" height="48" align="middle" />
-  &nbsp;&nbsp;
-  <span style="display: inline-block; vertical-align: middle; color: #fbbf24;">Lucia</span>
-  <span style="display: inline-block; vertical-align: middle; color: #ef4444;">Gordon</span>,
-  <span style="display: inline-block; vertical-align: middle; color: #ef4444;">Serge Belongie</span>,
-  <span style="display: inline-block; vertical-align: middle; color: #ef4444;">Christian Igel</span>,
-  <span style="display: inline-block; vertical-align: middle; color: #ef4444;">Nico Lang</span>
-  &nbsp;&nbsp;
-  <img src="docs/static/images/ku_logo.png" alt="University of Copenhagen" height="48" align="middle" />
-</p>
+<table align="center">
+  <tr>
+    <td valign="middle">
+      <img src="docs/static/images/harvard_logo.svg" alt="Harvard" height="48" align="middle" />
+    </td>
+    <td valign="middle">
+      &nbsp;&nbsp;Lucia Gordon, Serge Belongie, Christian Igel, Nico Lang&nbsp;&nbsp;
+    </td>
+    <td valign="middle">
+      <img src="docs/static/images/ku_logo.png" alt="University of Copenhagen" height="48" align="middle" />
+    </td>
+  </tr>
+</table>
 
 <p align="center">
   <a href="https://lgordon99.github.io/mmearth-bench/">Project page</a>
@@ -20,7 +22,7 @@
 	<img src="docs/static/images/overview_figure.svg" alt="Overview figure" width="500" />
 </p>
 
-**MMEarth-Bench downstream tasks**
+## MMEarth-Bench downstream tasks
 
 | Task | # Tiles | Unit | Scale | Type | License |
 |---|---:|---|---|---|---|
@@ -30,7 +32,7 @@
 | Soil pH | 8,508 | Unitless | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
 | Species | 36,410 | Presence/absence | Tile-level | Multi-label classification | [Terms of Use](https://www.iucnredlist.org/terms/terms-of-use) |
 
-**MMEarth-Bench input modalities**
+## MMEarth-Bench input modalities
 
 | Modality | Bands | Scale | Type |
 |---|---|:---:|:---:|
@@ -47,7 +49,7 @@
 | Biome | Biome number | Tile-level | Categorical |
 | Ecoregion | Ecoregion number | Tile-level | Categorical |
 
-**Downloading the MMEarth-Bench data**
+## Downloading the MMEarth-Bench data
 
 To download the MMEarth-Bench data, run
 ```
