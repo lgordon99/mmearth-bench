@@ -71,6 +71,22 @@ mmearth-bench-data/
     └── species.h5
 </pre>
 
+## Using the MMEarth-Bench data
+Both input modalities and task names can be provided as keys to the H5 files. For any valid `KEY`, the following code extracts the relevant data from the H5 file at `PATH_TO_H5`.
+
+```python
+import h5py
+import json
+
+with h5py.File(PATH_TO_H5, 'r') as h5_file:
+  if KEY in ['sentinel2_date', 'crs', 'sentinel2_system_index']:
+    key_data = h5_file[KEY].asstr()[...]
+  elif KEY in ['missing_modalities', 'species']:
+    key_data = [json.loads(lst) for lst in h5_file[KEY].asstr()[...]]
+  elif KEY in ['Sentinel2', 'Sentinel1', 'ASTER_GDEM', 'ETH_GCH', 'DynamicWorld', 'ESA_WorldCover', 'precipitation', 'temperature',    'geolocation_encoding', 'month_encoding', 'biome', 'ecoregion', 'biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH', 'MSK_CLDPRB', 'S2CLOUDLESS', 'SCL', 'geolocation', 'MSK_CLDPRB_CLOUDY_PIXEL_FRACTION', 'S2CLOUDLESS_CLOUDY_PIXEL_FRACTION', 'SCL_NO_DATA_PIXEL_FRACTION', 'id', 'transform']:
+    key_data = h5_file[KEY][:]
+```
+
 <details>
 <summary><h2 style="display: inline;">Recreating the dataset</h2></summary>
 
