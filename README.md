@@ -19,7 +19,7 @@
 ## MMEarth-Bench downstream tasks
 
 | Task | # Tiles | Unit | Scale | Type | License |
-|---|---:|---|---|---|---|
+|---|---:|---|:---:|:---:|---|
 | Biomass | 18,393 | Mg/ha | Pixel-level | Regression | [CC BY](https://creativecommons.org/licenses/by/4.0/) |
 | Soil Nitrogen | 5,643 | g/kg | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
 | Soil Organic Carbon | 7,982 | g/kg | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
