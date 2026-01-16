@@ -24,11 +24,11 @@
 
 | Task | # Tiles | Unit | Scale | Type | License |
 |---|---:|---|---|---|---|
-| Biomass | 18,393 | Mg/ha | Pixel-level | Regression | CC BY |
-| Soil N | 5,643 | g/kg | Tile-level | Regression | CC BY-NC |
-| Soil OC | 7,982 | g/kg | Tile-level | Regression | CC BY-NC |
-| Soil pH | 8,508 | Unitless | Tile-level | Regression | CC BY-NC |
-| Species | 36,410 | Presence/<br>absence | Tile-level | Multi-label<br>classification | [Terms of Use](https://www.iucnredlist.org/terms/terms-of-use) |
+| Biomass | 18,393 | Mg/ha | Pixel-level | Regression | [CC BY](https://creativecommons.org/licenses/by/4.0/) |
+| Soil N | 5,643 | g/kg | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
+| Soil OC | 7,982 | g/kg | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
+| Soil pH | 8,508 | Unitless | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
+| Species | 36,410 | Presence/absence | Tile-level | Multi-label classification | [Terms of Use](https://www.iucnredlist.org/terms/terms-of-use) |
 
 To download the MMEarth-Bench data, run
 ```
