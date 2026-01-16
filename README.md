@@ -1,15 +1,15 @@
 <h1 align="center">MMEarth-Bench</h1>
 
 <p align="center">
-  <img src="docs/static/images/harvard_logo.svg" alt="Harvard" height="48" style="vertical-align: middle;" />
+  <img src="docs/static/images/harvard_logo.svg" alt="Harvard" height="48" align="middle" />
   &nbsp;&nbsp;
-  <span style="display: inline-block; vertical-align: middle; padding-bottom: 0.08em; border-bottom: 3px solid #fbbf24;">Lucia</span>
-  <span style="display: inline-block; vertical-align: middle; padding-bottom: 0.08em; border-bottom: 3px solid #ef4444;">Gordon</span>,
-  <span style="display: inline-block; vertical-align: middle; padding-bottom: 0.08em; border-bottom: 3px solid #ef4444;">Serge Belongie</span>,
-  <span style="display: inline-block; vertical-align: middle; padding-bottom: 0.08em; border-bottom: 3px solid #ef4444;">Christian Igel</span>,
-  <span style="display: inline-block; vertical-align: middle; padding-bottom: 0.08em; border-bottom: 3px solid #ef4444;">Nico Lang</span>
+  <span style="display: inline-block; vertical-align: middle; color: #fbbf24;">Lucia</span>
+  <span style="display: inline-block; vertical-align: middle; color: #ef4444;">Gordon</span>,
+  <span style="display: inline-block; vertical-align: middle; color: #ef4444;">Serge Belongie</span>,
+  <span style="display: inline-block; vertical-align: middle; color: #ef4444;">Christian Igel</span>,
+  <span style="display: inline-block; vertical-align: middle; color: #ef4444;">Nico Lang</span>
   &nbsp;&nbsp;
-  <img src="docs/static/images/ku_logo.png" alt="University of Copenhagen" height="48" style="vertical-align: middle;" />
+  <img src="docs/static/images/ku_logo.png" alt="University of Copenhagen" height="48" align="middle" />
 </p>
 
 <p align="center">
