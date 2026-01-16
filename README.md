@@ -74,7 +74,7 @@ mmearth-bench-data/
 
 ## Using the MMEarth-Bench data
 
-### Reading data from H5 files
+### Reading data directly
 Both input modalities and task names can be provided as keys to the H5 files. For any valid `KEY`, the following code extracts the relevant data from the H5 file at `PATH_TO_H5`.
 
 ```python
@@ -90,8 +90,24 @@ with h5py.File(PATH_TO_H5, 'r') as h5_file:
     key_data = h5_file[KEY][:]
 ```
 
+The split data JSON files can also be indexed using keys.
+
+```python
+import json
+
+with open(PATH_TO_SPLIT_DATA_JSON, 'r') as json_file:
+    split_data = json.load(json_file)
+
+# Get indices for SPLIT ∈ ['train_100%', 'train_50%', 'train_5%', 'val', 'random_test', 'geographic_test'])
+indices = split_data[f'{SPLIT}_indices']
+
+# Get normalization statistics for MODALITY ∈ ['Sentinel2', 'Sentinel1', 'ASTER_GDEM', 'ETH_GCH', 'precipitation', 'temperature'] and SPLIT ∈ ['train_100%', 'train_50%', 'train_5%'])
+means = split_data[f'{MODALITY}_{SPLIT}_means']
+stds = split_data[f'{MODALITY}_{SPLIT}_stds']
+```
+
 ### Using our dataset and dataloaders
-Move `normalization_data.json` and `task_modalities.json` into the data directory. Then you can use `dataset.py` and `datamodule.py` to load the data.
+Move `normalization_data.json` and `task_modalities.json` into the data directory. Then you can use `dataset.py` and `datamodule.py` to load the data with PyTorch and PyTorch Lightning.
 
 <details>
 <summary><h2 style="display: inline;">Recreating the dataset</h2></summary>
