@@ -72,7 +72,8 @@ mmearth-bench-data/
 └── no_data_values.json
 </pre>
 
-## Using the MMEarth-Bench data
+<details>
+<summary><h2 style="display: inline;">Using the MMEarth-Bench data</h2></summary>
 
 ### Reading data directly
 Both input modalities and task names can be provided as keys to the H5 files. For any valid `KEY`, the following code extracts the relevant data from the H5 file at `PATH_TO_H5`.
@@ -109,20 +110,66 @@ stds = split_data[f'{MODALITY}_{SPLIT}_stds']
 ### Using our dataset and dataloaders
 Move `normalization_data.json` and `task_modalities.json` into the data directory. Then you can use `dataset.py` and `datamodule.py` to load the data with PyTorch and PyTorch Lightning.
 
-<details>
-<summary><h2 style="display: inline;">Recreating the dataset</h2></summary>
-
 ### Config file
-Create a file called `config-user.yml` in the code directory with the following contents.
+If you will be running our code files, create a file called `config-user.yml` in the code directory with the following contents.
 ```
 data_dir_path: 'DATA_DIR_PATH'
 env_path: 'ENV_PATH'
 email: 'EMAIL'
 partitions: 'PARTITION_1,PARTITION_2'
+
+# The below are only needed for training and evaluating models
 gpu_partitions: 'GPU_PARTITION_1,GPU_PARTITION_2'
 entity: 'WANDB_ENTITY'
 project: 'WANDB_PROJECT_NAME'
 ```
+
+</details>
+
+<details>
+<summary><h2 style="display: inline;">Downloading the MMEarth modalities for new tasks</h2></summary>
+Downloading the MMEarth modalities requires a GeoJSON of (lon, lat) coordinates for the task data. The user should populate the following with the locations where they have downstream task data.
+
+```
+{
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    lon0,
+                    lat0
+                ]
+            },
+            "id": 0
+        },
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    lon1,
+                    lat1
+                ]
+            },
+            "id": 1
+        }
+    ]
+}
+```
+This GeoJSON should be accessible at a path such as f'{DATA_DIR}/{TASK}/{TASK}_points.geojson'. The modalities can then be downloaded using
+
+```
+python get_tile_data.py TASK
+```
+
+Our test-time training method is not limited to the MMEarth-Bench tasks. Others wishing to adapt a pretrained model to their downstream task can extract the MMEarth modalities as above and then run JT followed by TTT-MMR in order to get more accurate predictions.
+</details>
+
+<details>
+<summary><h2 style="display: inline;">Recreating the dataset</h2></summary>
 
 ### Setup Google Earth Engine
 We use Google Earth Engine to access much of the data.
