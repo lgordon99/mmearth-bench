@@ -43,6 +43,173 @@
 | Biome | Biome number | Tile-level | Categorical |
 | Ecoregion | Ecoregion number | Tile-level | Categorical |
 
+## Benchmarking results on MMEarth-Bench
+Models are ranked by their performance on each task after finetuning on 100% of the training data.
+
+<table>
+<thead>
+<tr>
+<th align="center"><b>Split</b></th>
+<th align="left"><b>Model</b></th>
+<th align="center"><b>Biomass</b></th>
+<th align="center"><b>Soil N</b></th>
+<th align="center"><b>Soil OC</b></th>
+<th align="center"><b>Soil pH</b></th>
+<th align="center"><b>Species</b></th>
+<th align="center"><b>All tasks</b></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td rowspan="8" align="center"><b>Random</b></td>
+<td align="left">ConvNeXtV2A</td>
+<td align="center">7.7 ± 0.3</td>
+<td align="center">7.0 ± 0.0</td>
+<td align="center">5.0 ± 0.0</td>
+<td align="center">7.7 ± 0.3</td>
+<td align="center">8.0 ± 0.0</td>
+<td align="center">7.1 ± 0.3</td>
+</tr>
+<tr>
+<td align="left">Scale-MAE</td>
+<td align="center">7.3 ± 0.3</td>
+<td align="center">8.0 ± 0.0</td>
+<td align="center">7.0 ± 0.6</td>
+<td align="center">7.3 ± 0.3</td>
+<td align="center">7.0 ± 0.0</td>
+<td align="center">7.3 ± 0.2</td>
+</tr>
+<tr>
+<td align="left">DINOv3 Web</td>
+<td align="center">5.7 ± 0.3</td>
+<td align="center">4.3 ± 0.3</td>
+<td align="center">6.7 ± 0.3</td>
+<td align="center">4.0 ± 0.0</td>
+<td align="center">6.0 ± 0.0</td>
+<td align="center">5.3 ± 0.3</td>
+</tr>
+<tr>
+<td align="left">DINOv3 Sat</td>
+<td align="center">4.0 ± 0.0</td>
+<td align="center">4.0 ± 0.6</td>
+<td align="center">7.3 ± 0.7</td>
+<td align="center">5.0 ± 0.0</td>
+<td align="center">5.0 ± 0.0</td>
+<td align="center">5.1 ± 0.4</td>
+</tr>
+<tr>
+<td align="left">SatlasNet</td>
+<td align="center">5.3 ± 0.3</td>
+<td align="center">6.0 ± 0.0</td>
+<td align="center">4.0 ± 0.0</td>
+<td align="center">6.0 ± 0.0</td>
+<td align="center">4.0 ± 0.0</td>
+<td align="center">5.1 ± 0.2</td>
+</tr>
+<tr>
+<td align="left">MPMAE</td>
+<td align="center"><b>1.3 ± 0.3</b></td>
+<td align="center">3.7 ± 0.7</td>
+<td align="center">2.0 ± 0.0</td>
+<td align="center">3.0 ± 0.0</td>
+<td align="center">3.0 ± 0.0</td>
+<td align="center">2.6 ± 0.3</td>
+</tr>
+<tr>
+<td align="left">TerraMind</td>
+<td align="center">2.3 ± 0.7</td>
+<td align="center"><b>1.0 ± 0.0</b></td>
+<td align="center">3.0 ± 0.0</td>
+<td align="center"><b>1.0 ± 0.0</b></td>
+<td align="center">2.0 ± 0.0</td>
+<td align="center">1.9 ± 0.2</td>
+</tr>
+<tr>
+<td align="left">Copernicus-FM</td>
+<td align="center">2.3 ± 0.3</td>
+<td align="center">2.0 ± 0.0</td>
+<td align="center"><b>1.0 ± 0.0</b></td>
+<td align="center">2.0 ± 0.0</td>
+<td align="center"><b>1.0 ± 0.0</b></td>
+<td align="center"><b>1.7 ± 0.2</b></td>
+</tr>
+<tr>
+<td rowspan="8" align="center"><b>Geographic</b></td>
+<td align="left">ConvNeXtV2A</td>
+<td align="center">7.0 ± 0.0</td>
+<td align="center">5.7 ± 1.3</td>
+<td align="center">5.0 ± 0.0</td>
+<td align="center">7.0 ± 0.0</td>
+<td align="center">8.0 ± 0.0</td>
+<td align="center">6.5 ± 0.4</td>
+</tr>
+<tr>
+<td align="left">Scale-MAE</td>
+<td align="center">8.0 ± 0.0</td>
+<td align="center">8.0 ± 0.0</td>
+<td align="center">7.0 ± 0.6</td>
+<td align="center">8.0 ± 0.0</td>
+<td align="center">7.0 ± 0.0</td>
+<td align="center">7.6 ± 0.2</td>
+</tr>
+<tr>
+<td align="left">DINOv3 Web</td>
+<td align="center">5.7 ± 0.3</td>
+<td align="center">4.7 ± 1.2</td>
+<td align="center">6.7 ± 0.7</td>
+<td align="center">4.0 ± 0.0</td>
+<td align="center">5.0 ± 0.0</td>
+<td align="center">5.2 ± 0.3</td>
+</tr>
+<tr>
+<td align="left">DINOv3 Sat</td>
+<td align="center">4.0 ± 0.0</td>
+<td align="center"><b>1.7 ± 0.3</b></td>
+<td align="center">7.3 ± 0.3</td>
+<td align="center">5.3 ± 0.3</td>
+<td align="center">4.7 ± 0.7</td>
+<td align="center">4.6 ± 0.5</td>
+</tr>
+<tr>
+<td align="left">SatlasNet</td>
+<td align="center">5.3 ± 0.3</td>
+<td align="center">6.0 ± 0.0</td>
+<td align="center">3.0 ± 0.6</td>
+<td align="center">2.3 ± 0.3</td>
+<td align="center">5.3 ± 0.7</td>
+<td align="center">4.4 ± 0.4</td>
+</tr>
+<tr>
+<td align="left">MPMAE</td>
+<td align="center"><b>1.7 ± 0.3</b></td>
+<td align="center">3.3 ± 0.7</td>
+<td align="center">2.3 ± 0.3</td>
+<td align="center">2.7 ± 0.3</td>
+<td align="center">3.0 ± 0.0</td>
+<td align="center">2.6 ± 0.2</td>
+</tr>
+<tr>
+<td align="left">TerraMind</td>
+<td align="center">2.0 ± 0.6</td>
+<td align="center">4.3 ± 0.7</td>
+<td align="center">3.7 ± 0.3</td>
+<td align="center"><b>1.0 ± 0.0</b></td>
+<td align="center">2.0 ± 0.0</td>
+<td align="center">2.6 ± 0.4</td>
+</tr>
+<tr>
+<td align="left">Copernicus-FM</td>
+<td align="center">2.3 ± 0.7</td>
+<td align="center">2.3 ± 1.3</td>
+<td align="center"><b>1.0 ± 0.0</b></td>
+<td align="center">5.7 ± 0.3</td>
+<td align="center"><b>1.0 ± 0.0</b></td>
+<td align="center"><b>2.5 ± 0.5</b></td>
+</tr>
+</tbody>
+</table>
+
+
 ## Test-Time Training with Multimodal Reconstruction (TTT-MMR)
 We propose test-time training with multimodal reconstruction (TTT-MMR) to improve model performance at test-time using task modalities as reconstruction tasks.
 <p align="center">
