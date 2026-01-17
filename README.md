@@ -43,6 +43,16 @@
 | Biome | Biome number | Tile-level | Categorical |
 | Ecoregion | Ecoregion number | Tile-level | Categorical |
 
+## Test-Time Training with Multimodal Reconstruction (TTT-MMR)
+We propose test-time training with multimodal reconstruction (TTT-MMR) to improve model performance at test-time using task modalities as reconstruction tasks.
+<p align="center">
+  <img src="docs/static/videos/ttt_video.gif" alt="TTT-MMR" width="500" />
+</p>
+Our TTT-MMR-Geo method batches the test tiles based on geographic proximity using recursive spatial partitioning.
+<p align="center">
+  <img src="docs/static/videos/ttt-mmr-geo_partitioning.gif" alt="TTT-MMR-Geo partitioning" width="500" />
+</p>
+
 ## Downloading the MMEarth-Bench data
 
 To download the MMEarth-Bench data, run
