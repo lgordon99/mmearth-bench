@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <a href="https://lgordon99.github.io/mmearth-bench/">Project page</a>
+  <a href="https://lgordon99.github.io/mmearth-bench/">Project page</a> 🌐 | <a href="https://lgordon99.github.io/mmearth-bench-app/">MMEarth-Bench Explorer</a> 🗺️
 </p>
 
 <p align="center">
-	<img src="docs/static/images/overview_figure.svg" alt="Overview figure" width="500" />
+	<img src="docs/static/images/overview_figure.svg" alt="Overview figure" width="600" />
 </p>
 
 ## MMEarth-Bench downstream tasks
