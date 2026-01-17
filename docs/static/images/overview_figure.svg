@@ -25,7 +25,10 @@
   <!-- Pie Chart Labels -->
   <g>
     <text x="652.9" y="527.2" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased; text-shadow: 1px 1px 1px rgba(0,0,0,0.7);">Biomass</text>
-    <text x="685.6" y="627.8" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased; text-shadow: 1px 1px 1px rgba(0,0,0,0.7);">Soil Nitrogen</text>
+    <text x="685.6" y="627.8" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased; text-shadow: 1px 1px 1px rgba(0,0,0,0.7);">
+        <tspan x="685.6" dy="-0.3em">Soil</tspan>
+        <tspan x="685.6" dy="1.2em">Nitrogen</tspan>
+    </text>
     <text x="600" y="690" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="white" text-anchor="middle" dominant-baseline="middle" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased; text-shadow: 1px 1px 1px rgba(0,0,0,0.7);">
         <tspan x="600" dy="-0.9em">Soil</tspan>
         <tspan x="600" dy="1.2em">Organic</tspan>
