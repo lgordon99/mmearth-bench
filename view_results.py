@@ -1,4 +1,4 @@
-from matplotlib.ticker import MaxNLocator, MultipleLocator, FixedLocator
+from matplotlib.ticker import FixedLocator
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -1892,6 +1892,264 @@ def tabulate_ttt_ranks_by_model():
 
     compile_latex(tex_file)
 
+def tabulate_ft_ranks_by_task():
+    """Create a table showing average ranks of architectures by task for FT at 100% training data.
+
+    For each task, split, and seed, rank architectures by performance (1 = best).
+    Then average ranks over seeds (41, 42, 43) and report mean ± standard error.
+
+    Rows are tasks for Random, then tasks for Geographic. Columns are architectures.
+    """
+    adaptation_mode = 'FT'
+    train_percent = 100
+    splits = ['Random', 'Geographic']
+    tags = ['chi_41', 'chi_42', 'chi_43']
+    seeds = [41, 42, 43]
+
+    # Load runs with all tags in one API call, then filter in memory
+    all_runs_list = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': tags}})
+    all_runs = {tag: [r for r in all_runs_list if tag in r.tags] for tag in tags}
+
+    # Collect ranks: {split: {task: {seed: {architecture: rank}}}}
+    rank_data = {
+        split: {
+            task: {seed: {arch: None for arch in architectures_plots} for seed in seeds}
+            for task in tasks
+        }
+        for split in splits
+    }
+
+    for split in splits:
+        for task in tasks:
+            metric = 'R2' if task != 'species' else 'mAP'
+            metric_name = f'{split} test {metric}'
+
+            for tag, seed in zip(tags, seeds):
+                runs = all_runs[tag]
+
+                # Collect performance per architecture for this seed
+                arch_perfs = {}
+                for architecture in architectures_plots:
+                    run_name = '_'.join([task, architecture, adaptation_mode, str(train_percent)]) + '_'
+                    run = next((run for run in runs if run.name.startswith(run_name)), None)
+                    if not run:
+                        continue
+                    perf = run.summary_metrics.get(metric_name)
+                    if perf is not None and not np.isnan(perf):
+                        arch_perfs[architecture] = perf
+
+                if len(arch_perfs) < 2:
+                    continue
+
+                # Sort by performance (descending) so best gets rank 1
+                sorted_archs = sorted(arch_perfs.items(), key=lambda x: x[1], reverse=True)
+                ranks = {}
+                prev_perf = None
+                current_rank = 1
+                for i, (arch, perf) in enumerate(sorted_archs):
+                    if prev_perf is not None and abs(perf - prev_perf) < 1e-10:
+                        ranks[arch] = current_rank
+                    else:
+                        current_rank = i + 1
+                        ranks[arch] = current_rank
+                    prev_perf = perf
+
+                for architecture, rank in ranks.items():
+                    rank_data[split][task][seed][architecture] = rank
+
+    # Aggregate over seeds: {split: {task: {arch: {mean,se,n}}}}
+    stats = {split: {task: {arch: {'mean': np.nan, 'se': np.nan, 'n': 0} for arch in architectures_plots}
+                     for task in tasks}
+             for split in splits}
+
+    for split in splits:
+        for task in tasks:
+            for architecture in architectures_plots:
+                ranks = [rank_data[split][task][seed][architecture] for seed in seeds
+                         if rank_data[split][task][seed][architecture] is not None]
+                if len(ranks) == 0:
+                    continue
+                mean = float(np.mean(ranks))
+                se = float(np.std(ranks, ddof=1) / np.sqrt(len(ranks))) if len(ranks) > 1 else 0.0
+                stats[split][task][architecture] = {'mean': mean, 'se': se, 'n': len(ranks)}
+
+    # Compute "All" column: first average over tasks for each seed, then average over seeds
+    # {split: {arch: {mean, se, n}}}
+    all_stats = {split: {arch: {'mean': np.nan, 'se': np.nan, 'n': 0} for arch in architectures_plots}
+                 for split in splits}
+
+    for split in splits:
+        for architecture in architectures_plots:
+            # Collect seed-averaged ranks (average over tasks for each seed)
+            seed_avgs = []
+            for seed in seeds:
+                task_ranks = []
+                for task in tasks:
+                    rank = rank_data[split][task][seed][architecture]
+                    if rank is not None:
+                        task_ranks.append(rank)
+                if len(task_ranks) > 0:
+                    seed_avgs.append(np.mean(task_ranks))
+
+            # Collect all individual ranks (across tasks and seeds) for SE
+            all_ranks = []
+            for seed in seeds:
+                for task in tasks:
+                    rank = rank_data[split][task][seed][architecture]
+                    if rank is not None:
+                        all_ranks.append(rank)
+
+            if len(seed_avgs) > 0:
+                mean = float(np.mean(seed_avgs))  # Mean: average over tasks per seed, then over seeds
+                # SE: computed from all individual ranks to reflect task-level variation
+                se = float(np.std(all_ranks, ddof=1) / np.sqrt(len(all_ranks))) if len(all_ranks) > 1 else 0.0
+                all_stats[split][architecture] = {'mean': mean, 'se': se, 'n': len(seed_avgs)}
+
+    # Formatting helpers
+    def display_task_name(task_name: str) -> str:
+        if task_name == 'soil_nitrogen':
+            return 'Soil N'
+        if task_name == 'soil_organic_carbon':
+            return 'Soil OC'
+        if task_name == 'soil_pH':
+            return 'Soil pH'
+        return task_name.replace('_', ' ').title()
+
+    display_decimals = 1
+
+    # Best rounded mean per (split, task) to bold ties after rounding (lowest rank per task)
+    best_rounded_means = {}
+    for split in splits:
+        for task in tasks:
+            best = float('inf')
+            for architecture in architectures_plots:
+                s = stats[split][task][architecture]
+                if s['n'] > 0 and not np.isnan(s['mean']):
+                    best = min(best, s['mean'])
+            if best != float('inf'):
+                best_rounded_means[(split, task)] = round(best, display_decimals)
+
+    # Best rounded mean for "All" column per split
+    best_rounded_all = {}
+    for split in splits:
+        best = float('inf')
+        for architecture in architectures_plots:
+            s = all_stats[split][architecture]
+            if s['n'] > 0 and not np.isnan(s['mean']):
+                best = min(best, s['mean'])
+        if best != float('inf'):
+            best_rounded_all[split] = round(best, display_decimals)
+
+    # Build DataFrame: rows are architectures (grouped by split), columns are tasks + "All"
+    formatted_data = {}
+    split_column = []
+    model_column = []
+    row_keys = []
+
+    for split in splits:
+        for architecture in architectures_plots:
+            row_key = f"{split}_{architecture}"
+            row_keys.append(row_key)
+            split_column.append(split)
+            model_column.append(display_arch_name(architecture))
+            formatted_data[row_key] = {}
+
+            # Add task columns
+            for task in tasks:
+                s = stats[split][task][architecture]
+                best_rounded = best_rounded_means.get((split, task))
+                if s['n'] > 0 and not np.isnan(s['mean']):
+                    mean_str = f"{s['mean']:.{display_decimals}f}"
+                    se_str = f"{s['se']:.{display_decimals}f}"
+                    rounded_mean = round(s['mean'], display_decimals)
+                    if best_rounded is not None and rounded_mean == best_rounded:
+                        formatted_data[row_key][task] = f"$\\mathbf{{{mean_str} \\pm {se_str}}}$"
+                    else:
+                        formatted_data[row_key][task] = f"${mean_str} \\pm {se_str}$"
+                else:
+                    formatted_data[row_key][task] = "--"
+
+            # Add "All tasks" column
+            s = all_stats[split][architecture]
+            best_rounded = best_rounded_all.get(split)
+            if s['n'] > 0 and not np.isnan(s['mean']):
+                mean_str = f"{s['mean']:.{display_decimals}f}"
+                se_str = f"{s['se']:.{display_decimals}f}"
+                rounded_mean = round(s['mean'], display_decimals)
+                if best_rounded is not None and rounded_mean == best_rounded:
+                    formatted_data[row_key]['All tasks'] = f"$\\mathbf{{{mean_str} \\pm {se_str}}}$"
+                else:
+                    formatted_data[row_key]['All tasks'] = f"${mean_str} \\pm {se_str}$"
+            else:
+                formatted_data[row_key]['All tasks'] = "--"
+
+    df = pd.DataFrame(formatted_data).T
+    df = df.reindex(row_keys)
+    # Reindex columns to include tasks + "All tasks"
+    column_order = list(tasks) + ['All tasks']
+    df = df.reindex(column_order, axis=1)
+    df.columns = [display_task_name(task) if task in tasks else task for task in column_order]
+    df.insert(0, 'Model', model_column)
+    df.insert(0, 'Split', split_column)
+
+    header_line = ' & '.join(['\\textbf{Split}', '\\textbf{Model}'] + [f'\\textbf{{{c}}}' for c in df.columns[2:]]) + r' \\'
+    latex = df.to_latex(index=False,
+                        header=False,
+                        escape=False,
+                        column_format='l' + 'l' + 'c' * (len(df.columns) - 2),
+                        na_rep='--')
+
+    lines = latex.split('\n')
+    toprule_idx = next(i for i, line in enumerate(lines) if '\\toprule' in line)
+    lines.insert(toprule_idx + 1, header_line)
+    if toprule_idx + 2 < len(lines) and '\\midrule' in lines[toprule_idx + 2]:
+        lines.pop(toprule_idx + 2)
+    lines.insert(toprule_idx + 2, '\\midrule')
+
+    # Multirow grouping for Split (Random then Geographic)
+    midrule_idx = next(i for i, line in enumerate(lines) if '\\midrule' in line and i > toprule_idx)
+    row_count = 0
+    geographic_start_idx = None
+    group_size = len(architectures_plots)
+
+    for i in range(midrule_idx + 1, len(lines)):
+        line = lines[i]
+        if line.strip() and not line.strip().startswith('\\'):
+            parts = line.split(' & ')
+            if len(parts) >= 2:
+                if row_count == 0:
+                    parts[0] = f"\\multirow{{{group_size}}}{{*}}{{\\textbf{{Random}}}}"
+                elif row_count == group_size:
+                    geographic_start_idx = i
+                    parts[0] = f"\\multirow{{{group_size}}}{{*}}{{\\textbf{{Geographic}}}}"
+                else:
+                    parts[0] = ""
+                lines[i] = ' & '.join(parts)
+                row_count += 1
+
+    if geographic_start_idx is not None:
+        prev_idx = geographic_start_idx - 1
+        while prev_idx >= 0 and lines[prev_idx].strip() == '':
+            prev_idx -= 1
+        if prev_idx < 0 or '\\midrule' not in lines[prev_idx]:
+            lines.insert(geographic_start_idx, '\\midrule')
+
+    latex = '\n'.join(lines)
+    latex = (
+        "\\begin{table*}[ht]\n\\centering\n" +
+        "\\caption{\\textbf{Average model ranks for finetuning on all training data.} Ranks are mean $\\pm$ standard error averaged over seeds, or over tasks and seeds for the ``All tasks'' column. Lower is better.}\n" +
+        "\\label{tab:ft_ranks_by_task}\n" +
+        "\\resizebox{\\linewidth}{!}{%\n" +
+        latex +
+        "}\n" +
+        "\\end{table*}\n"
+    )
+
+    tex_file = 'results_tex/ft_ranks_by_task.tex'
+    with open(tex_file, 'w') as file:
+        file.write(latex)
+    compile_latex(tex_file)
+
 if __name__ == '__main__':
     # main paper
     plot_rq1_performance('Random', 'FT') # Figure 4
@@ -1907,6 +2165,7 @@ if __name__ == '__main__':
     plot_rq2_performance('LP') # Figure S.20
     plot_rq3_performance('LP') # Figure S.21
     plot_ttt_improvement_normalized() # Figure S.22
+    tabulate_ft_ranks_by_task()
     tabulate_ttt_by_model() # Table S.13
     tabulate_results('FT') # Tables S.14-18
     tabulate_TTT_results() # Tables S.19-33
