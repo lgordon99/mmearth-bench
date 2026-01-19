@@ -216,6 +216,31 @@ def plot_species_statistics():
         plt.tight_layout()
         plt.savefig(f'{data_dir_path}/species/tiles_per_species.pdf')
 
+        ax = plt.gca()
+        fig = plt.gcf()
+
+        # transparent background
+        fig.patch.set_alpha(0.0)
+        ax.set_facecolor('none')
+
+        # make all text/ticks white
+        ax.tick_params(axis='both', colors='white')  # tick marks + tick label color
+        ax.xaxis.label.set_color('white')
+        ax.yaxis.label.set_color('white')
+        for lbl in ax.get_xticklabels() + ax.get_yticklabels():
+            lbl.set_color('white')
+
+        # remove the axes "box" (spines)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
+        # remove bar borders (if any backend adds them)
+        for patch in ax.patches:
+            patch.set_edgecolor('none')
+            patch.set_linewidth(0)
+
+        plt.savefig(f'{data_dir_path}/species/tiles_per_species.svg', format='svg', transparent=True, bbox_inches='tight', pad_inches=0)
+
         out_file.write(f'Max number of tiles for a species: {max(counts)}\n')
         out_file.write(f'Min number of tiles for a species: {min(counts)}\n')
 
