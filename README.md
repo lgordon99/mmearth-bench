@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://lgordon99.github.io/mmearth-bench/">Project page</a> 🌐 | <a href="https://lgordon99.github.io/mmearth-bench-app/">MMEarth-Bench Explorer</a> 🗺️
+  <a href="https://lgordon99.github.io/mmearth-bench/">Project page 🌐</a> | <a href="https://lgordon99.github.io/mmearth-bench-app/">MMEarth-Bench Explorer 🗺️</a>
 </p>
 
 <p align="center">
@@ -295,6 +295,27 @@ indices = split_data[f'{SPLIT}_indices']
 means = split_data[f'{MODALITY}_{SPLIT}_means']
 stds = split_data[f'{MODALITY}_{SPLIT}_stds']
 ```
+
+The indices can then be used to index `key_data` to extract the relevant data for a particular split using `key_data[indices]` or `[key_data[i] for i in indices]` for `missing_modalities` and `species`.
+
+The list of species present in each tile can be converted to a multi-hot vector for modeling using the integer labels in `species_labels.json`.
+
+```python
+import json
+
+species_list_strings = [json.loads(lst) for lst in h5_file['species'].asstr()[...]] # list of lists containing the names of the species in each tile
+
+with open(f'{DATA_DIR_PATH}/species/species_labels.json', 'r') as json_file:
+    species_labels = json.load(json_file) # dictionary mapping species names to integer labels
+
+species_list_ints = [[species_labels[species] for species in lst] for lst in species_list_strings] # list of lists containing the integer labels of the species in each tile
+species_data = np.zeros((len(species_list_ints), len(species_labels))) # empty multi-label binary matrix for species presence
+
+for tile_idx in range(len(species_data)): # for each tile
+    for species_idx in species_list_ints[tile_idx]: # for each species in the tile
+        species_data[tile_idx][species_idx] = 1 # marks the species as present in the tile
+```
+
 </details>
 
 <details>
