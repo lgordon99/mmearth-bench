@@ -14,7 +14,7 @@ plt.rcParams['font.family'] = 'serif'
 plt.rcParams['font.serif'] = ['DejaVu Serif']
 
 def make_sparse_data():
-    fig = plt.figure(figsize=(9, 2))
+    fig = plt.figure(figsize=(6, 2))
 
     # New colors
     land_color1 = '#417e46'  # Dark green
@@ -23,10 +23,10 @@ def make_sparse_data():
 
     # Create map with Equal Earth projection
     ax = fig.add_subplot(111, projection=ccrs.EqualEarth())
+    ax.set_global()
     ax.add_feature(cfeature.LAND, facecolor='lightgray')
     ax.add_feature(cfeature.OCEAN, facecolor='lightblue')
     ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
-    ax.set_adjustable('datalim')
     ax.spines['geo'].set_visible(False)
 
     # Load land polygons
@@ -117,20 +117,19 @@ def make_sparse_data():
     ]
 
     # Add legend with column title - positioned outside the axes on the left
-    legend = ax.legend(handles=legend_handles, title='SDGs', loc='center left', bbox_to_anchor=(-0.3, 0.5),
-                       framealpha=0, frameon=False, fontsize=16, handletextpad=0.2, handlelength=1.0)
-    legend.get_title().set_fontsize(16)
+    legend = ax.legend(handles=legend_handles, title='SDGs', loc='center left', bbox_to_anchor=(-0.7, 0.5),
+                       framealpha=0, frameon=False, fontsize=14, handletextpad=0.2, handlelength=1.0)
+    legend.get_title().set_fontsize(14)
 
-    # Adjust padding to minimize width - just enough space for legend on left, minimal on right
-    plt.subplots_adjust(left=0.32, right=0.98, top=1, bottom=0.02)
-    plt.savefig('teaser_subfigures/sparse_data.svg', dpi=300, bbox_inches='tight', pad_inches=0, transparent=True)
+    plt.subplots_adjust(left=0.4, right=1, top=1, bottom=0)
+    plt.savefig('teaser_subfigures/sparse_data.svg', dpi=300, transparent=True)
 
     # Save version with white text
     for text in legend.get_texts():
         text.set_color('white')
     legend.get_title().set_color('white')
 
-    plt.savefig('teaser_subfigures/sparse_data_white.svg', dpi=300, bbox_inches='tight', pad_inches=0, transparent=True)
+    plt.savefig('teaser_subfigures/sparse_data_white.svg', dpi=300, transparent=True)
 
 def make_globe():
     # Get viridis colors
@@ -359,8 +358,6 @@ def make_multimodal_visualization():
     ax.view_init(elev=20, azim=45) # sets viewing angle
     # Remove all margins
     plt.subplots_adjust(left=0.0, right=1.0, top=1.0, bottom=0.0)
-    # Set figure margins to zero
-    fig.subplots_adjust(left=0.0, right=1.0, top=1.0, bottom=0.0)
     plt.savefig('teaser_subfigures/3d_modalities_spherical.svg', dpi=300, transparent=True, bbox_inches='tight', pad_inches=0, facecolor='none')
 
     # Save version with white text
