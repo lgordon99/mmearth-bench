@@ -63,7 +63,7 @@ Models are ranked by their performance on each task after finetuning on 100% of 
     <tr style="font-weight: bold;">
       <td align="center" rowspan="8"><b>Random</b></td>
       <td align="center">1</td>
-      <td align="center"><span style="color: Magenta;">MPMAE</span></td>
+      <td align="center"><span style="color: red;">MPMAE</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
