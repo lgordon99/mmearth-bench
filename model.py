@@ -434,7 +434,7 @@ class EncoderDecoder(nn.Module):
             for i in range(num_iterations+1): # iterations
                 input_embeddings = functional_call(self.encoder, encoder_parameters, (input_data,))
 
-                if i > 0:
+                if i > 0 and (return_all_iterations or i == num_iterations):
                     with torch.no_grad():
                         task_prediction = self.task_decoder(input_embeddings)
 
