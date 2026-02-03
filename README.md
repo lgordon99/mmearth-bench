@@ -61,10 +61,10 @@ Models are ranked by their performance on each task after finetuning on 100% of 
   </thead>
   <tbody>
     <tr style="font-weight: bold;">
-      <td align="center" rowspan="8"><b>Random</b></td>
+      <td align="center" rowspan="7"><b>Random</b></td>
       <td align="center">1</td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
-      <td align="center"><span style="color: red;">MPMAE</span></td>
+      <td align="center"><span style="color: Magenta;">MPMAE</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
@@ -90,7 +90,7 @@ Models are ranked by their performance on each task after finetuning on 100% of 
     </tr>
     <tr>
       <td align="center">4</td>
-      <td align="center"><span style="color: Purple;">SatlasNet</span></td>
+      <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
@@ -99,10 +99,10 @@ Models are ranked by their performance on each task after finetuning on 100% of 
     </tr>
     <tr>
       <td align="center">5</td>
-      <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
+      <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
+      <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
     </tr>
@@ -111,30 +111,21 @@ Models are ranked by their performance on each task after finetuning on 100% of 
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
-      <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
+      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
     </tr>
     <tr>
       <td align="center">7</td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
-      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
-      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
-    </tr>
-    <tr>
-      <td align="center">8</td>
-      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
+      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
+      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
     </tr>
     <tr style="font-weight: bold;">
-      <td align="center" rowspan="8"><b>Geographic</b></td>
+      <td align="center" rowspan="7"><b>Geographic</b></td>
       <td align="center">1</td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Magenta;">MPMAE</span></td>
@@ -175,7 +166,7 @@ Models are ranked by their performance on each task after finetuning on 100% of 
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
+      <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
     </tr>
@@ -183,28 +174,19 @@ Models are ranked by their performance on each task after finetuning on 100% of 
       <td align="center">6</td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
-      <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
+      <td align="center"><span style="color: Purple;">SatlasNet</span></td>
+      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
     </tr>
     <tr>
       <td align="center">7</td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
-      <td align="center"><span style="color: Purple;">SatlasNet</span></td>
-      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
-      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
-    </tr>
-    <tr>
-      <td align="center">8</td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
+      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
     </tr>
   </tbody>
 
