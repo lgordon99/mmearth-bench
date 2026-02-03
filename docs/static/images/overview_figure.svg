@@ -77,12 +77,12 @@
 
             <text font-size="20" font-family="Arial, sans-serif" font-weight="bold" fill="#000" dy="0.33em" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased;">
                 <textPath href="#donut-curve" startOffset="50%" text-anchor="middle">
-                    Downstream tasks
+                    Tasks
                 </textPath>
             </text>
             <text font-size="20" font-family="Arial, sans-serif" font-weight="bold" fill="#000" dy="0.33em" text-rendering="geometricPrecision" style="-webkit-font-smoothing: antialiased;">
                 <textPath href="#donut-curve-bottom" startOffset="50%" text-anchor="middle">
-                    Input modalities
+                    Modalities
                 </textPath>
             </text>
             <!-- 12 Placeholder Figures -->
