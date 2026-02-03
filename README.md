@@ -26,7 +26,7 @@
 | Soil pH | 8,508 | Unitless | Tile-level | Regression | [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) |
 | Species | 36,410 | Presence/absence | Tile-level | Multi-label classification | [Terms of Use](https://www.iucnredlist.org/terms/terms-of-use) |
 
-## MMEarth-Bench input modalities
+## MMEarth-Bench task modalities
 
 | Modality | Bands | Scale | Type |
 |---|---|:---:|:---:|
@@ -51,160 +51,160 @@ Models are ranked by their performance on each task after finetuning on 100% of 
     <tr>
       <th align="center"><b>Split</b></th>
       <th align="center"><b>Rank</b></th>
+      <th align="center"><b>All tasks</b></th>
       <th align="center"><b>Biomass</b></th>
       <th align="center"><b>Soil N</b></th>
       <th align="center"><b>Soil OC</b></th>
       <th align="center"><b>Soil pH</b></th>
       <th align="center"><b>Species</b></th>
-      <th align="center"><b>All tasks</b></th>
     </tr>
   </thead>
   <tbody>
     <tr style="font-weight: bold;">
       <td align="center" rowspan="8"><b>Random</b></td>
       <td align="center">1</td>
+      <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: red;">MPMAE</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
-      <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
     </tr>
     <tr>
       <td align="center">2</td>
+      <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Magenta;">MPMAE</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
-      <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
     </tr>
     <tr>
       <td align="center">3</td>
-      <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: Magenta;">MPMAE</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: Magenta;">MPMAE</span></td>
+      <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: Magenta;">MPMAE</span></td>
       <td align="center"><span style="color: Magenta;">MPMAE</span></td>
     </tr>
     <tr>
       <td align="center">4</td>
+      <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
-      <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
     </tr>
     <tr>
       <td align="center">5</td>
+      <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
       <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
-      <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
     </tr>
     <tr>
       <td align="center">6</td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
-      <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
+      <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
     </tr>
     <tr>
       <td align="center">7</td>
+      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
     </tr>
     <tr>
       <td align="center">8</td>
+      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
       <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
-      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
     </tr>
     <tr style="font-weight: bold;">
       <td align="center" rowspan="8"><b>Geographic</b></td>
       <td align="center">1</td>
+      <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Magenta;">MPMAE</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
-      <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
     </tr>
     <tr>
       <td align="center">2</td>
+      <td align="center"><span style="color: Magenta;">MPMAE</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Magenta;">MPMAE</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
-      <td align="center"><span style="color: Magenta;">MPMAE</span></td>
     </tr>
     <tr>
       <td align="center">3</td>
+      <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Magenta;">MPMAE</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: Magenta;">MPMAE</span></td>
       <td align="center"><span style="color: Magenta;">MPMAE</span></td>
-      <td align="center"><span style="color: Brown;">TerraMind</span></td>
     </tr>
     <tr>
       <td align="center">4</td>
+      <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: Brown;">TerraMind</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
-      <td align="center"><span style="color: Purple;">SatlasNet</span></td>
     </tr>
     <tr>
       <td align="center">5</td>
+      <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
       <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
-      <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
     </tr>
     <tr>
       <td align="center">6</td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
+      <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
       <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
       <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
       <td align="center"><span style="color: Teal;">Copernicus-FM</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
-      <td align="center"><span style="color: ForestGreen;">DINOv3 Web</span></td>
     </tr>
     <tr>
       <td align="center">7</td>
+      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
       <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
       <td align="center"><span style="color: Purple;">SatlasNet</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
-      <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
     </tr>
     <tr>
       <td align="center">8</td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
+      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: Red;">DINOv3 Sat</span></td>
       <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
       <td align="center"><span style="color: RoyalBlue;">ConvNeXtV2A</span></td>
-      <td align="center"><span style="color: Orange;">Scale-MAE</span></td>
     </tr>
   </tbody>
 
@@ -266,7 +266,7 @@ project: 'WANDB_PROJECT_NAME'
 
 <details>
 <summary><h2 style="display: inline;">Reading the MMEarth-Bench data</h2></summary>
-Both input modalities and task names can be provided as keys to the H5 files. For any valid `KEY`, the following code extracts the relevant data from the H5 file at `PATH_TO_H5`.
+Both modalities and task names can be provided as keys to the H5 files. For any valid `KEY`, the following code extracts the relevant data from the H5 file at `PATH_TO_H5`.
 
 ```python
 import h5py

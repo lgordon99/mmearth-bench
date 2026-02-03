@@ -327,7 +327,7 @@ class EEData:
             return False
 
     def temperature(self):
-        temperature = [no_data_values['temperature'] if value is None else value for key, value in self.precipitation_temperature.items() if key.startswith('temperature')] # last month max, mean, min; month max, mean min; year max, mean, min
+        temperature = [no_data_values['temperature'] if value is None else value for key, value in self.precipitation_temperature.items() if key.startswith('temperature')] # last month max, mean, min; month max, mean, min; year max, mean, min
         self.tile_level_data['temperature'] = json.dumps(temperature)
 
         if all(value == no_data_values['temperature'] for value in temperature):
