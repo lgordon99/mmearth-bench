@@ -728,6 +728,72 @@ code {
 }
 
 
+/* Benchmarking Table Responsive Styles */
+.benchmarking-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  display: block;
+}
+
+/* Make all Benchmarking table text white */
+#benchmarking .benchmarking-table-wrapper table,
+#benchmarking .benchmarking-table-wrapper th,
+#benchmarking .benchmarking-table-wrapper td {
+  color: #ffffff;
+}
+
+#benchmarking .benchmarking-table-wrapper td * {
+  color: inherit;
+}
+
+.benchmarking-table-wrapper table {
+  min-width: 900px;
+}
+
+/* Prevent model names from wrapping */
+.benchmarking-table-wrapper td,
+.benchmarking-table-wrapper th {
+  white-space: nowrap;
+}
+
+.benchmarking-table-wrapper td span {
+  white-space: nowrap;
+}
+
+@media screen and (max-width: 1024px) {
+  .benchmarking-table-wrapper table {
+    font-size: 0.85rem;
+  }
+
+  .benchmarking-table-wrapper table th,
+  .benchmarking-table-wrapper table td {
+    padding: 0.5rem !important;
+  }
+
+  .benchmarking-table-wrapper table span {
+    padding: 0.2rem 0.4rem !important;
+    font-size: 0.85rem;
+  }
+}
+
+@media screen and (max-width: 768px) {
+  .benchmarking-table-wrapper table {
+    font-size: 0.75rem;
+  }
+
+  .benchmarking-table-wrapper table th,
+  .benchmarking-table-wrapper table td {
+    padding: 0.4rem !important;
+  }
+
+  .benchmarking-table-wrapper table span {
+    padding: 0.15rem 0.3rem !important;
+    font-size: 0.7rem;
+    display: inline-block;
+  }
+}
+
 /* Mobile Responsive Improvements */
 @media screen and (max-width: 768px) {
   .hero-body {
