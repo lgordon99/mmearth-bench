@@ -1149,6 +1149,10 @@
       <i class="fas fa-paw"></i>
       <span>Species</span>
     </a>
+    <a href="#benchmarking" class="nav-item">
+      <i class="fas fa-chart-bar"></i>
+      <span>Benchmarking</span>
+    </a>
     <a href="#method" class="nav-item">
       <i class="fas fa-cogs"></i>
       <span>Method</span>
@@ -1343,6 +1347,174 @@
   </div>
 </section>
 <!-- End species section -->
+
+<!-- Benchmarking section -->
+<section id="benchmarking" class="section hero is-light">
+  <div class="container is-fullhd">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-full">
+        <h2 class="title is-3">Benchmarking</h2>
+        <div class="content has-text-centered">
+          <p style="margin-bottom: 1.5rem; max-width: 800px; margin-left: auto; margin-right: auto; line-height: 2.5;">
+            We benchmark 7 pretrained models on MMEarth-Bench:<br>
+            3 RGB: <span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span>, <span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span>, <span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span><br>
+            2 Sentinel-2: <span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span>, <span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span><br>
+            2 multimodal: <span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span>, <span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span><br>
+            We rank these models after finetuning on all training data.
+          </p>
+
+          <div>
+            <table style="width: 100%; border-collapse: collapse; margin: 0 auto; font-size: 0.9rem;">
+              <thead>
+                <tr>
+                  <th style="padding: 0.75rem; text-align: center; border: 1px solid #ddd; font-weight: bold; color: white;">Split</th>
+                  <th style="padding: 0.75rem; text-align: center; border: 1px solid #ddd; font-weight: bold; color: white;">Rank</th>
+                  <th style="padding: 0.75rem; text-align: center; border: 1px solid #ddd; font-weight: bold; color: white;">All tasks</th>
+                  <th style="padding: 0.75rem; text-align: center; border: 1px solid #ddd; font-weight: bold; color: white;">Biomass</th>
+                  <th style="padding: 0.75rem; text-align: center; border: 1px solid #ddd; font-weight: bold; color: white;">Soil N</th>
+                  <th style="padding: 0.75rem; text-align: center; border: 1px solid #ddd; font-weight: bold; color: white;">Soil OC</th>
+                  <th style="padding: 0.75rem; text-align: center; border: 1px solid #ddd; font-weight: bold; color: white;">Soil pH</th>
+                  <th style="padding: 0.75rem; text-align: center; border: 1px solid #ddd; font-weight: bold; color: white;">Species</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="font-weight: bold;">
+                  <td rowspan="7" style="padding: 0.75rem; text-align: center; border: 1px solid #ddd; vertical-align: middle; font-weight: bold;">Random</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">1</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">2</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">3</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">4</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">5</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">6</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">7</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span></td>
+                </tr>
+                <tr style="font-weight: bold;">
+                  <td rowspan="7" style="padding: 0.75rem; text-align: center; border: 1px solid #ddd; vertical-align: middle; font-weight: bold;">Geographic</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">1</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">2</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">3</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF00FF; padding: 0.25rem 0.5rem; border-radius: 3px;">MPMAE</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">4</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #A52A2A; padding: 0.25rem 0.5rem; border-radius: 3px;">TerraMind</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">5</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">6</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #228B22; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Web</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #008080; padding: 0.25rem 0.5rem; border-radius: 3px;">Copernicus-FM</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span></td>
+                </tr>
+                <tr>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;">7</td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #800080; padding: 0.25rem 0.5rem; border-radius: 3px;">SatlasNet</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FF0000; padding: 0.25rem 0.5rem; border-radius: 3px;">DINOv3 Sat</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span></td>
+                  <td style="padding: 0.75rem; text-align: center; border: 1px solid #ddd;"><span style="color: white; background-color: #FFA500; padding: 0.25rem 0.5rem; border-radius: 3px;">Scale-MAE</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End benchmarking section -->
 
 <!-- Method section -->
 <section id="method" class="section hero is-light">
