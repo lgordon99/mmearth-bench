@@ -1527,7 +1527,13 @@
         <h2 class="title is-3">Method</h2>
         <div class="content has-text-justified" style="max-width: 800px; margin: 0 auto;">
           <p>
-            We propose test-time training with multimodal reconstruction (TTT-MMR) to improve model performance at test-time using task modalities as reconstruction tasks.
+            The geospatial machine learning community has embraced multimodal data for self-supervised pretraining of geospatial foundation models.
+            Leveraging multimodal data at inference time as well provides more context for the model when making a prediction.
+            A pretrained model can use multimodal data at inference time by taking it as input, but this typically requires a large multimodal encoder that was or can be trained with a lot of data.
+            Inspired by the multi-pretext pretraining paradigm employed by MMEarth and the test-time adaptation framework, we propose using multiple modalities as auxiliary tasks at test time.
+            In particular, we use multiple modalities as reconstruction targets to provide a test-time adaptation signal for the encoder.
+            The reconstruction tasks can be solved with a lightweight, linear decoder, and they do not require the encoder to accept the modalities as input.
+            In the animation below, we illustrate our method for test-time training with multimodal reconstruction (TTT-MMR) for improving model performance at test time.
           </p>
         </div>
         <div class="content">
