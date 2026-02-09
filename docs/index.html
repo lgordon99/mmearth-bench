@@ -365,12 +365,15 @@
       width: 100%;
     }
 
-    #motivation .container,
     #motivation .columns,
     #motivation .column {
       overflow: visible;
       max-width: 100%;
       width: 100%;
+    }
+
+    #motivation .container {
+      overflow: visible;
     }
 
     #motivation .content {
@@ -888,8 +891,14 @@
       }
     }
 
-    /* Download section: keep styling consistent with other sections.
-       Avoid overriding global pre/code styles, which can break formatting on narrow screens. */
+    /* Download section: ensure code boxes fit on narrow screens */
+    #download pre {
+      max-width: 100%;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      box-sizing: border-box;
+    }
 
     .species-item {
       display: flex;
