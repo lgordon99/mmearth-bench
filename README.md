@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://lgordon99.github.io/mmearth-bench/">Project page 🌐</a> | <a href="https://lgordon99.github.io/mmearth-bench-app/">MMEarth-Bench Explorer 🗺️</a>
+  <a href="https://lgordon99.github.io/mmearth-bench/">Project page 🌐</a> | <a href="https://lgordon99.github.io/mmearth-bench-app/">MMEarth-Bench Explorer 🗺️</a> | <a href="https://arxiv.org/abs/2602.06285">arXiv 📄</a>
 </p>
 
 <p align="center">
@@ -510,7 +510,7 @@ bash run_TTT.sh
 ```
 </details>
 
-<details>
+<!-- <details>
 <summary><h2 style="display: inline;">Recreating the figures</h2></summary>
 
 `make_teaser_subfigures.py` <img src="docs/static/images/right-arrow.svg" alt="→" height="12" style="vertical-align: middle;" /> Figure 1
@@ -527,7 +527,7 @@ bash run_TTT.sh
 
 `python convert_to_h5.py plot_species_statistics` <img src="docs/static/images/right-arrow.svg" alt="→" height="12" style="vertical-align: middle;" /> Figure S.12-13
 
-</details>
+</details> -->
 
 ## BibTeX
 ```bibtex
