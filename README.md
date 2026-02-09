@@ -538,7 +538,7 @@ bash run_TTT.sh
       eprint={2602.06285},
       archivePrefix={arXiv},
       primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2602.06285},
+      url={https://arxiv.org/abs/2602.06285}
 }
 ```
 
