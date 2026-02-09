@@ -531,11 +531,19 @@ bash run_TTT.sh
 
 ## BibTeX
 ```bibtex
-@misc{gordon2026mmearth-bench,
-  title        = {MMEarth-Bench},
-  author       = {Gordon, Lucia and Belongie, Serge and Igel, Christian and Lang, Nico},
-  year         = {2026},
-  howpublished = {\url{https://lgordon99.github.io/mmearth-bench/}},
-  note         = {Dataset and benchmark},
+@misc{gordon2026mmearthbench,
+      title={MMEarth-Bench: Global Model Adaptation via Multimodal Test-Time Training},
+      author={Lucia Gordon and Serge Belongie and Christian Igel and Nico Lang},
+      year={2026},
+      eprint={2602.06285},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2602.06285},
 }
+```
+
+## Contact
+Feel free to write to
+```
+luciagordon [at] g [dot] harvard [dot] edu
 ```
