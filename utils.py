@@ -1,12 +1,10 @@
 # imports
+from matplotlib.colors import ListedColormap
 from shapely.geometry import Polygon
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
 import ee
 import geojson
 import geopandas as gpd
 import json
-import matplotlib.pyplot as plt
 import numpy as np
 import subprocess
 import yaml
@@ -83,23 +81,6 @@ def get_rectangle_center(coords):
     center_y = sum(y_coords) / len(y_coords)
 
     return [center_x, center_y]
-
-def make_global_map(tiles, color, path, title):
-    fig = plt.figure(dpi=300)
-    ax = plt.axes(projection=ccrs.PlateCarree())
-    ax.set_title(title, fontsize=8)
-    ax.add_feature(cfeature.BORDERS, linestyle='-', linewidth=0.5)
-    ax.add_feature(cfeature.COASTLINE)
-
-    tile_centers = [get_rectangle_center(tile['geometry']['coordinates'][0]) for tile in tiles]
-
-    for point in tile_centers:
-        lon, lat = point
-        plt.plot(lon, lat, marker='o', color=color, markeredgewidth=0, markersize=0.7, transform=ccrs.PlateCarree())
-
-    ax.set_extent([-180, 180, -90, 90], ccrs.PlateCarree())
-    plt.savefig(f'{path}.pdf', bbox_inches='tight')
-    plt.savefig(f'{path}.png', bbox_inches='tight')
 
 def normalize(array):
     for i in range(array.shape[0]):

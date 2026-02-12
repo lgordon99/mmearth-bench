@@ -3,6 +3,7 @@
 from convnextv2 import ConvNeXtV2, load_custom_checkpoint
 from datetime import date
 from lightning.pytorch import LightningModule
+from matplotlib.colors import ListedColormap
 from terratorch import BACKBONE_REGISTRY
 from torch.func import functional_call
 from torchgeo.models import scale_mae, ScaleMAELarge16_Weights, swin_v2_b, Swin_V2_B_Weights
@@ -10,6 +11,8 @@ from torchmetrics import MetricCollection
 from torchmetrics.classification import MultilabelAveragePrecision, MultilabelRecall, MulticlassAccuracy
 from torchmetrics.regression import MeanSquaredError, R2Score
 import math
+import matplotlib as mpl
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -24,30 +27,75 @@ import wandb
 
 # ============================================== GLOBAL VARIABLES ============================================== #
 
-num_logged_images = 25
-fontsize = 50
-pad = 10
+num_logged_images = 8
+fontsize = 20
 data_dir_path = os.environ['DATA_DIR_PATH']
+
+sys.path.append(f'{data_dir_path}/pretrained_checkpoints/Copernicus-FM/Copernicus-FM/src')
+sys.path.append(f'{data_dir_path}/pretrained_checkpoints/galileo/src')
+sys.path.append(f'{data_dir_path}/pretrained_checkpoints')
+
+from single_file_galileo import Encoder
+from model_vit import vit_base_patch16
+
 entity = os.environ['ENTITY']
 project = os.environ['PROJECT']
 task_modalities = utils.read_json(f'{data_dir_path}/task_modalities.json')
+continuous_modalities = ['Sentinel2', 'Sentinel1', 'ASTER_GDEM', 'ETH_GCH', 'precipitation', 'temperature', 'geolocation_encoding', 'month_encoding']
 categorical_modalities = ['DynamicWorld', 'ESA_WorldCover', 'biome', 'ecoregion']
+pixel_level_modalities = ['Sentinel2', 'Sentinel1', 'ASTER_GDEM', 'ETH_GCH', 'DynamicWorld', 'ESA_WorldCover']
 no_data_values = utils.read_json(f'{data_dir_path}/no_data_values.json')
 biomass_no_data_value = -9999
 image_size = 128
-mini_batch_size = 16
+dynamic_world_colors_labels = {'#419BDF': 'Water',
+                               '#397D49': 'Trees',
+                               '#88B053': 'Grass',
+                               '#7A87C6': 'Flooded vegetation',
+                               '#E49635': 'Crops',
+                               '#DFC35A': 'Shrub and scrub',
+                               '#C4281B': 'Built',
+                               '#A59B8F': 'Bare',
+                               '#B39FE1': 'Snow and ice'}
+esa_worldcover_colors_labels = {'#006400': 'Tree cover',
+                                '#ffbb22': 'Shrubland',
+                                '#ffff4c': 'Grassland',
+                                '#f096ff': 'Cropland',
+                                '#fa0000': 'Built-up',
+                                '#b4b4b4': 'Bare/sparse\nvegetation',
+                                '#f0f0f0': 'Snow and\nice',
+                                '#0064c8': 'Permanent\nwater bodies',
+                                '#0096a0': 'Herbaceous\nwetland',
+                                '#00cf75': 'Mangroves',
+                                '#fae6a0': 'Moss and\nlichen'}
 architecture_embedding_dims = {'ConvNeXtV2A': 320,
                                'ScaleMAE': 1024,
                                'DINOv3Web': 1024,
                                'DINOv3Sat': 1024,
                                'SatlasNet': 1024,
                                'MPMAE': 320,
+                               'AnySat': 768,
                                'TerraMind': 768,
                                'CopernicusFM': 768,
+                               'Galileo': 768,
+                               'AnySatS2': 768,
                                'TerraMindS2': 768,
-                               'CopernicusFMS2': 768}
-sys.path.append(f'{data_dir_path}/pretrained_checkpoints/Copernicus-FM/Copernicus-FM/src')
-from model_vit import vit_base_patch16
+                               'CopernicusFMS2': 768,
+                               'GalileoS2': 768}
+
+# ============================================== FUNCTIONS ============================================== #
+
+def create_categorical_legend(colors_labels_dict, modality_data):
+    cmap = ListedColormap(colors_labels_dict.keys())
+    cmap.set_bad(color='black')
+
+    return cmap(modality_data.astype(int))
+
+def create_continuous_legend(vmin, vmax, modality_data):
+    cmap = plt.get_cmap('viridis')
+    cmap.set_bad(color='black')
+    norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+
+    return cmap(norm(modality_data))
 
 # ============================================== ENCODER CLASSES ============================================== #
 
@@ -144,6 +192,64 @@ class MPMAEEncoder(nn.Module):
 
         return embeddings
 
+class _AnySatBaseEncoder(nn.Module):
+    def __init__(self, modalities, pretrained):
+        super().__init__()
+
+        self.modalities = modalities
+        self.model = torch.hub.load('gastruc/anysat', 'anysat', pretrained=pretrained, flash_attn=False)
+
+        if hasattr(self.model.model, 'projector_aerial'):
+            del self.model.model.projector_aerial
+
+        if hasattr(self.model.model, 'projector_aerial-flair'):
+            delattr(self.model.model, 'projector_aerial-flair')
+
+        if hasattr(self.model.model, 'projector_alos'):
+            del self.model.model.projector_alos
+
+        if hasattr(self.model.model, 'projector_l7'):
+            del self.model.model.projector_l7
+
+        if hasattr(self.model.model, 'projector_l8'):
+            del self.model.model.projector_l8
+
+        if hasattr(self.model.model, 'projector_modis'):
+            del self.model.model.projector_modis
+
+        if hasattr(self.model.model, 'projector_naip'):
+            del self.model.model.projector_naip
+
+        if hasattr(self.model.model.projector_s1, 'pad_parameter'):
+            del self.model.model.projector_s1.pad_parameter
+
+        if hasattr(self.model.model, 'projector_s1-asc'):
+            delattr(self.model.model, 'projector_s1-asc')
+
+        if hasattr(self.model.model.projector_s2, 'pad_parameter'):
+            del self.model.model.projector_s2.pad_parameter
+
+        if hasattr(self.model.model, 'projector_spot'):
+            del self.model.model.projector_spot
+
+    def forward(self, images):
+        if self.modalities == ['Sentinel2']:
+            x = {'s2': images['Sentinel2'].unsqueeze(1), 's2_dates': torch.zeros([len(images['Sentinel2']), 1])}
+        else:
+            x = {'s2': images['Sentinel2'].unsqueeze(1), 's2_dates': images['date'], 's1': images['Sentinel1'].unsqueeze(1), 's1_dates': images['date']}
+
+        embeddings = self.model(x, patch_size=160, output='patch').permute(0, 3, 1, 2) # (batch_size, embedding_dim, num_vertical_patches, num_horizontal_patches)
+
+        return embeddings
+
+class AnySatEncoder(_AnySatBaseEncoder):
+    def __init__(self, pretrained, _):
+        super().__init__(modalities=['Sentinel2', 'Sentinel1', 'date'], pretrained=pretrained)
+
+class AnySatS2Encoder(_AnySatBaseEncoder):
+    def __init__(self, pretrained, _):
+        super().__init__(modalities=['Sentinel2'], pretrained=pretrained)
+
 class _TerraMindBaseEncoder(nn.Module):
     def __init__(self, modalities, pretrained):
         super().__init__()
@@ -234,6 +340,53 @@ class CopernicusFMEncoder(_CopernicusFMBaseEncoder):
 class CopernicusFMS2Encoder(_CopernicusFMBaseEncoder):
     def __init__(self, *_):
         super().__init__(modalities=['Sentinel2'])
+
+class _GalileoBaseEncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.model = Encoder.load_from_folder(f'{data_dir_path}/pretrained_checkpoints', device='cpu')
+        self.patch_size = 16
+
+    def forward(self, images):
+        (space_time_token_embeddings,
+         space_token_embeddings,
+         time_token_embeddings,
+         static_token_embeddings,
+         space_time_mask,
+         space_mask,
+         time_mask,
+         static_mask,
+         _) = self.model(s_t_x=images['space_time_input'],
+                         sp_x=images['space_input'],
+                         t_x=images['time_input'],
+                         st_x=images['static_input'],
+                         s_t_m=images['space_time_mask'],
+                         sp_m=images['space_mask'],
+                         t_m=images['time_mask'],
+                         st_m=images['static_mask'],
+                         months=images['month_input'],
+                         patch_size=self.patch_size)
+        embeddings = self.model.apply_mask_and_average_tokens_per_patch(space_time_token_embeddings,
+                                                                        space_token_embeddings,
+                                                                        time_token_embeddings,
+                                                                        static_token_embeddings,
+                                                                        space_time_mask,
+                                                                        space_mask,
+                                                                        time_mask,
+                                                                        static_mask)
+        embeddings = embeddings.permute(0, 2, 1) # (batch_size, embedding_dim, num_patches)
+        embeddings = embeddings.reshape(embeddings.shape[0], embeddings.shape[1], int(np.sqrt(embeddings.shape[2])), int(np.sqrt(embeddings.shape[2]))) # (batch_size, embedding_dim, num_vertical_patches, num_horizontal_patches)
+
+        return embeddings
+
+class GalileoEncoder(_GalileoBaseEncoder):
+    def __init__(self, *_):
+        super().__init__()
+
+class GalileoS2Encoder(_GalileoBaseEncoder):
+    def __init__(self, *_):
+        super().__init__()
 
 # ============================================== DECODER CLASSES ============================================== #
 
@@ -425,7 +578,7 @@ class EncoderDecoder(nn.Module):
         self.task_decoder.eval()
         self.task_modality_decoder.eval()
 
-        if return_all_iterations:
+        if return_all_iterations: # if we are saving the predictions of all iterations during validation
             iteration_predictions = []
 
         with torch.enable_grad(): # need to be able to compute gradients even during validation and testing
@@ -434,18 +587,22 @@ class EncoderDecoder(nn.Module):
             for i in range(num_iterations+1): # iterations
                 input_embeddings = functional_call(self.encoder, encoder_parameters, (input_data,))
 
-                if i > 0 and (return_all_iterations or i == num_iterations):
+                if i == 0 and not return_all_iterations: # if it is the first iteration and we are not in validation mode
+                    modality_reconstructions_JT = self.task_modality_decoder(input_embeddings)
+                elif i > 0 and (return_all_iterations or i == num_iterations): # if we are past the first iteration, if we are saving all iterations or it is the last iteration
                     with torch.no_grad():
-                        task_prediction = self.task_decoder(input_embeddings)
+                        task_prediction = self.task_decoder(input_embeddings) # performs inference
 
                     if return_all_iterations:
                         iteration_predictions.append(task_prediction)
 
-                    if i == num_iterations:
+                    if i == num_iterations: # if it is the last iteration
                         if return_all_iterations:
-                            return torch.stack(iteration_predictions)
+                            return torch.stack(iteration_predictions), None, None
                         else:
-                            return task_prediction
+                            modality_reconstructions = self.task_modality_decoder(input_embeddings)
+
+                            return task_prediction, modality_reconstructions_JT, modality_reconstructions
 
                     del task_prediction
 
@@ -480,7 +637,7 @@ class EncoderDecoder(nn.Module):
                 del averaged_grads
 
                 with torch.no_grad():
-                    encoder_parameters = {name: (parameter - self.lr * grad).detach().requires_grad_() for (name, parameter), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)}
+                    encoder_parameters = {name: (parameter - self.lr * grad).detach().requires_grad_() for (name, parameter), grad in zip(encoder_parameters.items(), task_modality_reconstruction_loss_grads)} # performs the gradient descent step for the encoder parameters
 
                 del task_modality_reconstruction_loss_grads
 
@@ -544,7 +701,10 @@ class Model(LightningModule):
         else:
             metric_collection = {'R2': R2Score(), 'RMSE': MeanSquaredError(squared=False)}
 
-        if self.hparams.adaptation_mode == 'JT':
+        if 'TTT' in self.hparams.adaptation_mode:
+            task_metric_collection = metric_collection.copy()
+
+        if 'JT' in self.hparams.adaptation_mode:
             for modality in task_modalities:
                 if modality in categorical_modalities:
                     metric_collection[f'{modality} accuracy'] = MulticlassAccuracy(num_classes=no_data_values[modality], ignore_index=no_data_values[modality])
@@ -552,11 +712,12 @@ class Model(LightningModule):
                     metric_collection[f'{modality} R2'] = R2Score()
 
         for split in ['train', 'val', 'random_test', 'geographic_test']:
-            setattr(self, f'{split}_metrics', MetricCollection(metric_collection).clone(prefix=f'{split.replace("_", " ").capitalize()} '))
+            metrics = task_metric_collection if 'TTT' in self.hparams.adaptation_mode and split == 'val' else metric_collection
+            setattr(self, f'{split}_metrics', MetricCollection(metrics).clone(prefix=f'{split.replace("_", " ").capitalize()} '))
 
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.model.parameters(), lr=self.hparams.max_lr, weight_decay=self.hparams.weight_decay)
-        effective_num_train_batches = math.ceil(self.hparams.num_train_batches / self.trainer.accumulate_grad_batches) # number of batches after gradient accumulation
+        effective_num_train_batches = math.ceil(self.hparams.num_train_batches / (self.trainer.accumulate_grad_batches * torch.cuda.device_count())) # number of batches after gradient accumulation and data parallelism
         warmup_steps = self.hparams.warmup_epochs * effective_num_train_batches
         warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=self.hparams.min_lr/self.hparams.max_lr, total_iters=warmup_steps)
         cooldown_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(self.hparams.epochs-self.hparams.warmup_epochs)*effective_num_train_batches, eta_min=self.hparams.min_lr)
@@ -568,13 +729,16 @@ class Model(LightningModule):
     def forward(self, input_data, task_modality_data):
         return self.model(input_data, task_modality_data)
 
-    def general_step(self, batch, batch_idx, mode, dataloader_idx=0):
-        input_data, task_modality_data, target = batch # extracts the images and targets for the batch
+    def general_step(self, batch, batch_idx, mode):
+        input_data, task_modality_data, target, indices, ids = batch # extracts the images and targets for the batch
         prediction = self(input_data, task_modality_data) # forward pass
 
         if self.hparams.adaptation_mode =='JT':
             prediction, modality_reconstructions, task_modality_reconstruction_loss = prediction
-        elif 'TTT' in self.hparams.adaptation_mode and mode == 'val':
+        elif 'TTT' in self.hparams.adaptation_mode:
+            prediction, modality_reconstructions_JT, modality_reconstructions = prediction
+
+        if 'TTT' in self.hparams.adaptation_mode and mode == 'val':
             iteration_predictions = prediction
 
         if self.hparams.task == 'biomass':
@@ -588,10 +752,9 @@ class Model(LightningModule):
 
         # LOSS #
 
-        if self.hparams.adaptation_mode == 'JT':
+        if 'JT' in self.hparams.adaptation_mode and modality_reconstructions:
             with torch.no_grad():
-                if 'modality_reconstruction_losses' not in locals():
-                    modality_reconstruction_losses = ModalityReconstructionLossCalculator()(modality_reconstructions, task_modality_data)
+                modality_reconstruction_losses = ModalityReconstructionLossCalculator()(modality_reconstructions, task_modality_data)
 
                 for modality, loss in modality_reconstruction_losses.items():
                     mean_loss = loss.nanmean()
@@ -623,35 +786,109 @@ class Model(LightningModule):
         metrics = getattr(self, f'{mode}_metrics')
 
         for name, metric in metrics.items():
-            if 'modality_reconstructions' in locals() and name.split(' ')[-2] in modality_reconstructions.keys():
-                modality = name.split(' ')[-2]
-                modality_target = task_modality_data[modality]['data']
-                reconstruction = modality_reconstructions[modality]
+            if name.split(' ')[-2] in task_modalities: # if the metric is about a modality reconstruction
+                if 'JT' in self.hparams.adaptation_mode and modality_reconstructions:
+                    modality = name.split(' ')[-2]
+                    modality_target = task_modality_data[modality]['data']
+                    reconstruction = modality_reconstructions[modality]
 
-                if modality in categorical_modalities:
-                    if modality in ['DynamicWorld', 'ESA_WorldCover']:
-                        modality_target = modality_target.squeeze(1).long()
-                else: # continuous-valued modality
-                    if modality not in ['geolocation_encoding', 'month_encoding']:
-                        valid_mask = task_modality_data[modality]['valid_mask']
-                        reconstruction = reconstruction[valid_mask]
-                        modality_target = modality_target[valid_mask]
+                    if modality in categorical_modalities:
+                        if modality in ['DynamicWorld', 'ESA_WorldCover']:
+                            modality_target = modality_target.squeeze(1).long()
+                    else: # continuous-valued modality
+                        if modality not in ['geolocation_encoding', 'month_encoding']:
+                            valid_mask = task_modality_data[modality]['valid_mask']
+                            reconstruction = reconstruction[valid_mask]
+                            modality_target = modality_target[valid_mask]
 
-                metric.update(reconstruction, modality_target)
+                    metric.update(reconstruction, modality_target)
             else: # only updates the main task metrics, not the modality-specific ones
                 metric.update(prediction, target)
 
         self.log_dict(metrics, on_step=False, on_epoch=True, add_dataloader_idx=False) # logs the metrics at the end of each epoch
 
-        if self.hparams.adaptation_mode == 'JT' and self.trainer.is_last_batch:
-            task_modality_reconstruction_performances = torch.stack([metric.compute() for name, metric in metrics.items() if any(modality in name for modality in task_modalities)])
-            assert len(task_modality_reconstruction_performances) == len(task_modalities)
-            task_modality_reconstruction_performance = task_modality_reconstruction_performances.nanmean() # computes the mean performance across all modalities and tiles, ignoring NaNs
-            self.log(f'{mode.capitalize().replace("_", " ")} task modality reconstruction performance', task_modality_reconstruction_performance, on_step=False, on_epoch=True, add_dataloader_idx=False) # logs the task modality reconstruction performance
+        if 'JT' in self.hparams.adaptation_mode and modality_reconstructions:
+            continuous_task_modality_reconstruction_r2 = torch.stack([metric.compute() for name, metric in metrics.items() if any(modality in name for modality in continuous_modalities)]).nanmean() # computes the mean performance across all modalities and tiles, ignoring NaNs
+            categorical_task_modality_reconstruction_accuracy = torch.stack([metric.compute() for name, metric in metrics.items() if any(modality in name for modality in categorical_modalities)]).nanmean() # computes the mean performance across all modalities and tiles, ignoring NaNs
+            self.log(f'{mode.capitalize().replace("_", " ")} continuous task modality reconstruction R2', continuous_task_modality_reconstruction_r2, on_step=False, on_epoch=True, add_dataloader_idx=False) # logs the task modality reconstruction performance
+            self.log(f'{mode.capitalize().replace("_", " ")} categorical task modality reconstruction accuracy', categorical_task_modality_reconstruction_accuracy, on_step=False, on_epoch=True, add_dataloader_idx=False) # logs the categorical task modality reconstruction accuracy
 
         # log the images in the first batch
         if batch_idx == 0: # if we are on the first batch
-            self._log_images(task_modality_data['Sentinel2']['data'].cpu().numpy()[:, [3,2,1]].astype(float), mode)
+            stylized_mode = mode.replace('_', ' ').capitalize()
+            modality_data_dict = {}
+            modality_reconstruction_dict = {}
+            modality_reconstruction_JT_dict = {} # to distinguish between post-JT and post-TTT reconstructions during TTT
+
+            for modality in task_modalities:
+                if modality in pixel_level_modalities:
+                    modality_data = task_modality_data[modality]['data'][:num_logged_images].detach().cpu().numpy().astype(float)
+                    batch_indices = indices[:num_logged_images]
+                    batch_ids = ids[:num_logged_images]
+
+                    if 'JT' in self.hparams.adaptation_mode and modality_reconstructions:
+                        modality_reconstruction = modality_reconstructions[modality][:num_logged_images].detach().cpu().numpy().astype(float)
+
+                    if 'TTT' in self.hparams.adaptation_mode and modality_reconstructions_JT:
+                        modality_reconstruction_JT = modality_reconstructions_JT[modality][:num_logged_images].detach().cpu().numpy().astype(float)
+
+                    if modality == 'Sentinel2':
+                        modality_data = np.array([np.stack(utils.normalize(image), axis=-1) for image in modality_data[:, [3,2,1]]]) # selects RGB bands
+                        modality_data_dict[modality] = modality_data
+
+                        if 'JT' in self.hparams.adaptation_mode and modality_reconstructions:
+                            modality_reconstruction = np.array([np.stack(utils.normalize(image), axis=-1) for image in modality_reconstruction[:, [3,2,1]]]) # selects RGB bands
+
+                        if 'TTT' in self.hparams.adaptation_mode and modality_reconstructions_JT:
+                            modality_reconstruction_JT = np.array([np.stack(utils.normalize(image), axis=-1) for image in modality_reconstruction_JT[:, [3,2,1]]]) # selects RGB bands
+                    elif 'JT' in self.hparams.adaptation_mode and modality_reconstructions:
+                        if modality in ['Sentinel1', 'ASTER_GDEM', 'ETH_GCH']:
+                            modality_data = modality_data[:, 0]
+                            modality_reconstruction = modality_reconstruction[:, 0]
+
+                            if 'TTT' in self.hparams.adaptation_mode and modality_reconstructions_JT:
+                                modality_reconstruction_JT = modality_reconstruction_JT[:, 0]
+
+                            vmin = min(modality_data.min(), modality_reconstruction.min())
+                            vmax = max(modality_data.max(), modality_reconstruction.max())
+
+                            if 'TTT' in self.hparams.adaptation_mode and modality_reconstructions_JT:
+                                vmin = min(vmin, modality_reconstruction_JT.min())
+                                vmax = max(vmax, modality_reconstruction_JT.max())
+
+                            modality_data = create_continuous_legend(vmin, vmax, modality_data)
+                            modality_reconstruction = create_continuous_legend(vmin, vmax, modality_reconstruction)
+
+                            if 'TTT' in self.hparams.adaptation_mode and modality_reconstructions_JT:
+                                modality_reconstruction_JT = create_continuous_legend(vmin, vmax, modality_reconstruction_JT)
+                        elif modality == 'DynamicWorld':
+                            modality_data = create_categorical_legend(dynamic_world_colors_labels, modality_data.squeeze())
+                            modality_reconstruction = create_categorical_legend(dynamic_world_colors_labels, np.argmax(modality_reconstruction, axis=1))
+
+                            if 'TTT' in self.hparams.adaptation_mode and modality_reconstructions_JT:
+                                modality_reconstruction_JT = create_categorical_legend(dynamic_world_colors_labels, np.argmax(modality_reconstruction_JT, axis=1))
+                        elif modality == 'ESA_WorldCover':
+                            modality_data = create_categorical_legend(esa_worldcover_colors_labels, modality_data.squeeze())
+                            modality_reconstruction = create_categorical_legend(esa_worldcover_colors_labels, np.argmax(modality_reconstruction, axis=1))
+
+                            if 'TTT' in self.hparams.adaptation_mode and modality_reconstructions_JT:
+                                modality_reconstruction_JT = create_categorical_legend(esa_worldcover_colors_labels, np.argmax(modality_reconstruction_JT, axis=1))
+
+                        modality_data_dict[modality] = modality_data
+
+                    if 'JT' in self.hparams.adaptation_mode and modality_reconstructions:
+                        modality_reconstruction_dict[modality] = modality_reconstruction
+
+                    if 'TTT' in self.hparams.adaptation_mode and modality_reconstructions_JT:
+                        modality_reconstruction_JT_dict[modality] = modality_reconstruction_JT
+
+            if 'JT' not in self.hparams.adaptation_mode:
+                modality_reconstruction_dict = None
+
+            if 'TTT' not in self.hparams.adaptation_mode:
+                modality_reconstruction_JT_dict = None
+
+            self._log_images(stylized_mode, batch_indices, batch_ids, modality_data_dict, modality_reconstruction_dict, modality_reconstruction_JT_dict)
 
         if mode == 'train':
             return loss
@@ -668,7 +905,7 @@ class Model(LightningModule):
         if 'TTT' in self.hparams.adaptation_mode:
             self.model.mode = 'test'
 
-        self.general_step(batch=batch, batch_idx=batch_idx, mode='random_test' if dataloader_idx==0 else 'geographic_test', dataloader_idx=dataloader_idx)
+        self.general_step(batch=batch, batch_idx=batch_idx, mode='random_test' if dataloader_idx==0 else 'geographic_test')
 
     def on_validation_epoch_end(self):
         """Called at the end of validation epoch to determine best iteration for TTT"""
@@ -676,20 +913,88 @@ class Model(LightningModule):
             self.model.val_best_num_iterations = int(round(np.mean(self.val_batches_best_num_iterations))) # calculates the average best iteration across all batches
             print(f'Val best num TTT iterations: {self.model.val_best_num_iterations}')
 
-    def _log_images(self, images, mode):
-        images = np.array([np.stack(utils.normalize(image), axis=-1) for image in images])
-        num_images = min(len(images), num_logged_images)
-        fig, axes = plt.subplots(1, num_images, figsize=(num_images*4, 4))
-        axes = np.atleast_1d(axes)
+    def _log_images(self, name, batch_indices, batch_ids, modality_data_dict, modality_reconstruction_dict, modality_reconstruction_JT_dict):
+        modalities = list(modality_data_dict.keys())
+        num_images = len(modality_data_dict[modalities[0]])
+        height_ratios = [1]
 
-        for i in range(num_images):
-            axes[i].imshow(images[i])
-            axes[i].axis('off')
+        for i, modality in enumerate(modalities):
+            height_ratios.append(4) # ground-truth row
 
-        plt.tight_layout()
+            if modality_reconstruction_dict:
+                height_ratios.append(4) # reconstruction row
+
+            if modality_reconstruction_JT_dict:
+                height_ratios.append(4) # JT reconstruction row
+
+            if i < len(modalities) - 1: # gap between modalities
+                height_ratios.append(1)
+
+        fig = plt.figure(figsize=(num_images * 2, sum(height_ratios) * 0.32))
+        gs = gridspec.GridSpec(len(height_ratios), num_images, figure=fig, height_ratios=height_ratios, hspace=0.1, wspace=0.02)
+        grid_row = 1 # starts after the initial gap
+        label_positions = [] # stores gap row indices for later labeling
+        row_labels = [] # stores (row_index, label_text) for Original/Reconstruction labels
+
+        for mod_idx, modality in enumerate(modalities):
+            gap_row = grid_row - 1
+            label_positions.append((gap_row, modality))
+            modality_data = modality_data_dict[modality]
+
+            # Plot ground truth row
+            for col in range(num_images):
+                ax = fig.add_subplot(gs[grid_row, col])
+                ax.imshow(modality_data[col])
+                ax.axis('off')
+
+                if mod_idx == 0: # only adds titles to first modality
+                    ax.set_title(f'Idx: {batch_indices[col]}\nID: {batch_ids[col]}', fontsize=fontsize, pad=30)
+
+            row_labels.append((grid_row, 'Original'))
+            grid_row += 1
+
+            # Plot JT reconstruction row if it exists (for TTT)
+            if modality_reconstruction_JT_dict and modality in modality_reconstruction_JT_dict:
+                modality_reconstruction_JT = modality_reconstruction_JT_dict[modality]
+
+                for col in range(num_images):
+                    ax = fig.add_subplot(gs[grid_row, col])
+                    ax.imshow(modality_reconstruction_JT[col])
+                    ax.axis('off')
+
+                row_labels.append((grid_row, 'JT\nreconstruction'))
+                grid_row += 1
+
+            # Plot reconstruction row if it exists
+            if modality_reconstruction_dict and modality in modality_reconstruction_dict:
+                modality_reconstruction = modality_reconstruction_dict[modality]
+
+                for col in range(num_images):
+                    ax = fig.add_subplot(gs[grid_row, col])
+                    ax.imshow(modality_reconstruction[col])
+                    ax.axis('off')
+
+                row_labels.append((grid_row, 'TTT-MMR\nreconstruction' if modality_reconstruction_JT_dict else 'Reconstruction'))
+                grid_row += 1
+
+            if mod_idx < len(modalities) - 1:
+                grid_row += 1
+
+        plt.subplots_adjust(top=0.92, bottom=0.02, left=0.08)
+
+        # Add modality labels after layout is adjusted
+        for gap_row, modality in label_positions:
+            gap_row_center = (gs[gap_row, 0].get_position(fig).y0 + gs[gap_row, 0].get_position(fig).y1) / 2
+            fig.text(0.5, gap_row_center, modality.replace('l2', 'l-2').replace('l1', 'l-1').replace('_', ' ').replace('cW', 'c W'), ha='center', va='center', fontsize=fontsize, transform=fig.transFigure)
+
+        for row_idx, label_text in row_labels:
+            row_center = (gs[row_idx, 0].get_position(fig).y0 + gs[row_idx, 0].get_position(fig).y1) / 2
+            left_edge = gs[row_idx, 0].get_position(fig).x0
+            fig.text(left_edge, row_center, label_text, ha='center', va='center', fontsize=0.5*fontsize, rotation=90, transform=fig.transFigure)
+
         os.makedirs('figures', exist_ok=True)
-        plt.savefig(f'figures/{mode}.png', dpi=300, bbox_inches='tight')
+        plt.savefig(f'figures/{name}.png', dpi=300, bbox_inches='tight')
         plt.close(fig)
 
         if wandb.run is not None:
-            wandb.log({f'{mode.replace("_", " ").capitalize()} images (RGB)': wandb.Image(f'figures/{mode}.png')})
+            wandb.log({name: wandb.Image(f'figures/{name}.png')})

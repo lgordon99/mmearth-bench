@@ -27,46 +27,48 @@ def train(cfg):
     os.environ['DATA_DIR_PATH'] = cfg.data_dir_path
     os.environ['ENTITY'] = cfg.logger.entity
     os.environ['PROJECT'] = cfg.logger.project
+    os.environ['RANK'] = os.environ['SLURM_PROCID']
 
     torch.set_float32_matmul_precision('high')
     seed_everything(cfg.seed, workers=True)
     logger = hydra.utils.instantiate(cfg.logger)
-    _ = logger.experiment # initializes the logger
-    sweep_overridden_parameters = wandb.config
-    print(f'Sweep overridden parameters: {sweep_overridden_parameters}')
 
-    for parameter, value in sweep_overridden_parameters.items():
-        key_1, key_2 = parameter.split('.')
-        cfg[key_1][key_2] = value
+    if os.environ['RANK'] == '0': # if the rank is 0
+        _ = logger.experiment # initializes the logger
 
     if cfg.task == 'species':
         cfg['trainer']['callbacks'][0]['monitor'] = 'Val mAP'
 
     if 'TTT' in cfg.adaptation_mode:
         cfg['datamodule']['batch_size'] = 8
-
-    print(f'Config: {cfg}')
+    elif 'AnySat' in cfg.architecture:
+        cfg['datamodule']['batch_size'] = 8
+        cfg['trainer']['accumulate_grad_batches'] = 4
 
     trainer = hydra.utils.instantiate(cfg.trainer)
     torch.use_deterministic_algorithms(True, warn_only=True)
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     num_train_batches = len(datamodule.train_dataloader())
-    print(f'Number of training batches: {num_train_batches}')
     cfg['model']['num_train_batches'] = num_train_batches
-    wandb.config.update(OmegaConf.to_container(cfg, resolve=True))
+
+    if os.environ['RANK'] == '0':
+        logger.log_hyperparams(OmegaConf.to_container(cfg, resolve=True))
+        print("\n======= CONFIG =======")
+        print(OmegaConf.to_yaml(cfg, resolve=True))
+        print("======================\n")
+
     model = hydra.utils.instantiate(cfg.model)
 
-    if 'val' in cfg.adaptation_mode:
-        trainer.validate(model, datamodule=datamodule)
-    elif 'TTT' in cfg.adaptation_mode:
+    if 'TTT' in cfg.adaptation_mode:
         trainer.validate(model, datamodule=datamodule)
         trainer.test(model, datamodule=datamodule)
     else:
         trainer.fit(model, datamodule=datamodule)
         trainer.test(ckpt_path='best', datamodule=datamodule)
 
-    wandb.finish()
-    shutil.rmtree(os.getcwd()) # deletes the hydra-created working directory
+    if trainer.is_global_zero:
+        wandb.finish()
+        shutil.rmtree(os.getcwd()) # deletes the hydra-created working directory
 
 if __name__ == '__main__':
     train()
