@@ -46,7 +46,7 @@ def train(cfg):
         cfg['trainer']['accumulate_grad_batches'] = 4
 
     trainer = hydra.utils.instantiate(cfg.trainer)
-    torch.use_deterministic_algorithms(True, warn_only=True)
+    torch.use_deterministic_algorithms(True, warn_only='Galileo' not in cfg.architecture)
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     num_train_batches = len(datamodule.train_dataloader())
     cfg['model']['num_train_batches'] = num_train_batches
