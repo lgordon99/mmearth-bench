@@ -158,28 +158,28 @@ class MMEarthBenchDataset(Dataset):
             if 'Galileo' in self.architecture:
                 s2_b2, s2_b3, s2_b4, s2_b5, s2_b6, s2_b7, s2_b8, s2_b8A, s2_b11, s2_b12 = np.ma.masked_equal(tile_input_data['Sentinel2'], no_data_values['Sentinel2'])
                 s2 = np.expand_dims(np.stack([s2_b2.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][2]),
-                                            s2_b3.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][3]),
-                                            s2_b4.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][4]),
-                                            s2_b5.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][5]),
-                                            s2_b6.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][6]),
-                                            s2_b7.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][7]),
-                                            s2_b8.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][8]),
-                                            s2_b8A.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][9]),
-                                            s2_b11.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][10]),
-                                            s2_b12.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][11])]).transpose(1, 2, 0), axis=2)
+                                              s2_b3.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][3]),
+                                              s2_b4.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][4]),
+                                              s2_b5.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][5]),
+                                              s2_b6.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][6]),
+                                              s2_b7.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][7]),
+                                              s2_b8.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][8]),
+                                              s2_b8A.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][9]),
+                                              s2_b11.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][10]),
+                                              s2_b12.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][11])]).transpose(1, 2, 0), axis=2)
 
                 if self.architecture == 'Galileo':
                     s1_vv, s1_vh = get_vv_vh_least_nans(np.ma.masked_equal(tile_input_data['Sentinel1'], no_data_values['Sentinel1']))
                     s1 = np.expand_dims(np.stack([s1_vv.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][0]),
-                                                s1_vh.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][1])]).transpose(1, 2, 0), axis=2)
+                                                  s1_vh.filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][1])]).transpose(1, 2, 0), axis=2)
                     ndvi = np.expand_dims(tile_input_data['NDVI'].filled(PRETRAINING_NORMALIZING_DICT['13']['mean'][12]).transpose(1, 2, 0), axis=2)
                     temperature = np.ma.masked_equal(tile_input_data['temperature'], no_data_values['temperature'])
                     precipitation = np.ma.masked_equal(tile_input_data['precipitation'], no_data_values['precipitation'])
                     era5 = np.stack([temperature.filled(PRETRAINING_NORMALIZING_DICT['6']['mean'][0]),
-                                    precipitation.filled(PRETRAINING_NORMALIZING_DICT['6']['mean'][1])]).transpose(1, 0)
+                                     precipitation.filled(PRETRAINING_NORMALIZING_DICT['6']['mean'][1])]).transpose(1, 0)
                     elevation, slope = np.ma.masked_equal(tile_input_data['ASTER_GDEM'], no_data_values['ASTER_GDEM'])
                     srtm = np.stack([elevation.filled(PRETRAINING_NORMALIZING_DICT['16']['mean'][0]),
-                                    slope.filled(PRETRAINING_NORMALIZING_DICT['16']['mean'][1])]).transpose(1, 2, 0)
+                                     slope.filled(PRETRAINING_NORMALIZING_DICT['16']['mean'][1])]).transpose(1, 2, 0)
                     dw = np.eye(no_data_values['DynamicWorld']+1)[tile_input_data['DynamicWorld'].squeeze().astype(int)][:, :, :no_data_values['DynamicWorld']] # one-hot encodes the Dynamic World data, with no-data values removed
                     dw[dw.sum(axis=-1) == 0] = PRETRAINING_NORMALIZING_DICT['16']['mean'][2:11] # fills pixels where Dynamic World data is not available with the means from the Galileo pretraining dataset
                     latlon = tile_input_data['geolocation']
@@ -244,6 +244,3 @@ class MMEarthBenchDataset(Dataset):
             task_data = np.expand_dims(task_data, axis=0)
 
         return tile_input_data, tile_task_modality_data, torch.tensor(task_data, dtype=torch.float32), index, self.ids[index]
-
-if __name__ == '__main__':
-    dataset = MMEarthBenchDataset(task='soil_nitrogen', architecture='Galileo', adaptation_mode='FT', train_percent='5')
