@@ -278,7 +278,6 @@ def plot_all_splits():
         ax.set_title(f'{task.replace("_", " ").title().replace("Ph", "pH")}', fontsize=34, pad=12)
 
     legend_elements = [Line2D([0], [0], marker='s', color='w', markerfacecolor=split_properties[mode]['color'], markersize=30, label=split_properties[mode]['label']) for mode in split_properties.keys()]
-
     fig.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 0.05), ncol=4, fontsize=34, frameon=False, handletextpad=0.1)
     plt.tight_layout()
     plt.savefig(f'{data_dir_path}/split_maps.pdf', dpi=300, bbox_inches='tight')
