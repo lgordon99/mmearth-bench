@@ -242,8 +242,7 @@ def plot_dataset_split(task):
 
 def plot_all_splits():
     tasks = ['biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH', 'species']
-    plt.rcParams['pdf.fonttype'] = 42
-    plt.rcParams['ps.fonttype'] = 42
+    plt.rcParams['pdf.fonttype'] = 42 # for embedding fonts in PDFs
     plt.rcParams['font.family'] = 'serif'
     plt.rcParams['font.serif'] = ['DejaVu Serif']
     cmap = plt.cm.viridis
@@ -276,11 +275,11 @@ def plot_all_splits():
             split = row['split']
             ax.scatter(row.geometry.x, row.geometry.y, color=split_properties[split]['color'], marker='s', s=0.1, rasterized=True, label=split_properties[split]['label'] if split not in ax.get_legend_handles_labels()[1] else "")
 
-        ax.set_title(f'{task.replace("_", " ").title().replace("Ph", "pH")}', fontsize=30)
+        ax.set_title(f'{task.replace("_", " ").title().replace("Ph", "pH")}', fontsize=34, pad=12)
 
     legend_elements = [Line2D([0], [0], marker='s', color='w', markerfacecolor=split_properties[mode]['color'], markersize=30, label=split_properties[mode]['label']) for mode in split_properties.keys()]
 
-    fig.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 0.05), ncol=4, fontsize=30, frameon=False, handletextpad=0.1)
+    fig.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 0.05), ncol=4, fontsize=34, frameon=False, handletextpad=0.1)
     plt.tight_layout()
     plt.savefig(f'{data_dir_path}/split_maps.pdf', dpi=300, bbox_inches='tight')
 
