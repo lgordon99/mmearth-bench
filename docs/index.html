@@ -1159,7 +1159,7 @@
     </a>
     <a href="#method" class="nav-item">
       <i class="fas fa-cogs"></i>
-      <span>Method</span>
+      <span>Test-time training</span>
     </a>
     <a href="#download" class="nav-item">
       <i class="fas fa-download"></i>
@@ -1525,7 +1525,7 @@
   <div class="container is-max-desktop">
     <div class="columns is-centered has-text-centered">
       <div class="column is-full">
-        <h2 class="title is-3">Method</h2>
+        <h2 class="title is-3">Test-time training</h2>
         <div class="content has-text-justified" style="max-width: 800px; margin: 0 auto;">
           <p>
             The geospatial machine learning community has embraced multimodal data for self-supervised pretraining of geospatial foundation models.
@@ -1546,6 +1546,10 @@
             Our TTT-MMR-Geo method batches the test tiles based on geographic proximity as a proxy for tile similarity using recursive spatial partitioning.
           </p>
           <img src="static/videos/ttt-mmr-geo_partitioning.gif" style="width: 85%; height: auto; margin: 1rem auto; border-radius: 12px; display: block;" alt="TTT-MMR Geo Partitioning Animation">
+          <p class="has-text-justified" style="max-width: 800px; margin: 2rem auto 0 auto;">
+            Both TTT-MMR and TTT-MMR-Geo improve performance on all tasks and on both the random (R) and geographic (G) test splits. For biomass and soil OC both variants perform similarly, with TTT-MMR-Geo displaying better performance on soil N, soil pH, and species.
+          </p>
+          <img src="static/images/TTT_plot.png" style="width: 85%; height: auto; margin: 1rem auto; border-radius: 12px; display: block;" alt="TTT results plot">
         </div>
       </div>
     </div>
