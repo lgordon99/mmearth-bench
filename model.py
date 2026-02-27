@@ -288,7 +288,7 @@ class _CopernicusFMBaseEncoder(nn.Module):
         state_dict['norm.bias'] = self.model.norm.bias.clone()
         self.model.load_state_dict(state_dict)
 
-        # remove unused layer
+        # remove unused layers
         if hasattr(self.model, 'coord_token') and 'longitude' in modalities:
             del self.model.coord_token
 
@@ -347,6 +347,18 @@ class _GalileoBaseEncoder(nn.Module):
 
         self.model = Encoder.load_from_folder(f'{data_dir_path}/pretrained_checkpoints', device='cpu')
         self.patch_size = 16
+
+        # remove unused layers
+        if 'WC' in self.model.space_embed: # World Cereal is not one of our modalities
+            del self.model.space_embed['WC']
+
+        for key in ['TC', 'VIIRS']: # TerraClimate and VIIRS are not among our modalities
+            if key in self.model.time_embed:
+                del self.model.time_embed[key]
+
+        for key in ['LS', 'WC_static']: # LandScan is not one of our modalities
+            if key in self.model.static_embed:
+                del self.model.static_embed[key]
 
     def forward(self, images):
         (space_time_token_embeddings,
