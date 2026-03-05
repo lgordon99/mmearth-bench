@@ -859,9 +859,6 @@ def plot_rq2_performance(adaptation_mode):
 
     plt.savefig(f'results_figures/RQ2_{adaptation_mode}_plot.pdf', dpi=300)
 
-def plot_jt_ttt_geo_performance():
-    plot_rq2_performance('JT-TTT-Geo')
-
 def plot_rq3_performance(adaptation_mode):
     """Create an RQ3 plot with Random and Geographic splits in 2 rows x 5 columns (tasks).
     S2 is solid with circle markers; Multimodal is dashed with triangle markers.
@@ -1200,196 +1197,6 @@ def plot_ttt_improvement():
             frameon=False)
 
     plt.savefig('results_figures/TTT_plot.pdf', dpi=300)
-
-def plot_random_minus_geographic_delta_by_task():
-    """One subplot per task. Y-axis is (Random test performance - Geographic test performance).
-
-    Each subplot shows 3 boxplots (JT, JT-TTT, JT-TTT-Geo). Distributions are computed over all
-    architectures for each seed, then boxplot statistics are averaged across seeds (same approach
-    as plot_ttt_improvement()).
-    """
-
-    tags = ['chi_41', 'chi_42', 'chi_43']
-    seeds = [41, 42, 43]
-    modes = ['JT', 'JT-TTT', 'JT-TTT-Geo']
-
-    # Load all runs with all tags in a single API call, then filter by tag in memory
-    all_runs_list = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': tags}})
-    all_runs = {tag: [r for r in all_runs_list if tag in r.tags] for tag in tags}
-
-    # Collect deltas per seed: {seed: {task: {mode: [delta]}}}
-    deltas_per_seed = {
-        seed: {task: {mode: [] for mode in modes} for task in tasks}
-        for seed in seeds
-    }
-
-    for tag, seed in zip(tags, seeds):
-        runs = all_runs[tag]
-
-        for task in tasks:
-            metric = 'R2' if task != 'species' else 'mAP'
-            metric_random = f'Random test {metric}'
-            metric_geo = f'Geographic test {metric}'
-
-            for mode in modes:
-                for architecture in architectures_plots:
-                    run_name = '_'.join([task, architecture, mode, str(100)]) + '_'
-                    run = next((run for run in runs if run.name.startswith(run_name)), None)
-                    if not run:
-                        continue
-
-                    perf_random = run.summary_metrics.get(metric_random)
-                    perf_geo = run.summary_metrics.get(metric_geo)
-
-                    if (perf_random is None or perf_geo is None or
-                        np.isnan(perf_random) or np.isnan(perf_geo)):
-                        continue
-
-                    delta = perf_random - perf_geo
-                    if not np.isnan(delta):
-                        deltas_per_seed[seed][task][mode].append(delta)
-
-    # Compute boxplot statistics per seed, then average them
-    # Structure: {task: {mode: {stat_name: averaged_value}}}
-    averaged_stats = {task: {mode: None for mode in modes} for task in tasks}
-
-    for task in tasks:
-        for mode in modes:
-            seed_stats = []
-            for seed in seeds:
-                deltas = deltas_per_seed[seed][task][mode]
-                if len(deltas) == 0:
-                    continue
-
-                deltas_array = np.array(deltas)
-                q1 = np.percentile(deltas_array, 25)
-                median = np.percentile(deltas_array, 50)
-                q3 = np.percentile(deltas_array, 75)
-                mean = np.mean(deltas_array)
-                iqr = q3 - q1
-
-                whislo = q1 - 1.5 * iqr
-                whishi = q3 + 1.5 * iqr
-                whislo = max(whislo, np.min(deltas_array))
-                whishi = min(whishi, np.max(deltas_array))
-
-                seed_stats.append({
-                    'q1': q1,
-                    'med': median,
-                    'q3': q3,
-                    'mean': mean,
-                    'whislo': whislo,
-                    'whishi': whishi
-                })
-
-            if len(seed_stats) > 0:
-                averaged_stats[task][mode] = {
-                    'q1': np.mean([s['q1'] for s in seed_stats]),
-                    'med': np.mean([s['med'] for s in seed_stats]),
-                    'q3': np.mean([s['q3'] for s in seed_stats]),
-                    'mean': np.mean([s['mean'] for s in seed_stats]),
-                    'whislo': np.mean([s['whislo'] for s in seed_stats]),
-                    'whishi': np.mean([s['whishi'] for s in seed_stats])
-                }
-
-    # 1 row x 5 columns (tasks)
-    fig, axes = plt.subplots(
-        1, 5,
-        figsize=(COL_WIDTH, 1.4),
-        gridspec_kw=dict(left=0.10, right=0.99, top=0.82, bottom=0.28, wspace=0.40)
-    )
-
-    # Colors for boxes (include JT as neutral)
-    colors = ['#7f7f7f', '#1f77b4', '#ff7f0e']
-
-    for i, task in enumerate(tasks):
-        ax = axes[i]
-
-        stats_list = []
-        positions = []
-        mode_colors = []
-        for pos, (mode, color) in enumerate(zip(modes, colors), start=1):
-            stats = averaged_stats[task][mode]
-            if stats is None:
-                continue
-            stats_list.append({
-                'med': stats['med'],
-                'q1': stats['q1'],
-                'q3': stats['q3'],
-                'whislo': stats['whislo'],
-                'whishi': stats['whishi'],
-                'mean': stats['mean']
-            })
-            positions.append(pos)
-            mode_colors.append(color)
-
-        if len(stats_list) > 0:
-            bp = ax.bxp(
-                stats_list,
-                positions=positions,
-                widths=0.6,
-                patch_artist=True,
-                showmeans=True,
-                showfliers=False,
-                meanprops=dict(marker='D', markerfacecolor='black', markeredgecolor='black', markersize=MARKER_SIZE),
-                medianprops=dict(color='black', linewidth=LINE_WIDTH),
-                boxprops=dict(linewidth=LINE_WIDTH),
-                whiskerprops=dict(linewidth=LINE_WIDTH),
-                capprops=dict(linewidth=LINE_WIDTH)
-            )
-
-            for patch, color in zip(bp['boxes'], mode_colors):
-                patch.set_facecolor(color)
-                patch.set_alpha(0.7)
-                patch.set_edgecolor('black')
-                patch.set_linewidth(0.5)
-
-        # No per-subplot method labels; use legend below
-        ax.set_xticks([])
-        ax.set_xticklabels([])
-        ax.tick_params(axis='x', bottom=False)
-
-        ax.axhline(y=0, color='black', linewidth=LINE_WIDTH)
-        ax.grid(True, alpha=0.3, axis='y')
-        ax.tick_params(axis='y', labelsize=AXIS_LABEL_FONTSIZE)
-        ax.tick_params(axis='y', rotation=90)
-
-        ymin, ymax = ax.get_ylim()
-        rounded_ymin = np.round(ymin / 0.01) * 0.01
-        rounded_ymax = np.round(ymax / 0.01) * 0.01
-        ax.set_yticks([rounded_ymin, rounded_ymax])
-
-        for spine in ax.spines.values():
-            spine.set_linewidth(0.5)
-
-        for label in ax.get_yticklabels():
-            label.set_ha('center')
-            label.set_va('center')
-
-        ax.set_title(
-            task.replace('_', ' ').capitalize()
-                .replace('nitrogen', 'N')
-                .replace('organic carbon', 'OC')
-                .replace('ph', 'pH'),
-            fontsize=AXIS_LABEL_FONTSIZE
-        )
-
-        if i == 0:
-            ax.set_ylabel('Δ Performance\n(Random − Geographic)', fontsize=AXIS_LABEL_FONTSIZE)
-
-    # Legend under the plot
-    legend_labels = ['JT', 'TTT-MMR', 'TTT-MMR-Geo']
-    legend_handles = [plt.Rectangle((0, 0), 1, 1, facecolor=color, alpha=0.7) for color in colors]
-    fig.legend(
-        legend_handles, legend_labels,
-        loc='lower center',
-        bbox_to_anchor=(0.5, -0.05),
-        ncol=len(legend_labels),
-        fontsize=LEGEND_FONTSIZE,
-        frameon=False
-    )
-
-    plt.savefig('results_figures/random_minus_geographic_delta_by_task.pdf', dpi=300)
 
 def plot_ttt_improvement_normalized():
     """Create a combined TTT improvement plot with Random and Geographic splits side-by-side for each task.
@@ -2795,21 +2602,16 @@ if __name__ == '__main__':
     # tabulate_ttt_ranks_by_model() # Table 5
 
     # appendix
-    # plot_rq1_performance('Geographic', 'FT') # Figure S.17
-    # plot_rq1_performance('Random', 'LP') # Figure S.18
-    # plot_rq1_performance('Geographic', 'LP') # Figure S.19
-    # plot_rq2_performance('LP') # Figure S.20
-    # plot_rq3_performance('LP') # Figure S.21
-    # plot_ttt_improvement_normalized() # Figure S.22
-    # tabulate_ttt_by_model() # Table S.13
-    # tabulate_ft_ranked_models_by_task()
-    # tabulate_ft_ranks_by_task()
-    tabulate_ft_metrics_by_task()
-    # tabulate_results('FT') # Tables S.14-18
-    # tabulate_TTT_results() # Tables S.19-33
-    # tabulate_results('LP') # Tables S.34-38
-
-
-    # plot_jt_ttt_geo_performance()
-
-    # plot_random_minus_geographic_delta_by_task()
+    # plot_rq1_performance('Geographic', 'FT') # Figure A.10
+    # plot_rq1_performance('Random', 'LP') # Figure A.11
+    # plot_rq1_performance('Geographic', 'LP') # Figure A.12
+    # plot_rq2_performance('LP') # Figure A.13
+    # plot_rq3_performance('LP') # Figure A.14
+    # tabulate_ft_ranked_models_by_task() # Tables A.10-12
+    # tabulate_ft_ranks_by_task() # Table A.13
+    tabulate_ft_metrics_by_task() # Table A.14
+    # plot_ttt_improvement_normalized() # Figure A.15
+    # tabulate_ttt_by_model() # Table A.15
+    # tabulate_results('FT') # Tables A.16-20
+    # tabulate_TTT_results() # Tables A.21-35
+    # tabulate_results('LP') # Tables A.36-40
