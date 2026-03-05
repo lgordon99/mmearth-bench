@@ -68,6 +68,7 @@ esa_worldcover_colors_labels = {'#006400': 'Tree cover',
                                 '#00cf75': 'Mangroves',
                                 '#fae6a0': 'Moss and\nlichen'}
 architecture_embedding_dims = {'ConvNeXtV2A': 320,
+                               'ConvNeXtV2AMM': 320,
                                'ScaleMAE': 1024,
                                'DINOv3Web': 1024,
                                'DINOv3Sat': 1024,
@@ -111,6 +112,30 @@ class ConvNeXtV2AEncoder(nn.Module):
 
     def forward(self, images):
         embeddings = self.model(images['RGB']) # extracts the final block's embeddings
+
+        return embeddings
+
+class ConvNeXtV2AMMEncoder(nn.Module):
+    def __init__(self, *_):
+        super().__init__()
+
+        num_pixel_level_bands = 46
+        num_tile_level_bands = 880
+
+        self.pixel_level_modality_names = task_modalities[:6]
+        self.tile_level_modality_names = task_modalities[6:]
+        self.model = timm.create_model('convnextv2_atto.fcmae', in_chans=num_pixel_level_bands+num_tile_level_bands, num_classes=0, global_pool='', pretrained=False)
+
+        for module in self.model.modules():
+            if (dwconv := getattr(module, 'conv_dw', None)) is not None:
+                dwconv.forward = types.MethodType((lambda self, x, *args, **kwargs: type(self).forward(self, x.contiguous(), *args, **kwargs)), dwconv)
+
+    def forward(self, images):
+        pixel_level_modalities = torch.cat([images[modality]['data'] for modality in self.pixel_level_modality_names], dim=1)
+        tile_level_modalities = torch.cat([images[modality]['data'] for modality in self.tile_level_modality_names], dim=1)
+        tile_level_modalities_spatial = tile_level_modalities.view(*tile_level_modalities.shape, 1, 1).expand(*tile_level_modalities.shape[:2], *pixel_level_modalities.shape[2:]) # expands the tile-level modalities to match the shape of the pixel-level modalities
+        modalities = torch.cat([pixel_level_modalities, tile_level_modalities_spatial], dim=1) # combines the pixel-level and tile-level modalities
+        embeddings = self.model(modalities) # extracts the final block's embeddings
 
         return embeddings
 

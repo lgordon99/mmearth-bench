@@ -143,6 +143,15 @@ class MMEarthBenchDataset(Dataset):
                 normalized = (masked - means) / stds # normalization
                 tile_task_modality_data[modality]['data'] = normalized.filled(0) # replaces NaNs with the post-normalization mean
 
+        if self.architecture == 'ConvNeXtV2AMM':
+            tile_input_data = {modality: (tile_task_modality_data[modality] if modality not in ['DynamicWorld', 'ESA_WorldCover', 'biome', 'ecoregion'] else {}) for modality in tile_task_modality_data.keys()}
+
+            # convert categorical modalities to one-hot encoding
+            tile_input_data['DynamicWorld']['data'] = torch.tensor(np.eye(no_data_values['DynamicWorld']+1)[tile_task_modality_data['DynamicWorld']['data'].astype(int)].squeeze().transpose(2, 0, 1), dtype=torch.float32)
+            tile_input_data['ESA_WorldCover']['data'] = torch.tensor(np.eye(no_data_values['ESA_WorldCover']+1)[tile_task_modality_data['ESA_WorldCover']['data'].astype(int)].squeeze().transpose(2, 0, 1), dtype=torch.float32)
+            tile_input_data['biome']['data'] = torch.tensor(np.eye(no_data_values['biome']+1)[tile_task_modality_data['biome']['data'].astype(int)], dtype=torch.float32)
+            tile_input_data['ecoregion']['data'] = torch.tensor(np.eye(no_data_values['ecoregion']+1)[tile_task_modality_data['ecoregion']['data'].astype(int)], dtype=torch.float32)
+
         # convert to tensors
         for modality in tile_task_modality_data.keys():
             tile_task_modality_data[modality]['data'] = torch.tensor(tile_task_modality_data[modality]['data'], dtype=torch.float32) # converts to tensor
@@ -150,7 +159,7 @@ class MMEarthBenchDataset(Dataset):
         # input data for the tile
         if self.architecture == 'ConvNeXtV2A':
             tile_input_data = {'RGB': tile_task_modality_data['Sentinel2']['data'][[3, 2, 1]]}
-        else:
+        elif self.architecture != 'ConvNeXtV2AMM':
             tile_input_data = {modality: data[index] for modality, data in self.input_data.items()}
             architecture_normalization_data = normalization_data[self.architecture]
             tile_input_data = {modality: data[architecture_normalization_data[modality]['bands']] for modality, data in tile_input_data.items()}
