@@ -42,7 +42,7 @@ def compile_latex(tex_file):
 \\usepackage{booktabs}
 \\usepackage{graphicx}
 \\usepackage{float}
-\\usepackage[table,dvipsnames]{xcolor}
+\\usepackage[table,dvipsnames,rgb]{xcolor}
 \\usepackage{geometry}
 \\geometry{a4paper, margin=1in}
 \\begin{document}
@@ -112,11 +112,11 @@ def compile_latex(tex_file):
         import traceback
         traceback.print_exc()
 
-architectures_plots = ['ConvNeXtV2A', 'ScaleMAE', 'DINOv3Web', 'DINOv3Sat', 'SatlasNet', 'MPMAE', 'TerraMind', 'CopernicusFM']
+architectures_plots = ['ConvNeXtV2A', 'ScaleMAE', 'DINOv3Web', 'DINOv3Sat', 'SatlasNet', 'MPMAE', 'TerraMind', 'CopernicusFM', 'Galileo', 'ConvNeXtV2AMM']
 
 # Include S2 versions, with S2 above non-S2
 architectures_tables = ['ConvNeXtV2A', 'ScaleMAE', 'DINOv3Web', 'DINOv3Sat', 'SatlasNet', 'MPMAE',
-                        'TerraMindS2', 'TerraMind', 'CopernicusFMS2', 'CopernicusFM']
+                        'TerraMindS2', 'TerraMind', 'CopernicusFMS2', 'CopernicusFM', 'GalileoS2', 'Galileo', 'ConvNeXtV2AMM']
 
 # Create a consistent color mapping for all architectures
 ARCHITECTURE_COLORS = {}
@@ -139,13 +139,17 @@ def display_arch_name(name: str) -> str:
         return 'Copernicus-FM S2'
     elif name == 'TerraMindS2':
         return 'TerraMind S2'
+    elif name == 'GalileoS2':
+        return 'Galileo S2'
+    elif name == 'ConvNeXtV2AMM':
+        return 'ConvNeXtV2A-MM'
     else:
         return name
 
 # Font size configuration
 LEGEND_FONTSIZE = 7
 AXIS_LABEL_FONTSIZE = 7
-COL_WIDTH = 3.25
+COL_WIDTH = 4.8
 MARKER_SIZE = 1
 LINE_WIDTH = 0.5
 
@@ -447,11 +451,11 @@ def tabulate_TTT_results_task(task):
         body = body.replace("\\toprule\n", "\\toprule\n" + split_header + "\n" + mode_header + "\n\\midrule", 1)
 
         latex = ("\\begin{table}[H]\n\\centering\n" +
+                 f"\\caption{{{task.replace('_', ' ').capitalize().replace('ph', 'pH')} test {caption_metric} by architecture, adaptation mode, and split (Seed {seed})}}\n" +
+                 f"\\label{{tab:{task}_{metric}_seed{seed}}}\n" +
                  "\\resizebox{\\linewidth}{!}{%\n" +
                  body +
                  "\n}\n" +
-                 f"\\caption{{{task.replace('_', ' ').capitalize().replace('ph', 'pH')} test {caption_metric} by architecture, adaptation mode, and split (Seed {seed})}}\n" +
-                 f"\\label{{tab:{task}_{metric}_seed{seed}}}\n" +
                  "\\end{table}\n")
         return latex
 
@@ -535,7 +539,7 @@ def plot_rq1_performance(split, adaptation_mode):
                     all_data.append({'task': task, 'architecture': architecture, 'train_percent': train_percent, 'metric': avg_metric, 'std_error': std_error})
 
     df = pd.DataFrame(all_data) # converts the data to a DataFrame
-    fig, axes = plt.subplots(1, 5, figsize=(COL_WIDTH, 1.5), gridspec_kw=dict(left=0.10, right=0.97, top=0.71, bottom=0.24, wspace=0.4))
+    fig, axes = plt.subplots(1, 5, figsize=(COL_WIDTH, 1.5), gridspec_kw=dict(left=0.07, right=0.98, top=0.71, bottom=0.24, wspace=0.4))
 
     for i, task in enumerate(tasks):
         ax = axes[i] # gets the axis for the current task
@@ -545,8 +549,6 @@ def plot_rq1_performance(split, adaptation_mode):
         # Account for mean ± SE in y-range
         y_min = (task_metrics - task_std_error).min() if not task_std_error.empty else task_metrics.min()
         y_max = (task_metrics + task_std_error).max() if not task_std_error.empty else task_metrics.max()
-        y_margin = (y_max - y_min) * 0.1
-        y_range = [y_min - y_margin, y_max + y_margin]
 
         # Plot each architecture
         for j, architecture in enumerate(architectures_plots):
@@ -563,7 +565,11 @@ def plot_rq1_performance(split, adaptation_mode):
                     color = ARCHITECTURE_COLORS[architecture]
                     linestyle = '--'
                     marker = 's'  # square
-                elif architecture in ['TerraMind', 'CopernicusFM', 'ConvNeXtV2AMultimodal']:
+                elif architecture == 'ConvNeXtV2AMM':
+                    color = ARCHITECTURE_COLORS[architecture]
+                    linestyle = '-'
+                    marker = '^'  # triangle up
+                elif architecture in ['TerraMind', 'CopernicusFM', 'Galileo']:
                     color = ARCHITECTURE_COLORS[architecture]
                     linestyle = '--'
                     marker = '^'  # triangle up
@@ -608,12 +614,6 @@ def plot_rq1_performance(split, adaptation_mode):
     # Create a mapping from display name to handle
     handle_map = {label: handle for handle, label in zip(handles, labels)}
 
-    # Desired column layout (4 columns):
-    # Column 1: ConvNeXtV2A, ScaleMAE
-    # Column 2: DINOv3Web, DINOv3Sat
-    # Column 3: SatlasNet, MPMAE
-    # Column 4: TerraMind, CopernicusFM
-
     # Map architecture names to their display names
     arch_to_display = {arch: display_arch_name(arch) for arch in architectures_plots}
 
@@ -622,6 +622,7 @@ def plot_rq1_performance(split, adaptation_mode):
     col2_archs = ['DINOv3Web', 'DINOv3Sat']
     col3_archs = ['SatlasNet', 'MPMAE']
     col4_archs = ['TerraMind', 'CopernicusFM']
+    col5_archs = ['Galileo', 'ConvNeXtV2AMM']
 
     # Build handles and labels for each column
     col1_handles = []
@@ -656,14 +657,21 @@ def plot_rq1_performance(split, adaptation_mode):
             col4_handles.append(handle_map[display_name])
             col4_labels.append(display_name)
 
-    # Create four separate legends positioned side by side above the plot
-    # Evenly distribute the four columns across the figure width
+    col5_handles = []
+    col5_labels = []
+    for arch in col5_archs:
+        display_name = arch_to_display.get(arch, arch)
+        if display_name in handle_map:
+            col5_handles.append(handle_map[display_name])
+            col5_labels.append(display_name)
+
+    # Create five separate legends positioned side by side above the plot
+    # Evenly distribute the five columns across the figure width
     legend_y_position = 1.05
-    # 4 columns evenly spaced with no left margin
 
     legend1 = fig.legend(col1_handles, col1_labels,
                         loc='upper center',
-                        bbox_to_anchor=(0.15, legend_y_position),
+                        bbox_to_anchor=(0.1, legend_y_position),
                         ncol=1,
                         handletextpad=0.1,
                         handlelength=1,
@@ -674,7 +682,7 @@ def plot_rq1_performance(split, adaptation_mode):
 
     legend2 = fig.legend(col2_handles, col2_labels,
                         loc='upper center',
-                        bbox_to_anchor=(0.4, legend_y_position),
+                        bbox_to_anchor=(0.29, legend_y_position),
                         ncol=1,
                         handletextpad=0.1,
                         handlelength=1,
@@ -685,7 +693,7 @@ def plot_rq1_performance(split, adaptation_mode):
 
     legend3 = fig.legend(col3_handles, col3_labels,
                         loc='upper center',
-                        bbox_to_anchor=(0.62, legend_y_position),
+                        bbox_to_anchor=(0.48, legend_y_position),
                         ncol=1,
                         handletextpad=0.1,
                         handlelength=1,
@@ -696,7 +704,7 @@ def plot_rq1_performance(split, adaptation_mode):
 
     legend4 = fig.legend(col4_handles, col4_labels,
                         loc='upper center',
-                        bbox_to_anchor=(0.85, legend_y_position),
+                        bbox_to_anchor=(0.67, legend_y_position),
                         ncol=1,
                         handletextpad=0.1,
                         handlelength=1,
@@ -704,6 +712,17 @@ def plot_rq1_performance(split, adaptation_mode):
                         fontsize=LEGEND_FONTSIZE,
                         frameon=False)
     fig.add_artist(legend4)  # Add immediately to prevent removal
+
+    legend5 = fig.legend(col5_handles, col5_labels,
+                        loc='upper center',
+                        bbox_to_anchor=(0.88, legend_y_position),
+                        ncol=1,
+                        handletextpad=0.1,
+                        handlelength=1,
+                        labelspacing=0.1,
+                        fontsize=LEGEND_FONTSIZE,
+                        frameon=False)
+    fig.add_artist(legend5)  # Add immediately to prevent removal
 
     plt.savefig(f'results_figures/RQ1_{adaptation_mode}_{split}_plot.pdf', dpi=300)
 
@@ -756,7 +775,7 @@ def plot_rq2_performance(adaptation_mode):
     df = pd.DataFrame(all_data)
 
     # 1 row x 5 columns
-    fig, axes = plt.subplots(1, 5, figsize=(COL_WIDTH, 1.1), gridspec_kw=dict(left=0.10, right=0.99, top=0.83, bottom=0.32, wspace=0.38))
+    fig, axes = plt.subplots(1, 5, figsize=(COL_WIDTH, 1.1), gridspec_kw=dict(left=0.07, right=0.99, top=0.83, bottom=0.32, wspace=0.38))
 
     for i, task in enumerate(tasks):
         ax = axes[i]
@@ -785,7 +804,9 @@ def plot_rq2_performance(adaptation_mode):
                 color = 'black'; linestyle = '-'; marker = 'o'
             elif architecture in ['SatlasNet', 'MPMAE']:
                 color = ARCHITECTURE_COLORS[architecture]; linestyle = '--'; marker = 's'
-            elif architecture in ['TerraMind', 'CopernicusFM', 'ConvNeXtV2AMultimodal']:
+            elif architecture == 'ConvNeXtV2AMM':
+                color = ARCHITECTURE_COLORS[architecture]; linestyle = '-'; marker = '^'
+            elif architecture in ['TerraMind', 'CopernicusFM', 'Galileo']:
                 color = ARCHITECTURE_COLORS[architecture]; linestyle = '--'; marker = '^'
             else:
                 color = ARCHITECTURE_COLORS[architecture]; linestyle = '--'; marker = 'o'
@@ -838,6 +859,9 @@ def plot_rq2_performance(adaptation_mode):
 
     plt.savefig(f'results_figures/RQ2_{adaptation_mode}_plot.pdf', dpi=300)
 
+def plot_jt_ttt_geo_performance():
+    plot_rq2_performance('JT-TTT-Geo')
+
 def plot_rq3_performance(adaptation_mode):
     """Create an RQ3 plot with Random and Geographic splits in 2 rows x 5 columns (tasks).
     S2 is solid with circle markers; Multimodal is dashed with triangle markers.
@@ -845,7 +869,7 @@ def plot_rq3_performance(adaptation_mode):
     """
     train_percents = [5, 50, 100]
     splits = ['Random', 'Geographic']
-    base_archs = ['TerraMind', 'CopernicusFM']
+    base_archs = ['TerraMind', 'CopernicusFM', 'Galileo']
     variants = {
         'S2': {'suffix': 'S2', 'linestyle': '-', 'marker': 'o', 'label_suffix': 'S2'},
         'Multimodal': {'suffix': '', 'linestyle': '--', 'marker': '^', 'label_suffix': ''}
@@ -895,8 +919,8 @@ def plot_rq3_performance(adaptation_mode):
 
     df = pd.DataFrame(rows)
 
-    # Figure: 2 rows x 5 columns (splits x tasks)
-    fig, axes = plt.subplots(2, 5, figsize=(COL_WIDTH, 2), gridspec_kw=dict(left=0.09, right=0.96, top=0.89, bottom=0.30, wspace=0.4, hspace=0.3))
+    # Figure: 2 rows x 5 columns (splits x tasks); leave right margin for legend
+    fig, axes = plt.subplots(2, 5, figsize=(COL_WIDTH, 2), gridspec_kw=dict(left=0.07, right=0.73, top=0.89, bottom=0.20, wspace=0.4, hspace=0.3))
 
     for i, task in enumerate(tasks):
         for j, split in enumerate(splits):
@@ -971,30 +995,27 @@ def plot_rq3_performance(adaptation_mode):
     # Add "Random" and "Geographic" labels to the right of the subplots
     top_row_center = (axes[0, 0].get_position().y0 + axes[0, 0].get_position().y1) / 2
     bottom_row_center = (axes[1, 0].get_position().y0 + axes[1, 0].get_position().y1) / 2
-    fig.text(0.98, top_row_center, 'Random', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
-    fig.text(0.98, bottom_row_center, 'Geographic', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
+    fig.text(0.75, top_row_center, 'Random', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
+    fig.text(0.75, bottom_row_center, 'Geographic', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
 
     # Legend under the plot
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels,
-            loc='lower center',
-            bbox_to_anchor=(0.5, -0.03),
-            ncol=2,
-            columnspacing=0.5,
-            handletextpad=0.3,
-            handlelength=1,
-            labelspacing=0.1,
-            fontsize=LEGEND_FONTSIZE,
-            frameon=False)
+               loc='center left',
+               bbox_to_anchor=(0.76, 0.5),
+               ncol=1,
+               handletextpad=0.3,
+               handlelength=1,
+               labelspacing=0.1,
+               fontsize=LEGEND_FONTSIZE,
+               frameon=False)
 
     plt.savefig(f'results_figures/RQ3_{adaptation_mode}_plot.pdf', dpi=300)
 
 def plot_ttt_improvement():
-    """Create a TTT improvement plot with Random and Geographic splits in 2 rows x 5 columns (tasks).
-    Each subplot shows boxplots of improvements over JT for JT-TTT and JT-TTT-Geo, with outliers removed.
-    Statistics are computed separately for each seed, then averaged across seeds.
-    Improvement is calculated as raw delta: new - old
-    Legend under the plot.
+    """Create a combined TTT improvement plot with Random and Geographic splits side-by-side for each task.
+    1 row x 5 columns (tasks).
+    Each subplot shows 4 boxplots: Random (JT-TTT, JT-TTT-Geo) and Geographic (JT-TTT, JT-TTT-Geo).
     """
 
     splits = ['Random', 'Geographic']
@@ -1002,12 +1023,10 @@ def plot_ttt_improvement():
     seeds = [41, 42, 43]
 
     # Load runs for each tag
-    # Load all runs with all tags in a single API call
     all_runs_list = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': tags}})
-    # Filter by tag in memory
     all_runs = {tag: [r for r in all_runs_list if tag in r.tags] for tag in tags}
 
-    # Collect improvements per seed: {seed: {task: {split: {mode: [improvements]}}}}
+    # Collect improvements per seed
     improvements_per_seed = {seed: {task: {split: {mode: [] for mode in ['JT-TTT', 'JT-TTT-Geo']}
                                            for split in splits} for task in tasks} for seed in seeds}
 
@@ -1040,14 +1059,12 @@ def plot_ttt_improvement():
                         performance = run.summary_metrics.get(metric_name)
                         base = jt_baseline.get(architecture)
 
-                        # Raw delta: new - old
                         if base is not None and performance is not None and not np.isnan(base) and not np.isnan(performance):
                             improvement = performance - base
                             if not np.isnan(improvement):
                                 improvements_per_seed[seed][task][split][mode].append(improvement)
 
     # Compute boxplot statistics per seed, then average them
-    # Structure: {task: {split: {mode: {stat_name: averaged_value}}}}
     averaged_stats = {}
 
     for task in tasks:
@@ -1055,34 +1072,25 @@ def plot_ttt_improvement():
         for split in splits:
             averaged_stats[task][split] = {}
             for mode in ['JT-TTT', 'JT-TTT-Geo']:
-                # Collect statistics for each seed
                 seed_stats = []
                 for seed in seeds:
                     improvements = improvements_per_seed[seed][task][split][mode]
                     if len(improvements) > 0:
                         improvements_array = np.array(improvements)
-                        # Compute boxplot statistics
                         q1 = np.percentile(improvements_array, 25)
                         median = np.percentile(improvements_array, 50)
                         q3 = np.percentile(improvements_array, 75)
                         mean = np.mean(improvements_array)
                         iqr = q3 - q1
-                        # Whiskers: 1.5 * IQR from Q1 and Q3
                         whislo = q1 - 1.5 * iqr
                         whishi = q3 + 1.5 * iqr
-                        # Clip whiskers to actual data range
                         whislo = max(whislo, np.min(improvements_array))
                         whishi = min(whishi, np.max(improvements_array))
                         seed_stats.append({
-                            'q1': q1,
-                            'med': median,
-                            'q3': q3,
-                            'mean': mean,
-                            'whislo': whislo,
-                            'whishi': whishi
+                            'q1': q1, 'med': median, 'q3': q3, 'mean': mean,
+                            'whislo': whislo, 'whishi': whishi
                         })
 
-                # Average statistics across seeds
                 if len(seed_stats) > 0:
                     averaged_stats[task][split][mode] = {
                         'q1': np.mean([s['q1'] for s in seed_stats]),
@@ -1095,97 +1103,93 @@ def plot_ttt_improvement():
                 else:
                     averaged_stats[task][split][mode] = None
 
-    # 2 rows x 5 columns (splits x tasks)
-    fig, axes = plt.subplots(2, 5, figsize=(COL_WIDTH, 2), gridspec_kw=dict(left=0.1, right=0.96, top=0.89, bottom=0.13, wspace=0.4, hspace=0.45))
+    # 1 row x 5 columns (tasks)
+    fig, axes = plt.subplots(
+            1, 5,
+            figsize=(COL_WIDTH, 1.4),
+            gridspec_kw=dict(wspace=0.35, left=0.07, right=0.99, top=0.88, bottom=0.22)
+        )
 
-    # Colors for boxes
-    colors = ['#1f77b4', '#ff7f0e']
+    colors = ['#1f77b4', '#ff7f0e']  # Blue for TTT-MMR, Orange for TTT-MMR-Geo
 
     for i, task in enumerate(tasks):
-        for j, split in enumerate(splits):
-            ax = axes[j, i]
+        ax = axes[i]
 
-            # Get averaged statistics for this task and split
-            stats_list = []
-            positions = []
-            mode_colors = []  # Track which color to use for each boxplot
-            for pos, (mode, color) in enumerate(zip(['JT-TTT', 'JT-TTT-Geo'], colors), start=1):
-                stats = averaged_stats[task][split][mode]
-                if stats is not None:
-                    # Create statistics dict for bxp
-                    stats_dict = {
-                        'med': stats['med'],
-                        'q1': stats['q1'],
-                        'q3': stats['q3'],
-                        'whislo': stats['whislo'],
-                        'whishi': stats['whishi'],
-                        'mean': stats['mean']
-                    }
-                    stats_list.append(stats_dict)
-                    positions.append(pos)
-                    mode_colors.append(color)
+        # We'll plot 4 boxes: Random(JT-TTT), Random(JT-TTT-Geo), Geo(JT-TTT), Geo(JT-TTT-Geo)
+        # Positions: 1, 2 (small gap) 3, 4
 
-            if len(stats_list) > 0:
-                # Create boxplots from averaged statistics
-                bp = ax.bxp(stats_list,
-                            positions=positions,
-                            widths=0.6,
-                            patch_artist=True,
-                            showmeans=True,
-                            showfliers=False,
-                            meanprops=dict(marker='D', markerfacecolor='black', markeredgecolor='black', markersize=MARKER_SIZE),
-                            medianprops=dict(color='black', linewidth=LINE_WIDTH),
-                            boxprops=dict(linewidth=LINE_WIDTH),
-                            whiskerprops=dict(linewidth=LINE_WIDTH),
-                            capprops=dict(linewidth=LINE_WIDTH))
+        stats_list = []
+        positions = []
+        mode_colors = []
 
-                # Colors for boxes - use the tracked colors
-                for patch, color in zip(bp['boxes'], mode_colors):
-                    patch.set_facecolor(color)
-                    patch.set_alpha(0.7)
-                    patch.set_edgecolor('black')
-                    patch.set_linewidth(0.5)  # Thinner border around boxes
+        # Random split
+        split = 'Random'
+        base_pos = 1
+        for j, (mode, color) in enumerate(zip(['JT-TTT', 'JT-TTT-Geo'], colors)):
+            stats = averaged_stats[task][split][mode]
+            if stats is not None:
+                stats_list.append(stats)
+                positions.append(base_pos + j)
+                mode_colors.append(color)
 
-            # Remove x-axis ticks
-            ax.set_xticks([])
-            ax.set_xticklabels([])  # Remove method names from under each subplot
-            ax.tick_params(axis='x', bottom=False)  # Hide x-axis ticks
-            ax.axhline(y=0, color='black', linewidth=LINE_WIDTH)
-            ax.grid(True, alpha=0.3, axis='y')
-            ax.tick_params(axis='y', labelsize=AXIS_LABEL_FONTSIZE)
-            ax.tick_params(axis='y', rotation=90)
+        # Geographic split
+        split = 'Geographic'
+        base_pos = 3
+        for j, (mode, color) in enumerate(zip(['JT-TTT', 'JT-TTT-Geo'], colors)):
+            stats = averaged_stats[task][split][mode]
+            if stats is not None:
+                stats_list.append(stats)
+                positions.append(base_pos + j)
+                mode_colors.append(color)
 
-            # After the plot is drawn, get the natural y-axis range and set ticks at min/max
-            # Round to 0.01 (two decimal places) and ensure at most 2 ticks
-            ymin, ymax = ax.get_ylim()
-            rounded_ymin = np.round(ymin / 0.01) * 0.01
-            rounded_ymax = np.round(ymax / 0.01) * 0.01
-            ax.set_yticks([rounded_ymin, rounded_ymax])
+        if len(stats_list) > 0:
+            bp = ax.bxp(stats_list,
+                        positions=positions,
+                        widths=0.6,
+                        patch_artist=True,
+                        showmeans=True,
+                        showfliers=False,
+                        meanprops=dict(marker='D', markerfacecolor='black', markeredgecolor='black', markersize=MARKER_SIZE),
+                        medianprops=dict(color='black', linewidth=LINE_WIDTH),
+                        boxprops=dict(linewidth=LINE_WIDTH),
+                        whiskerprops=dict(linewidth=LINE_WIDTH),
+                        capprops=dict(linewidth=LINE_WIDTH))
 
-            for spine in ax.spines.values():
-                spine.set_linewidth(0.5)  # Adjust this value to change thickness (default is usually 1.0)
+            for patch, color in zip(bp['boxes'], mode_colors):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.7)
+                patch.set_edgecolor('black')
+                patch.set_linewidth(0.5)
 
-            for label in ax.get_yticklabels():
-                label.set_ha('center')
-                label.set_va('center')
+        ax.axhline(y=0, color='black', linewidth=LINE_WIDTH)
 
-            # Set title only on top row
-            if j == 0:
-                ax.set_title(task.replace('_', ' ').capitalize().replace('nitrogen', 'N').replace('organic carbon', 'OC').replace('ph', 'pH'), fontsize=AXIS_LABEL_FONTSIZE)
+        # X-axis labels
+        ax.set_xticks([1.5, 3.5])
+        ax.set_xticklabels(['R', 'G'], fontsize=AXIS_LABEL_FONTSIZE)
 
-    # Add "Performance" label in the middle between the two rows
-    top_row_bottom = axes[0, 0].get_position().y0
-    bottom_row_top = axes[1, 0].get_position().y1
-    center_y = (top_row_bottom + bottom_row_top) / 2
-    fig.text(0.02, center_y, 'Δ Performance', fontsize=AXIS_LABEL_FONTSIZE, rotation=90, ha='center', va='center')
+        ax.grid(True, alpha=0.3, axis='y')
+        ax.tick_params(axis='y', labelsize=AXIS_LABEL_FONTSIZE)
+        ax.tick_params(axis='y', rotation=90)
 
-    # Add "Random" and "Geographic" labels to the right of the subplots
-    top_row_center = (axes[0, 0].get_position().y0 + axes[0, 0].get_position().y1) / 2
-    bottom_row_center = (axes[1, 0].get_position().y0 + axes[1, 0].get_position().y1) / 2
-    fig.text(0.98, top_row_center, 'Random', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
-    fig.text(0.98, bottom_row_center, 'Geographic', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
+        # Smart y-ticks
+        ymin, ymax = ax.get_ylim()
+        rounded_ymin = np.round(ymin / 0.01) * 0.01
+        rounded_ymax = np.round(ymax / 0.01) * 0.01
+        ax.set_yticks([rounded_ymin, rounded_ymax])
 
-    # Create legend for method colors under the plot
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.5)
+
+        for label in ax.get_yticklabels():
+            label.set_ha('center')
+            label.set_va('center')
+
+        ax.set_title(task.replace('_', ' ').capitalize().replace('nitrogen', 'N').replace('organic carbon', 'OC').replace('ph', 'pH'), fontsize=AXIS_LABEL_FONTSIZE)
+
+        if i == 0:
+             ax.set_ylabel('Δ Performance', fontsize=AXIS_LABEL_FONTSIZE)
+
+    # Legend
     legend_labels = ['TTT-MMR', 'TTT-MMR-Geo']
     legend_handles = [plt.Rectangle((0,0),1,1, facecolor=color, alpha=0.7) for color in colors]
     fig.legend(legend_handles, legend_labels,
@@ -1197,12 +1201,202 @@ def plot_ttt_improvement():
 
     plt.savefig('results_figures/TTT_plot.pdf', dpi=300)
 
+def plot_random_minus_geographic_delta_by_task():
+    """One subplot per task. Y-axis is (Random test performance - Geographic test performance).
+
+    Each subplot shows 3 boxplots (JT, JT-TTT, JT-TTT-Geo). Distributions are computed over all
+    architectures for each seed, then boxplot statistics are averaged across seeds (same approach
+    as plot_ttt_improvement()).
+    """
+
+    tags = ['chi_41', 'chi_42', 'chi_43']
+    seeds = [41, 42, 43]
+    modes = ['JT', 'JT-TTT', 'JT-TTT-Geo']
+
+    # Load all runs with all tags in a single API call, then filter by tag in memory
+    all_runs_list = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': tags}})
+    all_runs = {tag: [r for r in all_runs_list if tag in r.tags] for tag in tags}
+
+    # Collect deltas per seed: {seed: {task: {mode: [delta]}}}
+    deltas_per_seed = {
+        seed: {task: {mode: [] for mode in modes} for task in tasks}
+        for seed in seeds
+    }
+
+    for tag, seed in zip(tags, seeds):
+        runs = all_runs[tag]
+
+        for task in tasks:
+            metric = 'R2' if task != 'species' else 'mAP'
+            metric_random = f'Random test {metric}'
+            metric_geo = f'Geographic test {metric}'
+
+            for mode in modes:
+                for architecture in architectures_plots:
+                    run_name = '_'.join([task, architecture, mode, str(100)]) + '_'
+                    run = next((run for run in runs if run.name.startswith(run_name)), None)
+                    if not run:
+                        continue
+
+                    perf_random = run.summary_metrics.get(metric_random)
+                    perf_geo = run.summary_metrics.get(metric_geo)
+
+                    if (perf_random is None or perf_geo is None or
+                        np.isnan(perf_random) or np.isnan(perf_geo)):
+                        continue
+
+                    delta = perf_random - perf_geo
+                    if not np.isnan(delta):
+                        deltas_per_seed[seed][task][mode].append(delta)
+
+    # Compute boxplot statistics per seed, then average them
+    # Structure: {task: {mode: {stat_name: averaged_value}}}
+    averaged_stats = {task: {mode: None for mode in modes} for task in tasks}
+
+    for task in tasks:
+        for mode in modes:
+            seed_stats = []
+            for seed in seeds:
+                deltas = deltas_per_seed[seed][task][mode]
+                if len(deltas) == 0:
+                    continue
+
+                deltas_array = np.array(deltas)
+                q1 = np.percentile(deltas_array, 25)
+                median = np.percentile(deltas_array, 50)
+                q3 = np.percentile(deltas_array, 75)
+                mean = np.mean(deltas_array)
+                iqr = q3 - q1
+
+                whislo = q1 - 1.5 * iqr
+                whishi = q3 + 1.5 * iqr
+                whislo = max(whislo, np.min(deltas_array))
+                whishi = min(whishi, np.max(deltas_array))
+
+                seed_stats.append({
+                    'q1': q1,
+                    'med': median,
+                    'q3': q3,
+                    'mean': mean,
+                    'whislo': whislo,
+                    'whishi': whishi
+                })
+
+            if len(seed_stats) > 0:
+                averaged_stats[task][mode] = {
+                    'q1': np.mean([s['q1'] for s in seed_stats]),
+                    'med': np.mean([s['med'] for s in seed_stats]),
+                    'q3': np.mean([s['q3'] for s in seed_stats]),
+                    'mean': np.mean([s['mean'] for s in seed_stats]),
+                    'whislo': np.mean([s['whislo'] for s in seed_stats]),
+                    'whishi': np.mean([s['whishi'] for s in seed_stats])
+                }
+
+    # 1 row x 5 columns (tasks)
+    fig, axes = plt.subplots(
+        1, 5,
+        figsize=(COL_WIDTH, 1.4),
+        gridspec_kw=dict(left=0.10, right=0.99, top=0.82, bottom=0.28, wspace=0.40)
+    )
+
+    # Colors for boxes (include JT as neutral)
+    colors = ['#7f7f7f', '#1f77b4', '#ff7f0e']
+
+    for i, task in enumerate(tasks):
+        ax = axes[i]
+
+        stats_list = []
+        positions = []
+        mode_colors = []
+        for pos, (mode, color) in enumerate(zip(modes, colors), start=1):
+            stats = averaged_stats[task][mode]
+            if stats is None:
+                continue
+            stats_list.append({
+                'med': stats['med'],
+                'q1': stats['q1'],
+                'q3': stats['q3'],
+                'whislo': stats['whislo'],
+                'whishi': stats['whishi'],
+                'mean': stats['mean']
+            })
+            positions.append(pos)
+            mode_colors.append(color)
+
+        if len(stats_list) > 0:
+            bp = ax.bxp(
+                stats_list,
+                positions=positions,
+                widths=0.6,
+                patch_artist=True,
+                showmeans=True,
+                showfliers=False,
+                meanprops=dict(marker='D', markerfacecolor='black', markeredgecolor='black', markersize=MARKER_SIZE),
+                medianprops=dict(color='black', linewidth=LINE_WIDTH),
+                boxprops=dict(linewidth=LINE_WIDTH),
+                whiskerprops=dict(linewidth=LINE_WIDTH),
+                capprops=dict(linewidth=LINE_WIDTH)
+            )
+
+            for patch, color in zip(bp['boxes'], mode_colors):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.7)
+                patch.set_edgecolor('black')
+                patch.set_linewidth(0.5)
+
+        # No per-subplot method labels; use legend below
+        ax.set_xticks([])
+        ax.set_xticklabels([])
+        ax.tick_params(axis='x', bottom=False)
+
+        ax.axhline(y=0, color='black', linewidth=LINE_WIDTH)
+        ax.grid(True, alpha=0.3, axis='y')
+        ax.tick_params(axis='y', labelsize=AXIS_LABEL_FONTSIZE)
+        ax.tick_params(axis='y', rotation=90)
+
+        ymin, ymax = ax.get_ylim()
+        rounded_ymin = np.round(ymin / 0.01) * 0.01
+        rounded_ymax = np.round(ymax / 0.01) * 0.01
+        ax.set_yticks([rounded_ymin, rounded_ymax])
+
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.5)
+
+        for label in ax.get_yticklabels():
+            label.set_ha('center')
+            label.set_va('center')
+
+        ax.set_title(
+            task.replace('_', ' ').capitalize()
+                .replace('nitrogen', 'N')
+                .replace('organic carbon', 'OC')
+                .replace('ph', 'pH'),
+            fontsize=AXIS_LABEL_FONTSIZE
+        )
+
+        if i == 0:
+            ax.set_ylabel('Δ Performance\n(Random − Geographic)', fontsize=AXIS_LABEL_FONTSIZE)
+
+    # Legend under the plot
+    legend_labels = ['JT', 'TTT-MMR', 'TTT-MMR-Geo']
+    legend_handles = [plt.Rectangle((0, 0), 1, 1, facecolor=color, alpha=0.7) for color in colors]
+    fig.legend(
+        legend_handles, legend_labels,
+        loc='lower center',
+        bbox_to_anchor=(0.5, -0.05),
+        ncol=len(legend_labels),
+        fontsize=LEGEND_FONTSIZE,
+        frameon=False
+    )
+
+    plt.savefig('results_figures/random_minus_geographic_delta_by_task.pdf', dpi=300)
+
 def plot_ttt_improvement_normalized():
-    """Create a TTT improvement plot with Random and Geographic splits in 2 rows x 5 columns (tasks).
-    Each subplot shows boxplots of normalized improvements over JT for JT-TTT and JT-TTT-Geo, with outliers removed.
-    Statistics are computed separately for each seed, then averaged across seeds.
+    """Create a combined TTT improvement plot with Random and Geographic splits side-by-side for each task.
+    1 row x 5 columns (tasks).
+    Each subplot shows 4 boxplots: Random (JT-TTT, JT-TTT-Geo) and Geographic (JT-TTT, JT-TTT-Geo).
     Improvement is calculated as normalized: (r2_new - r2_old) / (1 - r2_old)
-    Legend under the plot.
+    Statistics are computed separately for each seed, then averaged across seeds.
     """
 
     splits = ['Random', 'Geographic']
@@ -1210,12 +1404,10 @@ def plot_ttt_improvement_normalized():
     seeds = [41, 42, 43]
 
     # Load runs for each tag
-    # Load all runs with all tags in a single API call
     all_runs_list = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': tags}})
-    # Filter by tag in memory
     all_runs = {tag: [r for r in all_runs_list if tag in r.tags] for tag in tags}
 
-    # Collect improvements per seed: {seed: {task: {split: {mode: [improvements]}}}}
+    # Collect improvements per seed
     improvements_per_seed = {seed: {task: {split: {mode: [] for mode in ['JT-TTT', 'JT-TTT-Geo']}
                                            for split in splits} for task in tasks} for seed in seeds}
 
@@ -1250,14 +1442,12 @@ def plot_ttt_improvement_normalized():
 
                         # Normalized improvement: (r2_new - r2_old) / (1 - r2_old)
                         if base is not None and performance is not None and not np.isnan(base) and not np.isnan(performance):
-                            # Handle edge case: if baseline is 1, avoid division by zero
                             if base != 1:
                                 improvement = (performance - base) / (1 - base)
                                 if not np.isnan(improvement):
                                     improvements_per_seed[seed][task][split][mode].append(improvement)
 
     # Compute boxplot statistics per seed, then average them
-    # Structure: {task: {split: {mode: {stat_name: averaged_value}}}}
     averaged_stats = {}
 
     for task in tasks:
@@ -1265,22 +1455,18 @@ def plot_ttt_improvement_normalized():
         for split in splits:
             averaged_stats[task][split] = {}
             for mode in ['JT-TTT', 'JT-TTT-Geo']:
-                # Collect statistics for each seed
                 seed_stats = []
                 for seed in seeds:
                     improvements = improvements_per_seed[seed][task][split][mode]
                     if len(improvements) > 0:
                         improvements_array = np.array(improvements)
-                        # Compute boxplot statistics
                         q1 = np.percentile(improvements_array, 25)
                         median = np.percentile(improvements_array, 50)
                         q3 = np.percentile(improvements_array, 75)
                         mean = np.mean(improvements_array)
                         iqr = q3 - q1
-                        # Whiskers: 1.5 * IQR from Q1 and Q3
                         whislo = q1 - 1.5 * iqr
                         whishi = q3 + 1.5 * iqr
-                        # Clip whiskers to actual data range
                         whislo = max(whislo, np.min(improvements_array))
                         whishi = min(whishi, np.max(improvements_array))
                         seed_stats.append({
@@ -1292,7 +1478,6 @@ def plot_ttt_improvement_normalized():
                             'whishi': whishi
                         })
 
-                # Average statistics across seeds
                 if len(seed_stats) > 0:
                     averaged_stats[task][split][mode] = {
                         'q1': np.mean([s['q1'] for s in seed_stats]),
@@ -1305,24 +1490,29 @@ def plot_ttt_improvement_normalized():
                 else:
                     averaged_stats[task][split][mode] = None
 
-    # 2 rows x 5 columns (splits x tasks)
-    fig, axes = plt.subplots(2, 5, figsize=(COL_WIDTH, 2), gridspec_kw=dict(left=0.1, right=0.96, top=0.89, bottom=0.13, wspace=0.4, hspace=0.45))
+    # 1 row x 5 columns (tasks)
+    fig, axes = plt.subplots(
+            1, 5,
+            figsize=(COL_WIDTH, 1.4),
+            gridspec_kw=dict(wspace=0.35, left=0.1, right=0.99, top=0.88, bottom=0.22)
+        )
 
-    # Colors for boxes
-    colors = ['#1f77b4', '#ff7f0e']
+    colors = ['#1f77b4', '#ff7f0e']  # Blue for TTT-MMR, Orange for TTT-MMR-Geo
 
     for i, task in enumerate(tasks):
-        for j, split in enumerate(splits):
-            ax = axes[j, i]
+        ax = axes[i]
 
-            # Get averaged statistics for this task and split
-            stats_list = []
-            positions = []
-            mode_colors = []  # Track which color to use for each boxplot
-            for pos, (mode, color) in enumerate(zip(['JT-TTT', 'JT-TTT-Geo'], colors), start=1):
+        # Prepare boxplot data: Random (TTT-MMR, TTT-MMR-Geo), Geographic (TTT-MMR, TTT-MMR-Geo)
+        stats_list = []
+        positions = []
+        box_colors = []
+
+        pos = 1
+        for split in splits:
+            for mode, color in zip(['JT-TTT', 'JT-TTT-Geo'], colors):
                 stats = averaged_stats[task][split][mode]
                 if stats is not None:
-                    # Create statistics dict for bxp, multiply by 100 to convert to percentage
+                    # Convert to percentage
                     stats_dict = {
                         'med': stats['med'] * 100,
                         'q1': stats['q1'] * 100,
@@ -1333,69 +1523,54 @@ def plot_ttt_improvement_normalized():
                     }
                     stats_list.append(stats_dict)
                     positions.append(pos)
-                    mode_colors.append(color)
+                    box_colors.append(color)
+                    pos += 1
+            pos += 0.5  # Add gap between Random and Geographic
 
-            if len(stats_list) > 0:
-                # Create boxplots from averaged statistics
-                bp = ax.bxp(stats_list,
-                            positions=positions,
-                            widths=0.6,
-                            patch_artist=True,
-                            showmeans=True,
-                            showfliers=False,
-                            meanprops=dict(marker='D', markerfacecolor='black', markeredgecolor='black', markersize=MARKER_SIZE),
-                            medianprops=dict(color='black', linewidth=LINE_WIDTH),
-                            boxprops=dict(linewidth=LINE_WIDTH),
-                            whiskerprops=dict(linewidth=LINE_WIDTH),
-                            capprops=dict(linewidth=LINE_WIDTH))
+        if len(stats_list) > 0:
+            bp = ax.bxp(stats_list,
+                        positions=positions,
+                        widths=0.6,
+                        patch_artist=True,
+                        showmeans=True,
+                        showfliers=False,
+                        meanprops=dict(marker='D', markerfacecolor='black', markeredgecolor='black', markersize=MARKER_SIZE),
+                        medianprops=dict(color='black', linewidth=LINE_WIDTH),
+                        boxprops=dict(linewidth=LINE_WIDTH),
+                        whiskerprops=dict(linewidth=LINE_WIDTH),
+                        capprops=dict(linewidth=LINE_WIDTH))
 
-                # Colors for boxes - use the tracked colors
-                for patch, color in zip(bp['boxes'], mode_colors):
-                    patch.set_facecolor(color)
-                    patch.set_alpha(0.7)
-                    patch.set_edgecolor('black')
-                    patch.set_linewidth(0.5)  # Thinner border around boxes
+            for patch, color in zip(bp['boxes'], box_colors):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.7)
+                patch.set_edgecolor('black')
+                patch.set_linewidth(0.5)
 
-            # Remove x-axis ticks
-            ax.set_xticks([])
-            ax.set_xticklabels([])  # Remove method names from under each subplot
-            ax.tick_params(axis='x', bottom=False)  # Hide x-axis ticks
-            ax.axhline(y=0, color='black', linewidth=LINE_WIDTH)
-            ax.grid(True, alpha=0.3, axis='y')
-            ax.tick_params(axis='y', labelsize=AXIS_LABEL_FONTSIZE)
-            ax.tick_params(axis='y', rotation=90)
+        ax.set_xticks([1.5, 3.5])
+        ax.set_xticklabels(['R', 'G'], fontsize=AXIS_LABEL_FONTSIZE)
+        ax.axhline(y=0, color='black', linewidth=LINE_WIDTH)
+        ax.grid(True, alpha=0.3, axis='y')
+        ax.tick_params(axis='y', labelsize=AXIS_LABEL_FONTSIZE)
+        ax.tick_params(axis='y', rotation=90)
 
-            # After the plot is drawn, get the natural y-axis range and set ticks at min/max
-            # Round to 1 (since values are now percentages) and ensure at most 2 ticks
-            ymin, ymax = ax.get_ylim()
-            rounded_ymin = np.round(ymin / 1) * 1
-            rounded_ymax = np.round(ymax / 1) * 1
-            ax.set_yticks([rounded_ymin, rounded_ymax])
+        ymin, ymax = ax.get_ylim()
+        rounded_ymin = np.round(ymin / 1) * 1
+        rounded_ymax = np.round(ymax / 1) * 1
+        ax.set_yticks([rounded_ymin, rounded_ymax])
 
-            for spine in ax.spines.values():
-                spine.set_linewidth(0.5)  # Adjust this value to change thickness (default is usually 1.0)
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.5)
 
-            for label in ax.get_yticklabels():
-                label.set_ha('center')
-                label.set_va('center')
+        for label in ax.get_yticklabels():
+            label.set_ha('center')
+            label.set_va('center')
 
-            # Set title only on top row
-            if j == 0:
-                ax.set_title(task.replace('_', ' ').capitalize().replace('nitrogen', 'N').replace('organic carbon', 'OC').replace('ph', 'pH'), fontsize=AXIS_LABEL_FONTSIZE)
+        ax.set_title(task.replace('_', ' ').capitalize().replace('nitrogen', 'N').replace('organic carbon', 'OC').replace('ph', 'pH'), fontsize=AXIS_LABEL_FONTSIZE)
 
-    # Add "Normalized Δ Performance (%)" label in the middle between the two rows
-    top_row_bottom = axes[0, 0].get_position().y0
-    bottom_row_top = axes[1, 0].get_position().y1
-    center_y = (top_row_bottom + bottom_row_top) / 2
-    fig.text(0.02, center_y, 'RI (%)', fontsize=AXIS_LABEL_FONTSIZE, rotation=90, ha='center', va='center')
+        if i == 0:
+            ax.set_ylabel('RI (%)', fontsize=AXIS_LABEL_FONTSIZE)
 
-    # Add "Random" and "Geographic" labels to the right of the subplots
-    top_row_center = (axes[0, 0].get_position().y0 + axes[0, 0].get_position().y1) / 2
-    bottom_row_center = (axes[1, 0].get_position().y0 + axes[1, 0].get_position().y1) / 2
-    fig.text(0.98, top_row_center, 'Random', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
-    fig.text(0.98, bottom_row_center, 'Geographic', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
-
-    # Create legend for method colors under the plot
+    # Legend
     legend_labels = ['TTT-MMR', 'TTT-MMR-Geo']
     legend_handles = [plt.Rectangle((0,0),1,1, facecolor=color, alpha=0.7) for color in colors]
     fig.legend(legend_handles, legend_labels,
@@ -2086,8 +2261,8 @@ def tabulate_ft_ranks_by_task():
 
     df = pd.DataFrame(formatted_data).T
     df = df.reindex(row_keys)
-    # Reindex columns to include tasks + "All tasks"
-    column_order = list(tasks) + ['All tasks']
+    # Reindex columns to include "All tasks" first, then tasks
+    column_order = ['All tasks'] + list(tasks)
     df = df.reindex(column_order, axis=1)
     df.columns = [display_task_name(task) if task in tasks else task for task in column_order]
     df.insert(0, 'Model', model_column)
@@ -2328,7 +2503,7 @@ def tabulate_ft_metrics_by_task():
     compile_latex(tex_file)
 
 def tabulate_ft_ranked_models_by_task():
-    """Create a table showing the ranked architectures per task (and overall) for FT at 100% training data.
+    """Create tables showing the ranked architectures per task (and overall) for FT at 5%, 50%, and 100% training data.
 
     Uses the same ranking logic as tabulate_ft_ranks_by_task():
     - For each task, split, and seed, rank architectures by performance (1 = best)
@@ -2337,96 +2512,19 @@ def tabulate_ft_ranked_models_by_task():
     """
 
     adaptation_mode = 'FT'
-    train_percent = 100
+    train_percents = [5, 50, 100]
     splits = ['Random', 'Geographic']
     tags = ['chi_41', 'chi_42', 'chi_43']
     seeds = [41, 42, 43]
 
-    # Load runs with all tags in one API call, then filter in memory
+    # Exclude ConvNeXtV2A from this table
+    architectures_for_table = [arch for arch in architectures_plots]
+
+    # Load runs with all tags in one API call, then filter in memory (shared across all train_percents)
     all_runs_list = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': tags}})
     all_runs = {tag: [r for r in all_runs_list if tag in r.tags] for tag in tags}
 
-    # Collect ranks: {split: {task: {seed: {architecture: rank}}}}
-    rank_data = {
-        split: {
-            task: {seed: {arch: None for arch in architectures_plots} for seed in seeds}
-            for task in tasks
-        }
-        for split in splits
-    }
-
-    for split in splits:
-        for task in tasks:
-            metric = 'R2' if task != 'species' else 'mAP'
-            metric_name = f'{split} test {metric}'
-
-            for tag, seed in zip(tags, seeds):
-                runs = all_runs[tag]
-
-                # Collect performance per architecture for this seed
-                arch_perfs = {}
-                for architecture in architectures_plots:
-                    run_name = '_'.join([task, architecture, adaptation_mode, str(train_percent)]) + '_'
-                    run = next((run for run in runs if run.name.startswith(run_name)), None)
-                    if not run:
-                        continue
-                    perf = run.summary_metrics.get(metric_name)
-                    if perf is not None and not np.isnan(perf):
-                        arch_perfs[architecture] = float(perf)
-
-                if len(arch_perfs) < 2:
-                    continue
-
-                # Sort by performance (descending) so best gets rank 1
-                sorted_archs = sorted(arch_perfs.items(), key=lambda x: x[1], reverse=True)
-                ranks = {}
-                prev_perf = None
-                current_rank = 1
-                for i, (arch, perf) in enumerate(sorted_archs):
-                    if prev_perf is not None and abs(perf - prev_perf) < 1e-10:
-                        ranks[arch] = current_rank
-                    else:
-                        current_rank = i + 1
-                        ranks[arch] = current_rank
-                    prev_perf = perf
-
-                for architecture, rank in ranks.items():
-                    rank_data[split][task][seed][architecture] = rank
-
-    # Aggregate mean rank over seeds: {split: {task: {arch: {mean,n}}}}
-    stats = {split: {task: {arch: {'mean': np.nan, 'n': 0} for arch in architectures_plots}
-                     for task in tasks}
-             for split in splits}
-
-    for split in splits:
-        for task in tasks:
-            for architecture in architectures_plots:
-                ranks = [rank_data[split][task][seed][architecture] for seed in seeds
-                         if rank_data[split][task][seed][architecture] is not None]
-                if len(ranks) == 0:
-                    continue
-                stats[split][task][architecture] = {'mean': float(np.mean(ranks)), 'n': len(ranks)}
-
-    # Aggregate mean rank for "All tasks" column: {split: {arch: {mean,n}}}
-    all_stats = {split: {arch: {'mean': np.nan, 'n': 0} for arch in architectures_plots}
-                 for split in splits}
-
-    for split in splits:
-        for architecture in architectures_plots:
-            seed_avgs = []
-            for seed in seeds:
-                task_ranks = []
-                for task in tasks:
-                    rank = rank_data[split][task][seed][architecture]
-                    if rank is not None:
-                        task_ranks.append(rank)
-                if len(task_ranks) > 0:
-                    seed_avgs.append(float(np.mean(task_ranks)))
-
-            if len(seed_avgs) > 0:
-                all_stats[split][architecture] = {'mean': float(np.mean(seed_avgs)), 'n': len(seed_avgs)}
-
-    # Formatting helpers
+    # Formatting helpers (used for all tables)
     def display_task_name(task_name: str) -> str:
         if task_name == 'soil_nitrogen':
             return 'Soil N'
@@ -2437,181 +2535,256 @@ def tabulate_ft_ranked_models_by_task():
         return task_name.replace('_', ' ').title()
 
     # Rank labels: 1..N (one row per model rank)
-    rank_labels = [str(i) for i in range(1, len(architectures_plots) + 1)]
+    rank_labels = [str(i) for i in range(1, len(architectures_for_table) + 1)]
 
-    # Define LaTeX colors for each architecture (dvipsnames palette)
-    ARCH_TABLE_COLORS = {
-        'ConvNeXtV2A': 'RoyalBlue',
-        'ScaleMAE': 'Orange',
-        'DINOv3Web': 'ForestGreen',
-        'DINOv3Sat': 'Red',
-        'SatlasNet': 'Purple',
-        'MPMAE': 'Magenta',
-        'TerraMind': 'Brown',
-        'CopernicusFM': 'Teal',
-    }
+    # Use same RGB colors as in plots (ARCHITECTURE_COLORS from matplotlib tab10)
+    def _arch_to_latex_rgb(arch: str) -> str:
+        if arch not in ARCHITECTURE_COLORS:
+            return None
+        r, g, b = ARCHITECTURE_COLORS[arch][:3]
+        return f"{int(r*255)},{int(g*255)},{int(b*255)}"
 
     def colorize_arch_name(arch: str) -> str:
-        color = ARCH_TABLE_COLORS.get(arch, 'black')
-        return f"\\textcolor{{{color}}}{{{display_arch_name(arch)}}}"
+        rgb = _arch_to_latex_rgb(arch)
+        name = display_arch_name(arch)
+        if rgb:
+            return f"\\textcolor[RGB]{{{rgb}}}{{{name}}}"
+        return f"\\textcolor{{black}}{{{name}}}"
 
-    # Compute full ordering of architectures per (split, task) and per split (All tasks)
-    ordered_archs = {split: {task: [] for task in tasks} for split in splits}
-    ordered_archs_all = {split: [] for split in splits}
+    for train_percent in train_percents:
+        # Collect ranks for this train_percent: {split: {task: {seed: {architecture: rank}}}}
+        rank_data = {
+            split: {
+                task: {seed: {arch: None for arch in architectures_for_table} for seed in seeds}
+                for task in tasks
+            }
+            for split in splits
+        }
 
-    for split in splits:
-        for task in tasks:
-            arch_means = []
-            for architecture in architectures_plots:
-                s = stats[split][task][architecture]
-                if s['n'] > 0 and not np.isnan(s['mean']):
-                    arch_means.append((architecture, s['mean']))
-            arch_means.sort(key=lambda x: (x[1], x[0]))
-            ordered_archs[split][task] = [arch for arch, _ in arch_means]
-
-        arch_means_all = []
-        for architecture in architectures_plots:
-            s = all_stats[split][architecture]
-            if s['n'] > 0 and not np.isnan(s['mean']):
-                arch_means_all.append((architecture, s['mean']))
-        arch_means_all.sort(key=lambda x: (x[1], x[0]))
-        ordered_archs_all[split] = [arch for arch, _ in arch_means_all]
-
-    # Build DataFrame: rows are ranks (grouped by split), columns are tasks + "All tasks"
-    formatted_data = {}
-    split_column = []
-    rank_column = []
-    row_keys = []
-
-    for split in splits:
-        for i, label in enumerate(rank_labels):
-            row_key = f"{split}_{i}"
-            row_keys.append(row_key)
-            split_column.append(split)
-            rank_column.append(label)
-            formatted_data[row_key] = {}
-
+        for split in splits:
             for task in tasks:
-                archs = ordered_archs[split][task]
-                if i < len(archs):
-                    formatted_data[row_key][task] = colorize_arch_name(archs[i])
+                metric = 'R2' if task != 'species' else 'mAP'
+                metric_name = f'{split} test {metric}'
+
+                for tag, seed in zip(tags, seeds):
+                    runs = all_runs[tag]
+
+                    arch_perfs = {}
+                    for architecture in architectures_for_table:
+                        run_name = '_'.join([task, architecture, adaptation_mode, str(train_percent)]) + '_'
+                        run = next((run for run in runs if run.name.startswith(run_name)), None)
+                        if not run:
+                            continue
+                        perf = run.summary_metrics.get(metric_name)
+                        if perf is not None and not np.isnan(perf):
+                            arch_perfs[architecture] = float(perf)
+
+                    if len(arch_perfs) < 2:
+                        continue
+
+                    sorted_archs = sorted(arch_perfs.items(), key=lambda x: x[1], reverse=True)
+                    ranks = {}
+                    prev_perf = None
+                    current_rank = 1
+                    for i, (arch, perf) in enumerate(sorted_archs):
+                        if prev_perf is not None and abs(perf - prev_perf) < 1e-10:
+                            ranks[arch] = current_rank
+                        else:
+                            current_rank = i + 1
+                            ranks[arch] = current_rank
+                        prev_perf = perf
+
+                    for architecture, rank in ranks.items():
+                        rank_data[split][task][seed][architecture] = rank
+
+        # Aggregate mean rank over seeds
+        stats = {split: {task: {arch: {'mean': np.nan, 'n': 0} for arch in architectures_for_table}
+                         for task in tasks}
+                 for split in splits}
+
+        for split in splits:
+            for task in tasks:
+                for architecture in architectures_for_table:
+                    ranks = [rank_data[split][task][seed][architecture] for seed in seeds
+                             if rank_data[split][task][seed][architecture] is not None]
+                    if len(ranks) == 0:
+                        continue
+                    stats[split][task][architecture] = {'mean': float(np.mean(ranks)), 'n': len(ranks)}
+
+        # Aggregate mean rank for "All tasks" column
+        all_stats = {split: {arch: {'mean': np.nan, 'n': 0} for arch in architectures_for_table}
+                     for split in splits}
+
+        for split in splits:
+            for architecture in architectures_for_table:
+                seed_avgs = []
+                for seed in seeds:
+                    task_ranks = []
+                    for task in tasks:
+                        rank = rank_data[split][task][seed][architecture]
+                        if rank is not None:
+                            task_ranks.append(rank)
+                    if len(task_ranks) > 0:
+                        seed_avgs.append(float(np.mean(task_ranks)))
+
+                if len(seed_avgs) > 0:
+                    all_stats[split][architecture] = {'mean': float(np.mean(seed_avgs)), 'n': len(seed_avgs)}
+
+        # Compute full ordering of architectures per (split, task) and per split (All tasks)
+        ordered_archs = {split: {task: [] for task in tasks} for split in splits}
+        ordered_archs_all = {split: [] for split in splits}
+
+        for split in splits:
+            for task in tasks:
+                arch_means = []
+                for architecture in architectures_for_table:
+                    s = stats[split][task][architecture]
+                    if s['n'] > 0 and not np.isnan(s['mean']):
+                        arch_means.append((architecture, s['mean']))
+                arch_means.sort(key=lambda x: (x[1], x[0]))
+                ordered_archs[split][task] = [arch for arch, _ in arch_means]
+
+            arch_means_all = []
+            for architecture in architectures_for_table:
+                s = all_stats[split][architecture]
+                if s['n'] > 0 and not np.isnan(s['mean']):
+                    arch_means_all.append((architecture, s['mean']))
+            arch_means_all.sort(key=lambda x: (x[1], x[0]))
+            ordered_archs_all[split] = [arch for arch, _ in arch_means_all]
+
+        # Build DataFrame: rows are ranks (grouped by split), columns are tasks + "All tasks"
+        formatted_data = {}
+        split_column = []
+        rank_column = []
+        row_keys = []
+
+        for split in splits:
+            for i, label in enumerate(rank_labels):
+                row_key = f"{split}_{i}"
+                row_keys.append(row_key)
+                split_column.append(split)
+                rank_column.append(label)
+                formatted_data[row_key] = {}
+
+                for task in tasks:
+                    archs = ordered_archs[split][task]
+                    if i < len(archs):
+                        formatted_data[row_key][task] = colorize_arch_name(archs[i])
+                    else:
+                        formatted_data[row_key][task] = "--"
+
+                archs_all = ordered_archs_all[split]
+                if i < len(archs_all):
+                    formatted_data[row_key]['All tasks'] = colorize_arch_name(archs_all[i])
                 else:
-                    formatted_data[row_key][task] = "--"
+                    formatted_data[row_key]['All tasks'] = "--"
 
-            archs_all = ordered_archs_all[split]
-            if i < len(archs_all):
-                formatted_data[row_key]['All tasks'] = colorize_arch_name(archs_all[i])
-            else:
-                formatted_data[row_key]['All tasks'] = "--"
+        df = pd.DataFrame(formatted_data).T
+        df = df.reindex(row_keys)
+        column_order = ['All tasks'] + list(tasks)
+        df = df.reindex(column_order, axis=1)
+        df.columns = [display_task_name(task) if task in tasks else task for task in column_order]
+        df.insert(0, 'Rank', rank_column)
+        df.insert(0, 'Split', split_column)
 
-    df = pd.DataFrame(formatted_data).T
-    df = df.reindex(row_keys)
-    column_order = list(tasks) + ['All tasks']
-    df = df.reindex(column_order, axis=1)
-    df.columns = [display_task_name(task) if task in tasks else task for task in column_order]
-    df.insert(0, 'Rank', rank_column)
-    df.insert(0, 'Split', split_column)
+        header_line = ' & '.join(['\\textbf{Split}', '\\textbf{Rank}'] + [f'\\textbf{{{c}}}' for c in df.columns[2:]]) + r' \\'
+        latex = df.to_latex(index=False,
+                            header=False,
+                            escape=False,
+                            column_format='l' + 'c' + 'c' * (len(df.columns) - 2),
+                            na_rep='--')
 
-    header_line = ' & '.join(['\\textbf{Split}', '\\textbf{Rank}'] + [f'\\textbf{{{c}}}' for c in df.columns[2:]]) + r' \\'
-    latex = df.to_latex(index=False,
-                        header=False,
-                        escape=False,
-                        column_format='l' + 'c' + 'c' * (len(df.columns) - 2),
-                        na_rep='--')
+        lines = latex.split('\n')
+        toprule_idx = next(i for i, line in enumerate(lines) if '\\toprule' in line)
+        lines.insert(toprule_idx + 1, header_line)
+        if toprule_idx + 2 < len(lines) and '\\midrule' in lines[toprule_idx + 2]:
+            lines.pop(toprule_idx + 2)
+        lines.insert(toprule_idx + 2, '\\midrule')
 
-    lines = latex.split('\n')
-    toprule_idx = next(i for i, line in enumerate(lines) if '\\toprule' in line)
-    lines.insert(toprule_idx + 1, header_line)
-    if toprule_idx + 2 < len(lines) and '\\midrule' in lines[toprule_idx + 2]:
-        lines.pop(toprule_idx + 2)
-    lines.insert(toprule_idx + 2, '\\midrule')
+        # Multirow grouping for Split (Random then Geographic)
+        midrule_idx = next(i for i, line in enumerate(lines) if '\\midrule' in line and i > toprule_idx)
+        row_count = 0
+        geographic_start_idx = None
+        group_size = len(rank_labels)
 
-    # Multirow grouping for Split (Random then Geographic)
-    midrule_idx = next(i for i, line in enumerate(lines) if '\\midrule' in line and i > toprule_idx)
-    row_count = 0
-    geographic_start_idx = None
-    group_size = len(rank_labels)
+        for i in range(midrule_idx + 1, len(lines)):
+            line = lines[i]
+            if line.strip() and not line.strip().startswith('\\'):
+                parts = line.split(' & ')
+                if len(parts) >= 2:
+                    if row_count == 0:
+                        parts[0] = f"\\multirow{{{group_size}}}{{*}}{{\\textbf{{Random}}}}"
+                    elif row_count == group_size:
+                        geographic_start_idx = i
+                        parts[0] = f"\\multirow{{{group_size}}}{{*}}{{\\textbf{{Geographic}}}}"
+                    else:
+                        parts[0] = ""
+                    lines[i] = ' & '.join(parts)
+                    row_count += 1
 
-    for i in range(midrule_idx + 1, len(lines)):
-        line = lines[i]
-        if line.strip() and not line.strip().startswith('\\'):
+        if geographic_start_idx is not None:
+            prev_idx = geographic_start_idx - 1
+            while prev_idx >= 0 and lines[prev_idx].strip() == '':
+                prev_idx -= 1
+            if prev_idx < 0 or '\\midrule' not in lines[prev_idx]:
+                lines.insert(geographic_start_idx, '\\midrule')
+
+        # Bold rank-1 rows for readability
+        def _split_row_terminator(cell: str) -> tuple[str, str]:
+            stripped = cell.rstrip()
+            if stripped.endswith('\\\\'):
+                idx = stripped.rfind('\\\\')
+                content = stripped[:idx].rstrip()
+                return content, ' \\\\'
+            return cell, ''
+
+        for i in range(midrule_idx + 1, len(lines)):
+            line = lines[i]
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if any(token in stripped for token in ['\\toprule', '\\midrule', '\\bottomrule', '\\end{tabular}', '\\begin{tabular}']):
+                continue
+            if ' & ' not in line:
+                continue
+
             parts = line.split(' & ')
-            if len(parts) >= 2:
-                if row_count == 0:
-                    parts[0] = f"\\multirow{{{group_size}}}{{*}}{{\\textbf{{Random}}}}"
-                elif row_count == group_size:
-                    geographic_start_idx = i
-                    parts[0] = f"\\multirow{{{group_size}}}{{*}}{{\\textbf{{Geographic}}}}"
-                else:
-                    parts[0] = ""
-                lines[i] = ' & '.join(parts)
-                row_count += 1
+            if len(parts) < 2:
+                continue
 
-    if geographic_start_idx is not None:
-        prev_idx = geographic_start_idx - 1
-        while prev_idx >= 0 and lines[prev_idx].strip() == '':
-            prev_idx -= 1
-        if prev_idx < 0 or '\\midrule' not in lines[prev_idx]:
-            lines.insert(geographic_start_idx, '\\midrule')
+            last_content, last_term = _split_row_terminator(parts[-1])
+            parts[-1] = last_content
 
-    # Bold rank-1 rows for readability
-    # IMPORTANT: keep the row terminator (\\) outside \textbf{...}
-    def _split_row_terminator(cell: str) -> tuple[str, str]:
-        stripped = cell.rstrip()
-        if stripped.endswith('\\\\'):
-            idx = stripped.rfind('\\\\')
-            content = stripped[:idx].rstrip()
-            return content, ' \\\\'
-        return cell, ''
+            rank_cell = parts[1].strip()
+            if rank_cell == '1':
+                for j in range(len(parts)):
+                    cell = parts[j]
+                    if j == 0 and '\\multirow' in cell:
+                        continue
+                    if cell.strip() != '':
+                        parts[j] = f"\\textbf{{{cell}}}"
 
-    for i in range(midrule_idx + 1, len(lines)):
-        line = lines[i]
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # Skip LaTeX rule/structure lines, but DO NOT skip data rows that start with \multirow
-        if any(token in stripped for token in ['\\toprule', '\\midrule', '\\bottomrule', '\\end{tabular}', '\\begin{tabular}']):
-            continue
-        if ' & ' not in line:
-            continue
+            if last_term:
+                parts[-1] = parts[-1] + last_term
 
-        parts = line.split(' & ')
-        if len(parts) < 2:
-            continue
+            lines[i] = ' & '.join(parts)
 
-        # Separate the LaTeX row terminator from the final cell (if present)
-        last_content, last_term = _split_row_terminator(parts[-1])
-        parts[-1] = last_content
+        tabular_latex = '\n'.join(lines)
+        train_pct_str = f"{train_percent}\\% of training data" if train_percent < 100 else "all training data"
+        caption = (f"\\caption{{\\textbf{{Model rankings by task and overall after finetuning on {train_pct_str}.}} "
+                   "Models are ordered by lowest average rank over seeds for each task and split, or over tasks and seeds for the ``All tasks'' column. Lower is better.}\n")
+        latex = ("\\begin{table*}[ht]\n\\centering\n" +
+                 caption +
+                 f"\\label{{tab:ft_ranked_models_by_task_{train_percent}}}\n" +
+                 "\\resizebox{\\linewidth}{!}{%\n" +
+                 tabular_latex +
+                 "}\n" +
+                 "\\end{table*}\n")
 
-        rank_cell = parts[1].strip()
-        if rank_cell == '1':
-            for j in range(len(parts)):
-                cell = parts[j]
-                if j == 0 and '\\multirow' in cell:
-                    # keep multirow header as-is
-                    continue
-                if cell.strip() != '':
-                    parts[j] = f"\\textbf{{{cell}}}"
-
-        # Re-attach row terminator
-        if last_term:
-            parts[-1] = parts[-1] + last_term
-
-        lines[i] = ' & '.join(parts)
-
-    latex = '\n'.join(lines)
-    latex = ("\\begin{table*}[ht]\n\\centering\n" +
-             "\\caption{\\textbf{Model rankings by task and overall after finetuning on all training data.} Models are ordered by lowest average rank over seeds for each task and split, or over tasks and seeds for the ``All tasks'' column. Lower is better.}\n" +
-             "\\label{tab:ft_ranked_models_by_task}\n" +
-             "\\resizebox{\\linewidth}{!}{%\n" +
-             latex +
-             "}\n" +
-             "\\end{table*}\n")
-
-    tex_file = 'results_tex/ft_ranked_models_by_task.tex'
-    with open(tex_file, 'w') as file:
-        file.write(latex)
-    compile_latex(tex_file)
+        tex_file = f'results_tex/ft_ranked_models_by_task_{train_percent}.tex'
+        with open(tex_file, 'w') as file:
+            file.write(latex)
+        compile_latex(tex_file)
 
 if __name__ == '__main__':
     # main paper
@@ -2621,18 +2794,22 @@ if __name__ == '__main__':
     # plot_ttt_improvement() # Figure 7
     # tabulate_ttt_ranks_by_model() # Table 5
 
-    # supplementary
+    # appendix
     # plot_rq1_performance('Geographic', 'FT') # Figure S.17
     # plot_rq1_performance('Random', 'LP') # Figure S.18
     # plot_rq1_performance('Geographic', 'LP') # Figure S.19
     # plot_rq2_performance('LP') # Figure S.20
     # plot_rq3_performance('LP') # Figure S.21
     # plot_ttt_improvement_normalized() # Figure S.22
-    # tabulate_ft_ranks_by_task()
     # tabulate_ttt_by_model() # Table S.13
+    # tabulate_ft_ranked_models_by_task()
+    # tabulate_ft_ranks_by_task()
+    tabulate_ft_metrics_by_task()
     # tabulate_results('FT') # Tables S.14-18
     # tabulate_TTT_results() # Tables S.19-33
     # tabulate_results('LP') # Tables S.34-38
 
-    # tabulate_ft_metrics_by_task()
-    tabulate_ft_ranked_models_by_task()
+
+    # plot_jt_ttt_geo_performance()
+
+    # plot_random_minus_geographic_delta_by_task()
