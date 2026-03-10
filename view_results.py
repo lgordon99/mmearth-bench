@@ -868,7 +868,7 @@ def plot_rq3_performance(adaptation_mode):
     splits = ['Random', 'Geographic']
     base_archs = ['TerraMind', 'CopernicusFM', 'Galileo']
     variants = {
-        'S2': {'suffix': 'S2', 'linestyle': '-', 'marker': 'o', 'label_suffix': 'S2'},
+        'S2': {'suffix': 'S2', 'linestyle': ':', 'marker': 's', 'label_suffix': 'S2'},
         'Multimodal': {'suffix': '', 'linestyle': '--', 'marker': '^', 'label_suffix': ''}
     }
     tags = ['chi_41', 'chi_42', 'chi_43']
@@ -2595,23 +2595,23 @@ def tabulate_ft_ranked_models_by_task():
 
 if __name__ == '__main__':
     # main paper
-    # plot_rq1_performance('Random', 'FT') # Figure 4
-    # plot_rq2_performance('FT') # Figure 5
-    # plot_rq3_performance('FT') # Figure 6
-    # plot_ttt_improvement() # Figure 7
-    # tabulate_ttt_ranks_by_model() # Table 5
+    plot_rq1_performance('Random', 'FT') # Figure 4
+    plot_rq2_performance('FT') # Figure 5
+    plot_rq3_performance('FT') # Figure 6
+    plot_ttt_improvement() # Figure 7
+    tabulate_ttt_ranks_by_model() # Table 5
 
     # appendix
-    # plot_rq1_performance('Geographic', 'FT') # Figure A.10
-    # plot_rq1_performance('Random', 'LP') # Figure A.11
-    # plot_rq1_performance('Geographic', 'LP') # Figure A.12
-    # plot_rq2_performance('LP') # Figure A.13
-    # plot_rq3_performance('LP') # Figure A.14
-    # tabulate_ft_ranked_models_by_task() # Tables A.10-12
-    # tabulate_ft_ranks_by_task() # Table A.13
+    plot_rq1_performance('Geographic', 'FT') # Figure A.10
+    plot_rq1_performance('Random', 'LP') # Figure A.11
+    plot_rq1_performance('Geographic', 'LP') # Figure A.12
+    plot_rq2_performance('LP') # Figure A.13
+    plot_rq3_performance('LP') # Figure A.14
+    tabulate_ft_ranked_models_by_task() # Tables A.10-12
+    tabulate_ft_ranks_by_task() # Table A.13
     tabulate_ft_metrics_by_task() # Table A.14
-    # plot_ttt_improvement_normalized() # Figure A.15
-    # tabulate_ttt_by_model() # Table A.15
-    # tabulate_results('FT') # Tables A.16-20
-    # tabulate_TTT_results() # Tables A.21-35
-    # tabulate_results('LP') # Tables A.36-40
+    plot_ttt_improvement_normalized() # Figure A.15
+    tabulate_ttt_by_model() # Table A.15
+    tabulate_results('FT') # Tables A.16-20
+    tabulate_TTT_results() # Tables A.21-35
+    tabulate_results('LP') # Tables A.36-40
