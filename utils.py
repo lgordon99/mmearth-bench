@@ -1,5 +1,4 @@
 # imports
-from matplotlib.colors import ListedColormap
 from shapely.geometry import Polygon
 import ee
 import geojson
