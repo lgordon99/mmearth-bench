@@ -2594,10 +2594,10 @@ def tabulate_ft_ranked_models_by_task():
             file.write(latex)
         compile_latex(tex_file)
 
-def plot_residuals(task):
+def plot_residuals(task, JT_only=False, JT_TTT_MMR_only=False):
     if task == 'biomass':
         unit = '(Mg/ha)'
-    elif task == 'pH':
+    elif task == 'soil_pH':
         unit = ''
     else:
         unit = '(g/kg)'
@@ -2705,8 +2705,12 @@ def plot_residuals(task):
         offset = 0.3
         median_props = dict(color='black', linewidth=1.5)
         boxplot_JT = ax.boxplot(plot_data_JT, positions=indices-offset, widths=width, patch_artist=True, showfliers=False, boxprops=dict(facecolor='red', color='black'), medianprops=median_props)
-        boxplot_TTT = ax.boxplot(plot_data_TTT, positions=indices, widths=width, patch_artist=True, showfliers=False, boxprops=dict(facecolor='#1f77b4', color='black'), medianprops=median_props)
-        boxplot_TTT_Geo = ax.boxplot(plot_data_TTT_Geo, positions=indices+offset, widths=width, patch_artist=True, showfliers=False, boxprops=dict(facecolor='#ff7f0e', color='black'), medianprops=median_props)
+
+        if not JT_only:
+            boxplot_TTT = ax.boxplot(plot_data_TTT, positions=indices, widths=width, patch_artist=True, showfliers=False, boxprops=dict(facecolor='#1f77b4', color='black'), medianprops=median_props)
+
+        if not JT_only and not JT_TTT_MMR_only:
+            boxplot_TTT_Geo = ax.boxplot(plot_data_TTT_Geo, positions=indices+offset, widths=width, patch_artist=True, showfliers=False, boxprops=dict(facecolor='#ff7f0e', color='black'), medianprops=median_props)
 
         ax.set_title(f'{task.replace("_", " ").title().replace("Ph", "pH")} {split.replace("_", " ").title()} Residual Distribution', fontsize=LEGEND_FONTSIZE)
         ax.set_xlabel(f'Target Value {unit}', fontsize=LEGEND_FONTSIZE)
@@ -2717,9 +2721,23 @@ def plot_residuals(task):
         ax.set_xticks(tick_positions)
         ax.set_xticklabels(tick_labels, fontsize=LEGEND_FONTSIZE)
         ax.tick_params(axis='y', labelsize=LEGEND_FONTSIZE)
-        ax.legend([boxplot_JT['boxes'][0], boxplot_TTT['boxes'][0], boxplot_TTT_Geo['boxes'][0]], ['JT', 'TTT-MMR', 'TTT-MMR-Geo'], loc='lower left', fontsize=LEGEND_FONTSIZE)
+
+        if JT_only:
+            ax.legend([boxplot_JT['boxes'][0]], ['JT'], loc='lower left', fontsize=LEGEND_FONTSIZE)
+        elif JT_TTT_MMR_only:
+            ax.legend([boxplot_JT['boxes'][0], boxplot_TTT['boxes'][0]], ['JT', 'TTT-MMR'], loc='lower left', fontsize=LEGEND_FONTSIZE)
+        else:
+            ax.legend([boxplot_JT['boxes'][0], boxplot_TTT['boxes'][0], boxplot_TTT_Geo['boxes'][0]], ['JT', 'TTT-MMR', 'TTT-MMR-Geo'], loc='lower left', fontsize=LEGEND_FONTSIZE)
+
         plt.tight_layout()
-        plt.savefig(f'results_figures/{task}_{split}_residual_distribution.pdf', dpi=300)
+
+        if JT_only:
+            plt.savefig(f'results_figures/{task}_{split}_residual_distribution_JT_only.pdf', dpi=300)
+        elif JT_TTT_MMR_only:
+            plt.savefig(f'results_figures/{task}_{split}_residual_distribution_JT_TTT_MMR_only.pdf', dpi=300)
+        else:
+            plt.savefig(f'results_figures/{task}_{split}_residual_distribution.pdf', dpi=300)
+
         plt.close()
 
 if __name__ == '__main__':
@@ -2745,7 +2763,13 @@ if __name__ == '__main__':
     # tabulate_TTT_results() # Tables A.21-35
     # tabulate_results('LP') # Tables A.36-40
 
+    # plot_residuals('biomass', JT_only=True)
+    # plot_residuals('biomass', JT_TTT_MMR_only=True)
+    # plot_residuals('soil_nitrogen')
+    # plot_residuals('soil_organic_carbon')
+    plot_residuals('soil_pH')
+
     # plot_residuals('biomass')
     # plot_residuals('soil_nitrogen')
-    plot_residuals('soil_organic_carbon')
+    # plot_residuals('soil_organic_carbon')
     # plot_residuals('soil_pH')
