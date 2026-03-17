@@ -4,6 +4,7 @@ import numpy as np
 import os
 import pandas as pd
 import subprocess
+import torch
 import utils
 import wandb
 
@@ -2593,25 +2594,158 @@ def tabulate_ft_ranked_models_by_task():
             file.write(latex)
         compile_latex(tex_file)
 
-if __name__ == '__main__':
-    # main paper
-    plot_rq1_performance('Random', 'FT') # Figure 4
-    plot_rq2_performance('FT') # Figure 5
-    plot_rq3_performance('FT') # Figure 6
-    plot_ttt_improvement() # Figure 7
-    tabulate_ttt_ranks_by_model() # Table 5
+def plot_residuals(task):
+    if task == 'biomass':
+        unit = '(Mg/ha)'
+    elif task == 'pH':
+        unit = ''
+    else:
+        unit = '(g/kg)'
 
-    # appendix
-    plot_rq1_performance('Geographic', 'FT') # Figure A.10
-    plot_rq1_performance('Random', 'LP') # Figure A.11
-    plot_rq1_performance('Geographic', 'LP') # Figure A.12
-    plot_rq2_performance('LP') # Figure A.13
-    plot_rq3_performance('LP') # Figure A.14
-    tabulate_ft_ranked_models_by_task() # Tables A.10-12
-    tabulate_ft_ranks_by_task() # Table A.13
-    tabulate_ft_metrics_by_task() # Table A.14
-    plot_ttt_improvement_normalized() # Figure A.15
-    tabulate_ttt_by_model() # Table A.15
-    tabulate_results('FT') # Tables A.16-20
-    tabulate_TTT_results() # Tables A.21-35
-    tabulate_results('LP') # Tables A.36-40
+    runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['residuals_42']}}) # filters to only include runs with a certain tag
+    models = architectures_plots
+    data = {}
+
+    for split in ['random_test', 'geographic_test']:
+        data[split] = {}
+
+        for model in models:
+            names = ['_'.join([task, model, 'JT-TTT', str(100)]) + '_', '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_']
+            data[split][model] = {}
+
+            for name in names:
+                data[split][model][name] = {}
+                run = [run for run in runs if run.name.startswith(name)][0] # finds the run with the matching name
+
+                for artifact in run.logged_artifacts():
+                    if artifact.name.startswith(f'predictions_targets_{split}.pt'):
+                        predictions_targets = torch.load(f'{artifact.download()}/predictions_targets_{split}.pt')
+                        predictions_JT = predictions_targets['predictions_JT'].float().numpy().flatten()
+                        predictions_TTT = predictions_targets['predictions_TTT'].float().numpy().flatten()
+                        targets = predictions_targets['targets'].float().numpy().flatten()
+                        data[split][model][name]['predictions_JT'] = predictions_JT
+                        data[split][model][name]['predictions_TTT'] = predictions_TTT
+                        data[split][model][name]['targets'] = targets
+
+    # print(np.array_equal(sorted(data['random_test'][names[0]]['predictions_JT']), sorted(data['random_test'][names[1]]['predictions_JT'])))
+    # print(np.array_equal(sorted(data['random_test'][names[0]]['targets']), sorted(data['random_test'][names[1]]['targets'])))
+    # print(np.array_equal(sorted(data['geographic_test'][names[0]]['predictions_JT']), sorted(data['geographic_test'][names[1]]['predictions_JT'])))
+    # print(np.array_equal(sorted(data['geographic_test'][names[0]]['targets']), sorted(data['geographic_test'][names[1]]['targets'])))
+
+    # exit()
+
+    for split, split_data in data.items():
+        targets_TTT = []
+        targets_TTT_Geo = []
+        predictions_JT = []
+        predictions_TTT = []
+        predictions_TTT_Geo = []
+
+        for model in models:
+            targets_TTT.append(split_data[model]['_'.join([task, model, 'JT-TTT', str(100)]) + '_']['targets'])
+            targets_TTT_Geo.append(split_data[model]['_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_']['targets'])
+            predictions_JT.append(split_data[model]['_'.join([task, model, 'JT-TTT', str(100)]) + '_']['predictions_JT'])
+            predictions_TTT.append(split_data[model]['_'.join([task, model, 'JT-TTT', str(100)]) + '_']['predictions_TTT'])
+            predictions_TTT_Geo.append(split_data[model]['_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_']['predictions_TTT'])
+
+        targets_TTT = np.concatenate(targets_TTT)
+        residuals_JT = np.concatenate(predictions_JT) - targets_TTT
+        residuals_TTT = np.concatenate(predictions_TTT) - targets_TTT
+        residuals_TTT_Geo = np.concatenate(predictions_TTT_Geo) - np.concatenate(targets_TTT_Geo)
+
+        df = pd.DataFrame({'Target': targets_TTT, 'JT Residuals': residuals_JT, 'TTT-MMR Residuals': residuals_TTT, 'TTT-MMR-Geo Residuals': residuals_TTT_Geo})
+        min_value = np.floor(df['Target'].min())
+        max_value = np.ceil(df['Target'].max())
+        print(min_value)
+        print(max_value)
+        bin_size = (max_value - min_value) // 5
+
+        if task == 'biomass':
+            bins = np.array([0, 10, 50, 100, 150, 200, 250, 300, 350, 400, 500, max_value])
+        elif task == 'soil_nitrogen':
+            bins = np.array([0, 2, 5, 10, 15, 20, 25, max_value])
+        elif task == 'soil_organic_carbon':
+            bins = np.array([0, 20, 50, 100, 200, 300, 400, max_value])
+        else:
+            bins = np.arange(min_value, max_value + bin_size, bin_size)
+
+        df['Bin'] = pd.cut(df['Target'], bins=bins, include_lowest=True)
+        bin_intervals = []
+
+        for i in range(len(bins) - 1):
+            if i == 0:
+                interval = pd.Interval(left=sorted(df['Bin'].unique())[0].left, right=bins[i+1], closed='right')
+            else:
+                interval = pd.Interval(left=bins[i], right=bins[i+1], closed='right')
+
+            bin_intervals.append(interval)
+
+        plot_data_JT = []
+        plot_data_TTT = []
+        plot_data_TTT_Geo = []
+
+        for bin_interval in bin_intervals:
+            subset = df[df['Bin'] == bin_interval]
+            plot_data_JT.append(subset['JT Residuals'].values)
+            plot_data_TTT.append(subset['TTT-MMR Residuals'].values)
+            plot_data_TTT_Geo.append(subset['TTT-MMR-Geo Residuals'].values)
+
+        fig, ax = plt.subplots(figsize=(COL_WIDTH, 4))
+        indices = np.arange(len(bin_intervals))
+        tick_labels = [int(x) for x in bins]
+
+        ax2 = ax.twinx()
+        counts = np.array([len(df[df['Bin'] == bin_interval]) for bin_interval in bin_intervals])
+        percentages = (counts / len(df)) * 100
+        ax2.bar(indices, percentages, width=1.0, color='gray', alpha=0.25, zorder=0)
+        ax2.set_ylabel('Percentage (%)', color='gray', rotation=270, labelpad=15, fontsize=LEGEND_FONTSIZE)
+        ax2.tick_params(axis='y', labelsize=LEGEND_FONTSIZE, labelcolor='gray', color='gray')
+
+        width = 0.25
+        offset = 0.3
+        median_props = dict(color='black', linewidth=1.5)
+        boxplot_JT = ax.boxplot(plot_data_JT, positions=indices-offset, widths=width, patch_artist=True, showfliers=False, boxprops=dict(facecolor='red', color='black'), medianprops=median_props)
+        boxplot_TTT = ax.boxplot(plot_data_TTT, positions=indices, widths=width, patch_artist=True, showfliers=False, boxprops=dict(facecolor='#1f77b4', color='black'), medianprops=median_props)
+        boxplot_TTT_Geo = ax.boxplot(plot_data_TTT_Geo, positions=indices+offset, widths=width, patch_artist=True, showfliers=False, boxprops=dict(facecolor='#ff7f0e', color='black'), medianprops=median_props)
+
+        ax.set_title(f'{task.replace("_", " ").title().replace("Ph", "pH")} {split.replace("_", " ").title()} Residual Distribution', fontsize=LEGEND_FONTSIZE)
+        ax.set_xlabel(f'Target Value {unit}', fontsize=LEGEND_FONTSIZE)
+        ax.set_ylabel(f'Residual {unit}', fontsize=LEGEND_FONTSIZE)
+        ax.axhline(0, color='black', linestyle='--', linewidth=1, alpha=0.7)
+        tick_positions = np.arange(len(bins)) - 0.5
+        ax.set_xticks(np.arange(len(bins)) - 0.5)
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels, fontsize=LEGEND_FONTSIZE)
+        ax.tick_params(axis='y', labelsize=LEGEND_FONTSIZE)
+        ax.legend([boxplot_JT['boxes'][0], boxplot_TTT['boxes'][0], boxplot_TTT_Geo['boxes'][0]], ['JT', 'TTT-MMR', 'TTT-MMR-Geo'], loc='lower left', fontsize=LEGEND_FONTSIZE)
+        plt.tight_layout()
+        plt.savefig(f'results_figures/{task}_{split}_residual_distribution.pdf', dpi=300)
+        plt.close()
+
+if __name__ == '__main__':
+    # # main paper
+    # plot_rq1_performance('Random', 'FT') # Figure 4
+    # plot_rq2_performance('FT') # Figure 5
+    # plot_rq3_performance('FT') # Figure 6
+    # plot_ttt_improvement() # Figure 7
+    # tabulate_ttt_ranks_by_model() # Table 5
+
+    # # appendix
+    # plot_rq1_performance('Geographic', 'FT') # Figure A.10
+    # plot_rq1_performance('Random', 'LP') # Figure A.11
+    # plot_rq1_performance('Geographic', 'LP') # Figure A.12
+    # plot_rq2_performance('LP') # Figure A.13
+    # plot_rq3_performance('LP') # Figure A.14
+    # tabulate_ft_ranked_models_by_task() # Tables A.10-12
+    # tabulate_ft_ranks_by_task() # Table A.13
+    # tabulate_ft_metrics_by_task() # Table A.14
+    # plot_ttt_improvement_normalized() # Figure A.15
+    # tabulate_ttt_by_model() # Table A.15
+    # tabulate_results('FT') # Tables A.16-20
+    # tabulate_TTT_results() # Tables A.21-35
+    # tabulate_results('LP') # Tables A.36-40
+
+    # plot_residuals('biomass')
+    # plot_residuals('soil_nitrogen')
+    plot_residuals('soil_organic_carbon')
+    # plot_residuals('soil_pH')
