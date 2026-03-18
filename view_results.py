@@ -2740,9 +2740,11 @@ def plot_residuals(task, JT_only=False, JT_TTT_MMR_only=False):
 
         plt.close()
 
-def plot_residuals_combined():
+def plot_residuals_combined(JT_only=False, JT_TTT_MMR_only=False):
     """Plot residual distributions for all four regression tasks in a 2x4 grid.
     Top row: Random split. Bottom row: Geographic split.
+    JT_only: only plot the JT boxplot.
+    JT_TTT_MMR_only: plot JT and TTT-MMR boxplots, omitting TTT-MMR-Geo.
     """
     all_tasks = ['biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH']
     splits = ['random_test', 'geographic_test']
@@ -2762,10 +2764,22 @@ def plot_residuals_combined():
     }
 
     task_bins = {
-        'biomass': np.array([0, 10, 50, 100, 150, 200, 250, 300, 350, 400, 500]),
-        'soil_nitrogen': np.array([0, 2, 5, 10, 15, 20, 25]),
-        'soil_organic_carbon': np.array([0, 20, 50, 100, 200, 300, 400]),
-        'soil_pH': None,
+        'biomass': {
+            'random_test': np.array([0, 5, 25, 60, 110, 175, 275]),
+            'geographic_test': np.array([0, 2, 10, 25, 50, 100, 200]),
+        },
+        'soil_nitrogen': {
+            'random_test': np.array([0, 1, 2, 4, 10, 15, 25]),
+            'geographic_test': np.array([0, 1, 2, 5, 10, 15, 25]),
+        },
+        'soil_organic_carbon': {
+            'random_test': np.array([0, 20, 50, 100, 200, 300, 400]),
+            'geographic_test': np.array([0, 10, 20, 50, 100, 200, 300]),
+        },
+        'soil_pH': {
+            'random_test': None,
+            'geographic_test': None,
+        }
     }
 
     runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['residuals_42']}})
@@ -2795,8 +2809,8 @@ def plot_residuals_combined():
                             all_data[task][split][model][name]['predictions_TTT'] = pt['predictions_TTT'].float().numpy().flatten()
                             all_data[task][split][model][name]['targets'] = pt['targets'].float().numpy().flatten()
 
-    fig, axes = plt.subplots(2, 4, figsize=(COL_WIDTH * 2, 4),
-                             gridspec_kw=dict(left=0.06, right=0.94, top=0.88, bottom=0.12, wspace=0.45, hspace=0.35))
+    fig, axes = plt.subplots(2, 4, figsize=(COL_WIDTH * 2, 4.5),
+                             gridspec_kw=dict(left=0.08, right=0.95, top=0.88, bottom=0.1, wspace=0.40, hspace=0.25))
 
     for col_idx, task in enumerate(all_tasks):
         for row_idx, split in enumerate(splits):
@@ -2833,8 +2847,8 @@ def plot_residuals_combined():
             min_value = np.floor(df['Target'].min())
             max_value = np.ceil(df['Target'].max())
 
-            if task_bins[task] is not None:
-                bins = np.append(task_bins[task], max_value) if max_value > task_bins[task][-1] else task_bins[task]
+            if task_bins[task][split] is not None:
+                bins = np.append(task_bins[task][split], max_value) if max_value > task_bins[task][split][-1] else task_bins[task][split]
             else:
                 bin_size = (max_value - min_value) // 5
                 bins = np.arange(min_value, max_value + bin_size, bin_size)
@@ -2867,68 +2881,116 @@ def plot_residuals_combined():
             counts = np.array([len(df[df['Bin'] == bi]) for bi in bin_intervals])
             percentages = (counts / len(df)) * 100
             ax2.bar(indices, percentages, width=1.0, color='gray', alpha=0.25, zorder=0)
-            if col_idx == len(all_tasks) - 1:
-                ax2.set_ylabel('Percentage (%)', color='gray', rotation=270, labelpad=15, fontsize=LEGEND_FONTSIZE)
-                ax2.tick_params(axis='y', labelsize=LEGEND_FONTSIZE - 1, labelcolor='gray', color='gray')
-            else:
-                ax2.set_yticks([])
+            ax2.tick_params(axis='y', labelsize=LEGEND_FONTSIZE , labelcolor='gray', color='gray')
 
             # Boxplots
-            width = 0.25
-            offset = 0.3
             median_props = dict(color='black', linewidth=1)
-            bp_jt = ax.boxplot(plot_data_JT, positions=indices - offset, widths=width, patch_artist=True, showfliers=False,
-                               boxprops=dict(facecolor='red', color='black'), medianprops=median_props)
-            bp_ttt = ax.boxplot(plot_data_TTT, positions=indices, widths=width, patch_artist=True, showfliers=False,
-                                boxprops=dict(facecolor='#1f77b4', color='black'), medianprops=median_props)
-            bp_geo = ax.boxplot(plot_data_TTT_Geo, positions=indices + offset, widths=width, patch_artist=True, showfliers=False,
-                                boxprops=dict(facecolor='#ff7f0e', color='black'), medianprops=median_props)
+            if JT_only:
+                width = 0.5
+                bp_jt = ax.boxplot(plot_data_JT, positions=indices, widths=width, patch_artist=True, showfliers=False,
+                                   boxprops=dict(facecolor='red', edgecolor='red'), medianprops=median_props)
+                bp_ttt = bp_geo = None
+                active_bps = [bp_jt]
+            elif JT_TTT_MMR_only:
+                width = 0.3
+                offset = 0.2
+                bp_jt = ax.boxplot(plot_data_JT, positions=indices - offset, widths=width, patch_artist=True, showfliers=False,
+                                   boxprops=dict(facecolor='red', edgecolor='red'), medianprops=median_props)
+                bp_ttt = ax.boxplot(plot_data_TTT, positions=indices + offset, widths=width, patch_artist=True, showfliers=False,
+                                    boxprops=dict(facecolor='#1f77b4', edgecolor='#1f77b4'), medianprops=median_props)
+                bp_geo = None
+                active_bps = [bp_jt, bp_ttt]
+            else:
+                width = 0.25
+                offset = 0.3
+                bp_jt = ax.boxplot(plot_data_JT, positions=indices - offset, widths=width, patch_artist=True, showfliers=False,
+                                   boxprops=dict(facecolor='red', edgecolor='red'), medianprops=median_props)
+                bp_ttt = ax.boxplot(plot_data_TTT, positions=indices, widths=width, patch_artist=True, showfliers=False,
+                                    boxprops=dict(facecolor='#1f77b4', edgecolor='#1f77b4'), medianprops=median_props)
+                bp_geo = ax.boxplot(plot_data_TTT_Geo, positions=indices + offset, widths=width, patch_artist=True, showfliers=False,
+                                    boxprops=dict(facecolor='#ff7f0e', edgecolor='#ff7f0e'), medianprops=median_props)
+                active_bps = [bp_jt, bp_ttt, bp_geo]
+
+            for bp in active_bps:
+                for box in bp['boxes']:
+                    box.set_zorder(5)
+                for whisker in bp['whiskers']:
+                    whisker.set_zorder(3)
+                for cap in bp['caps']:
+                    cap.set_zorder(3)
+                for median in bp['medians']:
+                    median.set_zorder(6)
 
             ax.set_zorder(ax2.get_zorder() + 1)
             ax.patch.set_visible(False)
-
             ax.axhline(0, color='black', linestyle='--', linewidth=0.8, alpha=0.7)
 
-            # Ticks
+            # Ticks and consistent x-axis limits
             tick_positions = np.arange(len(bins)) - 0.5
             tick_labels_list = [int(x) for x in bins]
             ax.set_xticks(tick_positions)
-            ax.set_xticklabels(tick_labels_list, fontsize=LEGEND_FONTSIZE - 1)
-            ax.tick_params(axis='y', labelsize=LEGEND_FONTSIZE - 1)
+            ax.set_xticklabels(tick_labels_list, fontsize=LEGEND_FONTSIZE)
+            ax.tick_params(axis='y', labelsize=LEGEND_FONTSIZE)
+            ax.set_xlim(-0.5, len(bin_intervals) - 0.5)
+            ax2.set_xlim(-0.5, len(bin_intervals) - 0.5)
 
             # Title on top row only
             if row_idx == 0:
                 unit = task_units[task]
-                ax.set_title(f"{task_display_names[task]} {unit}", fontsize=LEGEND_FONTSIZE)
+                ax.set_title(f"{task_display_names[task]} {unit}", fontsize=LEGEND_FONTSIZE+4)
 
-            # Y-axis label on leftmost column only
-            if col_idx == 0:
-                unit = task_units[task]
-                ax.set_ylabel(f'Residual', fontsize=LEGEND_FONTSIZE)
-
-            # X-axis label on bottom row, middle
-            if row_idx == 1 and col_idx == 1:
-                ax.set_xlabel('Target Value', fontsize=LEGEND_FONTSIZE)
-
+            # X-axis label removed from individual subplots (added as fig.text below)
             for spine in ax.spines.values():
                 spine.set_linewidth(0.5)
 
-    # Add "Random" and "Geographic" labels to the right
-    top_center = (axes[0, -1].get_position().y0 + axes[0, -1].get_position().y1) / 2
-    bottom_center = (axes[1, -1].get_position().y0 + axes[1, -1].get_position().y1) / 2
-    fig.text(0.98, top_center, 'Random', fontsize=LEGEND_FONTSIZE, rotation=270, ha='center', va='center')
-    fig.text(0.98, bottom_center, 'Geographic', fontsize=LEGEND_FONTSIZE, rotation=270, ha='center', va='center')
+    # Add "Target Value" label centered between columns 2 and 3 at the bottom
+    col2_right = axes[1, 1].get_position().x1
+    col3_left = axes[1, 2].get_position().x0
+    center_x = (col2_right + col3_left) / 2
+    fig.text(center_x, 0.02, 'Target Value', fontsize=LEGEND_FONTSIZE+4, ha='center', va='center')
+
+    # Add "Random" and "Geographic" labels to the left, then "Residual" further right
+    top_center = (axes[0, 0].get_position().y0 + axes[0, 0].get_position().y1) / 2
+    bottom_center = (axes[1, 0].get_position().y0 + axes[1, 0].get_position().y1) / 2
+    fig.text(0.01, top_center, 'Random', fontsize=LEGEND_FONTSIZE+4, rotation=90, ha='center', va='center')
+    fig.text(0.01, bottom_center, 'Geographic', fontsize=LEGEND_FONTSIZE+4, rotation=90, ha='center', va='center')
+
+    # Add "Residual" label centered between the two rows, to the right of "Random"/"Geographic"
+    top_row_bottom = axes[0, 0].get_position().y0
+    bottom_row_top = axes[1, 0].get_position().y1
+    center_y = (top_row_bottom + bottom_row_top) / 2
+    left_edge = axes[0, 0].get_position().x0
+    fig.text(left_edge - 0.05, center_y, 'Residual', fontsize=LEGEND_FONTSIZE+4, rotation=90, ha='right', va='center')
+
+    # Add "Percentage (%)" label on the right, centered between the two rows
+    right_edge = axes[0, -1].get_position().x1
+    fig.text(right_edge + 0.03, center_y, 'Percentage (%)', fontsize=LEGEND_FONTSIZE+4, rotation=270, ha='left', va='center', color='gray')
 
     # Shared legend at top
-    fig.legend([bp_jt['boxes'][0], bp_ttt['boxes'][0], bp_geo['boxes'][0]],
-               ['JT', 'TTT-MMR', 'TTT-MMR-Geo'],
+    if JT_only:
+        legend_handles = [bp_jt['boxes'][0]]
+        legend_labels = ['JT']
+    elif JT_TTT_MMR_only:
+        legend_handles = [bp_jt['boxes'][0], bp_ttt['boxes'][0]]
+        legend_labels = ['JT', 'TTT-MMR']
+    else:
+        legend_handles = [bp_jt['boxes'][0], bp_ttt['boxes'][0], bp_geo['boxes'][0]]
+        legend_labels = ['JT', 'TTT-MMR', 'TTT-MMR-Geo']
+    fig.legend(legend_handles, legend_labels,
                loc='upper center', bbox_to_anchor=(0.5, 1.0),
-               ncol=3, fontsize=LEGEND_FONTSIZE, frameon=False,
+               ncol=len(legend_labels), fontsize=LEGEND_FONTSIZE+4, frameon=False,
                handletextpad=0.3, handlelength=1, columnspacing=1)
 
-    plt.savefig('results_figures/residual_distribution_combined.pdf', dpi=300)
+    if JT_only:
+        suffix = '_JT_only'
+    elif JT_TTT_MMR_only:
+        suffix = '_JT_TTT_MMR_only'
+    else:
+        suffix = ''
+    fname = f'results_figures/residual_distribution_combined{suffix}.pdf'
+    plt.savefig(fname, dpi=300)
     plt.close()
-    print("Saved results_figures/residual_distribution_combined.pdf")
+    print(f"Saved {fname}")
 
 if __name__ == '__main__':
     # # main paper
@@ -2964,4 +3026,6 @@ if __name__ == '__main__':
     # plot_residuals('soil_organic_carbon')
     # plot_residuals('soil_pH')
 
+    # plot_residuals_combined(JT_only=True)
+    plot_residuals_combined(JT_TTT_MMR_only=True)
     plot_residuals_combined()
