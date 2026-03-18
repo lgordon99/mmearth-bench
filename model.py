@@ -626,6 +626,7 @@ class EncoderDecoder(nn.Module):
 
                 if i == 0 and not return_all_iterations: # if it is the first iteration and we are not in validation mode
                     modality_reconstructions_JT = self.task_modality_decoder(input_embeddings)
+                    task_prediction_JT = self.task_decoder(input_embeddings)
                 elif i > 0 and (return_all_iterations or i == num_iterations): # if we are past the first iteration, if we are saving all iterations or it is the last iteration
                     with torch.no_grad():
                         task_prediction = self.task_decoder(input_embeddings) # performs inference
@@ -635,11 +636,11 @@ class EncoderDecoder(nn.Module):
 
                     if i == num_iterations: # if it is the last iteration
                         if return_all_iterations:
-                            return torch.stack(iteration_predictions), None, None
+                            return None, torch.stack(iteration_predictions), None, None
                         else:
                             modality_reconstructions = self.task_modality_decoder(input_embeddings)
 
-                            return task_prediction, modality_reconstructions_JT, modality_reconstructions
+                            return task_prediction_JT, task_prediction, modality_reconstructions_JT, modality_reconstructions
 
                     del task_prediction
 
@@ -720,6 +721,14 @@ class Model(LightningModule):
         if 'TTT' in adaptation_mode:
             self.val_batches_best_num_iterations = []
 
+            if task != 'species': # only for regression tasks
+                self.random_test_predictions_JT = []
+                self.random_test_predictions_TTT = []
+                self.random_test_targets = []
+                self.geographic_test_predictions_JT = []
+                self.geographic_test_predictions_TTT = []
+                self.geographic_test_targets = []
+
     def configure_models(self):
         pixelwise = self.hparams.task == 'biomass'
         self.num_classes = 100 if self.hparams.task == 'species' else 1
@@ -770,10 +779,10 @@ class Model(LightningModule):
         input_data, task_modality_data, target, indices, ids = batch # extracts the images and targets for the batch
         prediction = self(input_data, task_modality_data) # forward pass
 
-        if self.hparams.adaptation_mode =='JT':
+        if self.hparams.adaptation_mode == 'JT':
             prediction, modality_reconstructions, task_modality_reconstruction_loss = prediction
         elif 'TTT' in self.hparams.adaptation_mode:
-            prediction, modality_reconstructions_JT, modality_reconstructions = prediction
+            task_prediction_JT, prediction, modality_reconstructions_JT, modality_reconstructions = prediction
 
         if 'TTT' in self.hparams.adaptation_mode and mode == 'val':
             iteration_predictions = prediction
@@ -786,6 +795,14 @@ class Model(LightningModule):
                 iteration_predictions = torch.stack([pred[valid_mask] for pred in iteration_predictions])
             else:
                 prediction = prediction[valid_mask]
+
+                if 'TTT' in self.hparams.adaptation_mode:
+                    task_prediction_JT = task_prediction_JT[valid_mask]
+
+        if 'TTT' in self.hparams.adaptation_mode and 'test' in mode and self.hparams.task != 'species':
+            getattr(self, f'{mode}_predictions_JT').append(task_prediction_JT.detach().cpu())
+            getattr(self, f'{mode}_predictions_TTT').append(prediction.detach().cpu())
+            getattr(self, f'{mode}_targets').append(target.detach().cpu())
 
         # LOSS #
 
@@ -949,6 +966,21 @@ class Model(LightningModule):
         if 'TTT' in self.hparams.adaptation_mode:
             self.model.val_best_num_iterations = int(round(np.mean(self.val_batches_best_num_iterations))) # calculates the average best iteration across all batches
             print(f'Val best num TTT iterations: {self.model.val_best_num_iterations}')
+
+    def on_test_epoch_end(self):
+        if getattr(self, 'random_test_predictions_TTT', None):
+            for split in ['random_test', 'geographic_test']:
+                predictions_JT = torch.cat(getattr(self, f'{split}_predictions_JT'))
+                predictions_TTT = torch.cat(getattr(self, f'{split}_predictions_TTT'))
+                targets = torch.cat(getattr(self, f'{split}_targets'))
+                filename = f'predictions_targets_{split}.pt'
+                torch.save({'predictions_JT': predictions_JT,
+                            'predictions_TTT': predictions_TTT,
+                            'targets': targets},
+                            filename)
+                artifact = wandb.Artifact(name=filename, type='predictions_targets')
+                artifact.add_file(filename)
+                wandb.log_artifact(artifact)
 
     def _log_images(self, name, batch_indices, batch_ids, modality_data_dict, modality_reconstruction_dict, modality_reconstruction_JT_dict):
         modalities = list(modality_data_dict.keys())

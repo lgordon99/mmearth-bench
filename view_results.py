@@ -2740,6 +2740,196 @@ def plot_residuals(task, JT_only=False, JT_TTT_MMR_only=False):
 
         plt.close()
 
+def plot_residuals_combined():
+    """Plot residual distributions for all four regression tasks in a 2x4 grid.
+    Top row: Random split. Bottom row: Geographic split.
+    """
+    all_tasks = ['biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH']
+    splits = ['random_test', 'geographic_test']
+
+    task_units = {
+        'biomass': '(Mg/ha)',
+        'soil_nitrogen': '(g/kg)',
+        'soil_organic_carbon': '(g/kg)',
+        'soil_pH': '',
+    }
+
+    task_display_names = {
+        'biomass': 'Biomass',
+        'soil_nitrogen': 'Soil N',
+        'soil_organic_carbon': 'Soil OC',
+        'soil_pH': 'Soil pH',
+    }
+
+    task_bins = {
+        'biomass': np.array([0, 10, 50, 100, 150, 200, 250, 300, 350, 400, 500]),
+        'soil_nitrogen': np.array([0, 2, 5, 10, 15, 20, 25]),
+        'soil_organic_carbon': np.array([0, 20, 50, 100, 200, 300, 400]),
+        'soil_pH': None,
+    }
+
+    runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['residuals_42']}})
+    models = architectures_plots
+
+    # Load all data: {task: {split: {model: {name: {predictions_JT, predictions_TTT, targets}}}}}
+    all_data = {}
+    for task in all_tasks:
+        print(f"Loading data for {task}...")
+        all_data[task] = {}
+        for split in splits:
+            all_data[task][split] = {}
+            for model in models:
+                names = ['_'.join([task, model, 'JT-TTT', str(100)]) + '_',
+                         '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_']
+                all_data[task][split][model] = {}
+                for name in names:
+                    all_data[task][split][model][name] = {}
+                    matching = [run for run in runs if run.name.startswith(name)]
+                    if not matching:
+                        continue
+                    run = matching[0]
+                    for artifact in run.logged_artifacts():
+                        if artifact.name.startswith(f'predictions_targets_{split}.pt'):
+                            pt = torch.load(f'{artifact.download()}/predictions_targets_{split}.pt')
+                            all_data[task][split][model][name]['predictions_JT'] = pt['predictions_JT'].float().numpy().flatten()
+                            all_data[task][split][model][name]['predictions_TTT'] = pt['predictions_TTT'].float().numpy().flatten()
+                            all_data[task][split][model][name]['targets'] = pt['targets'].float().numpy().flatten()
+
+    fig, axes = plt.subplots(2, 4, figsize=(COL_WIDTH * 2, 4),
+                             gridspec_kw=dict(left=0.06, right=0.94, top=0.88, bottom=0.12, wspace=0.45, hspace=0.35))
+
+    for col_idx, task in enumerate(all_tasks):
+        for row_idx, split in enumerate(splits):
+            ax = axes[row_idx, col_idx]
+
+            # Aggregate residuals across models
+            targets_TTT_list = []
+            targets_TTT_Geo_list = []
+            predictions_JT_list = []
+            predictions_TTT_list = []
+            predictions_TTT_Geo_list = []
+
+            for model in models:
+                name_ttt = '_'.join([task, model, 'JT-TTT', str(100)]) + '_'
+                name_geo = '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_'
+                d = all_data[task][split][model]
+                if name_ttt in d and 'targets' in d[name_ttt] and name_geo in d and 'targets' in d[name_geo]:
+                    targets_TTT_list.append(d[name_ttt]['targets'])
+                    targets_TTT_Geo_list.append(d[name_geo]['targets'])
+                    predictions_JT_list.append(d[name_ttt]['predictions_JT'])
+                    predictions_TTT_list.append(d[name_ttt]['predictions_TTT'])
+                    predictions_TTT_Geo_list.append(d[name_geo]['predictions_TTT'])
+
+            if not targets_TTT_list:
+                continue
+
+            targets_TTT = np.concatenate(targets_TTT_list)
+            residuals_JT = np.concatenate(predictions_JT_list) - targets_TTT
+            residuals_TTT = np.concatenate(predictions_TTT_list) - targets_TTT
+            residuals_TTT_Geo = np.concatenate(predictions_TTT_Geo_list) - np.concatenate(targets_TTT_Geo_list)
+
+            df = pd.DataFrame({'Target': targets_TTT, 'JT': residuals_JT, 'TTT': residuals_TTT, 'TTT-Geo': residuals_TTT_Geo})
+
+            min_value = np.floor(df['Target'].min())
+            max_value = np.ceil(df['Target'].max())
+
+            if task_bins[task] is not None:
+                bins = np.append(task_bins[task], max_value) if max_value > task_bins[task][-1] else task_bins[task]
+            else:
+                bin_size = (max_value - min_value) // 5
+                bins = np.arange(min_value, max_value + bin_size, bin_size)
+
+            df['Bin'] = pd.cut(df['Target'], bins=bins, include_lowest=True)
+
+            bin_intervals = []
+            unique_bins = sorted(df['Bin'].dropna().unique())
+            for i in range(len(bins) - 1):
+                if i == 0 and unique_bins:
+                    interval = pd.Interval(left=unique_bins[0].left, right=bins[i+1], closed='right')
+                else:
+                    interval = pd.Interval(left=bins[i], right=bins[i+1], closed='right')
+                bin_intervals.append(interval)
+
+            plot_data_JT = []
+            plot_data_TTT = []
+            plot_data_TTT_Geo = []
+
+            for bi in bin_intervals:
+                subset = df[df['Bin'] == bi]
+                plot_data_JT.append(subset['JT'].values if len(subset) > 0 else [])
+                plot_data_TTT.append(subset['TTT'].values if len(subset) > 0 else [])
+                plot_data_TTT_Geo.append(subset['TTT-Geo'].values if len(subset) > 0 else [])
+
+            indices = np.arange(len(bin_intervals))
+
+            # Histogram background
+            ax2 = ax.twinx()
+            counts = np.array([len(df[df['Bin'] == bi]) for bi in bin_intervals])
+            percentages = (counts / len(df)) * 100
+            ax2.bar(indices, percentages, width=1.0, color='gray', alpha=0.25, zorder=0)
+            if col_idx == len(all_tasks) - 1:
+                ax2.set_ylabel('Percentage (%)', color='gray', rotation=270, labelpad=15, fontsize=LEGEND_FONTSIZE)
+                ax2.tick_params(axis='y', labelsize=LEGEND_FONTSIZE - 1, labelcolor='gray', color='gray')
+            else:
+                ax2.set_yticks([])
+
+            # Boxplots
+            width = 0.25
+            offset = 0.3
+            median_props = dict(color='black', linewidth=1)
+            bp_jt = ax.boxplot(plot_data_JT, positions=indices - offset, widths=width, patch_artist=True, showfliers=False,
+                               boxprops=dict(facecolor='red', color='black'), medianprops=median_props)
+            bp_ttt = ax.boxplot(plot_data_TTT, positions=indices, widths=width, patch_artist=True, showfliers=False,
+                                boxprops=dict(facecolor='#1f77b4', color='black'), medianprops=median_props)
+            bp_geo = ax.boxplot(plot_data_TTT_Geo, positions=indices + offset, widths=width, patch_artist=True, showfliers=False,
+                                boxprops=dict(facecolor='#ff7f0e', color='black'), medianprops=median_props)
+
+            ax.set_zorder(ax2.get_zorder() + 1)
+            ax.patch.set_visible(False)
+
+            ax.axhline(0, color='black', linestyle='--', linewidth=0.8, alpha=0.7)
+
+            # Ticks
+            tick_positions = np.arange(len(bins)) - 0.5
+            tick_labels_list = [int(x) for x in bins]
+            ax.set_xticks(tick_positions)
+            ax.set_xticklabels(tick_labels_list, fontsize=LEGEND_FONTSIZE - 1)
+            ax.tick_params(axis='y', labelsize=LEGEND_FONTSIZE - 1)
+
+            # Title on top row only
+            if row_idx == 0:
+                unit = task_units[task]
+                ax.set_title(f"{task_display_names[task]} {unit}", fontsize=LEGEND_FONTSIZE)
+
+            # Y-axis label on leftmost column only
+            if col_idx == 0:
+                unit = task_units[task]
+                ax.set_ylabel(f'Residual', fontsize=LEGEND_FONTSIZE)
+
+            # X-axis label on bottom row, middle
+            if row_idx == 1 and col_idx == 1:
+                ax.set_xlabel('Target Value', fontsize=LEGEND_FONTSIZE)
+
+            for spine in ax.spines.values():
+                spine.set_linewidth(0.5)
+
+    # Add "Random" and "Geographic" labels to the right
+    top_center = (axes[0, -1].get_position().y0 + axes[0, -1].get_position().y1) / 2
+    bottom_center = (axes[1, -1].get_position().y0 + axes[1, -1].get_position().y1) / 2
+    fig.text(0.98, top_center, 'Random', fontsize=LEGEND_FONTSIZE, rotation=270, ha='center', va='center')
+    fig.text(0.98, bottom_center, 'Geographic', fontsize=LEGEND_FONTSIZE, rotation=270, ha='center', va='center')
+
+    # Shared legend at top
+    fig.legend([bp_jt['boxes'][0], bp_ttt['boxes'][0], bp_geo['boxes'][0]],
+               ['JT', 'TTT-MMR', 'TTT-MMR-Geo'],
+               loc='upper center', bbox_to_anchor=(0.5, 1.0),
+               ncol=3, fontsize=LEGEND_FONTSIZE, frameon=False,
+               handletextpad=0.3, handlelength=1, columnspacing=1)
+
+    plt.savefig('results_figures/residual_distribution_combined.pdf', dpi=300)
+    plt.close()
+    print("Saved results_figures/residual_distribution_combined.pdf")
+
 if __name__ == '__main__':
     # # main paper
     # plot_rq1_performance('Random', 'FT') # Figure 4
@@ -2767,9 +2957,11 @@ if __name__ == '__main__':
     # plot_residuals('biomass', JT_TTT_MMR_only=True)
     # plot_residuals('soil_nitrogen')
     # plot_residuals('soil_organic_carbon')
-    plot_residuals('soil_pH')
+    # plot_residuals('soil_pH')
 
     # plot_residuals('biomass')
     # plot_residuals('soil_nitrogen')
     # plot_residuals('soil_organic_carbon')
     # plot_residuals('soil_pH')
+
+    plot_residuals_combined()
