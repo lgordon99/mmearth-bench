@@ -720,14 +720,12 @@ class Model(LightningModule):
 
         if 'TTT' in adaptation_mode:
             self.val_batches_best_num_iterations = []
-
-            if task != 'species': # only for regression tasks
-                self.random_test_predictions_JT = []
-                self.random_test_predictions_TTT = []
-                self.random_test_targets = []
-                self.geographic_test_predictions_JT = []
-                self.geographic_test_predictions_TTT = []
-                self.geographic_test_targets = []
+            self.random_test_predictions_JT = []
+            self.random_test_predictions_TTT = []
+            self.random_test_targets = []
+            self.geographic_test_predictions_JT = []
+            self.geographic_test_predictions_TTT = []
+            self.geographic_test_targets = []
 
     def configure_models(self):
         pixelwise = self.hparams.task == 'biomass'
@@ -799,11 +797,6 @@ class Model(LightningModule):
                 if 'TTT' in self.hparams.adaptation_mode:
                     task_prediction_JT = task_prediction_JT[valid_mask]
 
-        if 'TTT' in self.hparams.adaptation_mode and 'test' in mode and self.hparams.task != 'species':
-            getattr(self, f'{mode}_predictions_JT').append(task_prediction_JT.detach().cpu())
-            getattr(self, f'{mode}_predictions_TTT').append(prediction.detach().cpu())
-            getattr(self, f'{mode}_targets').append(target.detach().cpu())
-
         # LOSS #
 
         if 'JT' in self.hparams.adaptation_mode and modality_reconstructions:
@@ -836,6 +829,14 @@ class Model(LightningModule):
         if self.hparams.task == 'species':
             prediction = torch.sigmoid(prediction) # converts logits to probabilities
             target = target.long()
+
+            if 'TTT' in self.hparams.adaptation_mode and 'test' in mode:
+                task_prediction_JT = torch.sigmoid(task_prediction_JT)
+
+        if 'TTT' in self.hparams.adaptation_mode and 'test' in mode:
+            getattr(self, f'{mode}_predictions_JT').append(task_prediction_JT.detach().cpu())
+            getattr(self, f'{mode}_predictions_TTT').append(prediction.detach().cpu())
+            getattr(self, f'{mode}_targets').append(target.detach().cpu())
 
         metrics = getattr(self, f'{mode}_metrics')
 
