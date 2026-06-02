@@ -15,6 +15,7 @@ logger:
   name: ${task}_${architecture}_${adaptation_mode}_${train_percent}_${env:JOB_ID}
   log_model: true
   tags: ["chi_${seed}"]
+  # tags: ["residuals_${seed}"]
 
 trainer:
   _target_: lightning.pytorch.Trainer

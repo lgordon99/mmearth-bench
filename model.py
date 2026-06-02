@@ -544,7 +544,7 @@ class TaskModalityDecoderLoss(nn.Module):
 # ============================================== MODULE CLASSES ============================================== #
 
 class EncoderDecoder(nn.Module):
-    def __init__(self, task, architecture, adaptation_mode, pixelwise, num_classes, pretrained, lr, seed):
+    def __init__(self, task, architecture, adaptation_mode, pixelwise, num_classes, pretrained, lr, seed, excluded_modality):
         super().__init__()
 
         self.task = task
@@ -595,6 +595,7 @@ class EncoderDecoder(nn.Module):
             self.task_modality_decoder.requires_grad_(False) # freezes the task modality decoder
             self.mode = 'val'
             self.val_best_num_iterations = 5
+            self.excluded_modality = excluded_modality
 
     def get_state_dict(self, adaptation_mode):
         runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': [f'chi_{self.seed}']}}) # filters to only include runs with a certain tag
@@ -610,7 +611,7 @@ class EncoderDecoder(nn.Module):
 
         return ckpt['state_dict']
 
-    def ttt(self, input_data, task_modality_data, num_iterations, return_all_iterations):
+    def ttt(self, input_data, task_modality_data, num_iterations, return_all_iterations, excluded_modality):
         self.encoder.eval()
         self.task_decoder.eval()
         self.task_modality_decoder.eval()
@@ -646,6 +647,10 @@ class EncoderDecoder(nn.Module):
 
                 modality_reconstructions = self.task_modality_decoder(input_embeddings)
                 del input_embeddings
+
+                if excluded_modality:
+                    modality_reconstructions = {modality: reconstruction for modality, reconstruction in modality_reconstructions.items() if modality != excluded_modality}
+
                 modality_reconstruction_losses = self.modality_reconstruction_loss_calculator(modality_reconstructions, task_modality_data)
                 del modality_reconstructions
                 gradients_per_modality = []
@@ -701,12 +706,12 @@ class EncoderDecoder(nn.Module):
             return task_prediction, modality_reconstructions, task_modality_reconstruction_loss
         elif 'TTT' in self.adaptation_mode:
             print(f'Running TTT for {self.val_best_num_iterations} iteration(s)')
-            task_prediction = self.ttt(input_data, task_modality_data, num_iterations=self.val_best_num_iterations, return_all_iterations=self.mode=='val')
+            task_prediction = self.ttt(input_data, task_modality_data, num_iterations=self.val_best_num_iterations, return_all_iterations=self.mode=='val', excluded_modality=self.excluded_modality)
 
             return task_prediction
 
 class Model(LightningModule):
-    def __init__(self, task, architecture, adaptation_mode, pretrained, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, inner_loop_lr, seed):
+    def __init__(self, task, architecture, adaptation_mode, pretrained, max_lr, weight_decay, warmup_epochs, num_train_batches, min_lr, epochs, inner_loop_lr, seed, excluded_modality=None):
         super().__init__()
 
         self.save_hyperparameters()
@@ -737,7 +742,8 @@ class Model(LightningModule):
                                     num_classes=self.num_classes,
                                     pretrained=self.hparams.pretrained,
                                     lr=self.hparams.inner_loop_lr,
-                                    seed=self.hparams.seed)
+                                    seed=self.hparams.seed,
+                                    excluded_modality=self.hparams.excluded_modality)
 
     def configure_metrics(self):
         if self.hparams.task == 'species':
