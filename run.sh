@@ -9,7 +9,7 @@ data_dir_path=$(python -c "import yaml; print(yaml.safe_load(open('config-user.y
 if [[ "$adaptation_mode" == *TTT* ]]; then
     TIME="0-6:00"
 elif [[ "$adaptation_mode" == "FT" || "$adaptation_mode" == "JT" || "$adaptation_mode" == "LP" ]]; then
-    TIME="1-00:00"
+    TIME="2-00:00"
 fi
 
 if [[ "$task" == "species" ]]; then
@@ -40,7 +40,7 @@ cat > $bash_file <<EOF
 #SBATCH --ntasks-per-node $NUM_GPUS
 #SBATCH --gres gpu:nvidia_h200:$NUM_GPUS
 #SBATCH --output ${data_dir_path}/experiments/output-files/${task}/${task}_${architecture}_${adaptation_mode}_${train_percent}_${seed}.out
-#SBATCH --account gajos_lab
+#SBATCH --account davies_lab
 
 source ~/.bashrc
 conda activate $data_dir_path/mmearth-bench-env
