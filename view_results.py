@@ -1,12 +1,16 @@
 from matplotlib.ticker import FixedLocator
+import json
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
+from sklearn.metrics import average_precision_score
 import subprocess
 import torch
 import utils
 import wandb
+import re
+import requests
 
 entity = utils.read_yaml('config-user.yml')['entity']
 project = utils.read_yaml('config-user.yml')['project']
@@ -16,6 +20,86 @@ tasks = ['biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH', 'species'
 os.makedirs('results_figures', exist_ok=True)
 os.makedirs('results_tex', exist_ok=True)
 os.makedirs('results_PDF', exist_ok=True)
+os.makedirs('results_cache/wandb/predictions', exist_ok=True)
+os.makedirs('results_cache/wandb/runs', exist_ok=True)
+
+RESIDUALS_WANDB_TAG = 'residuals_42'
+WANDB_CACHE_DIR = 'results_cache/wandb'
+
+def _sanitize_cache_key(value):
+    return re.sub(r'[^\w.-]+', '_', value.strip('_'))
+
+def _predictions_cache_path(tag, run_name_prefix, split, flatten=False):
+    cache_dir = os.path.join(WANDB_CACHE_DIR, 'predictions', tag)
+    os.makedirs(cache_dir, exist_ok=True)
+    suffix = '_flat' if flatten else ''
+    return os.path.join(cache_dir, f'{_sanitize_cache_key(run_name_prefix)}_{split}{suffix}.npz')
+
+def _runs_cache_path(tag):
+    cache_dir = os.path.join(WANDB_CACHE_DIR, 'runs')
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, f'{_sanitize_cache_key(entity)}_{_sanitize_cache_key(project)}_{tag}.json')
+
+def get_wandb_runs_by_tag(tag):
+    cache_file = _runs_cache_path(tag)
+    if os.path.exists(cache_file):
+        with open(cache_file) as f:
+            return json.load(f)
+
+    runs = list(wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': [tag]}}))
+    run_infos = [{'id': run.id, 'name': run.name} for run in runs]
+    with open(cache_file, 'w') as f:
+        json.dump(run_infos, f)
+    return run_infos
+
+def _find_run_for_prefix(run_infos, run_name_prefix):
+    matching = [info for info in run_infos if info['name'].startswith(run_name_prefix)]
+    return matching[0] if matching else None
+
+def load_predictions_targets(run_name_prefix, split, tag=RESIDUALS_WANDB_TAG, flatten=False, run_infos=None):
+    """Load predictions/targets arrays from local cache or a W&B artifact."""
+    cache_file = _predictions_cache_path(tag, run_name_prefix, split, flatten)
+    if os.path.exists(cache_file):
+        data = np.load(cache_file)
+        return {key: data[key] for key in data.files}
+
+    if run_infos is None:
+        run_infos = get_wandb_runs_by_tag(tag)
+    run_info = _find_run_for_prefix(run_infos, run_name_prefix)
+    if run_info is None:
+        return None
+
+    run = wandb.Api().run(f'{entity}/{project}/{run_info["id"]}')
+    for artifact in run.logged_artifacts():
+        if artifact.name.startswith(f'predictions_targets_{split}.pt'):
+            pt = torch.load(os.path.join(artifact.download(), f'predictions_targets_{split}.pt'))
+            arrays = {
+                'predictions_JT': pt['predictions_JT'].float().numpy(),
+                'predictions_TTT': pt['predictions_TTT'].float().numpy(),
+                'targets': pt['targets'].float().numpy(),
+            }
+            if flatten:
+                arrays = {key: value.flatten() for key, value in arrays.items()}
+            np.savez_compressed(cache_file, **arrays)
+            return arrays
+    return None
+
+def _load_residuals_predictions_data(task, models, splits, tag=RESIDUALS_WANDB_TAG, flatten=False):
+    run_infos = get_wandb_runs_by_tag(tag)
+    data = {}
+    for split in splits:
+        data[split] = {}
+        for model in models:
+            names = ['_'.join([task, model, 'JT-TTT', str(100)]) + '_',
+                     '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_']
+            data[split][model] = {}
+            for name in names:
+                data[split][model][name] = {}
+                predictions = load_predictions_targets(name, split, tag=tag, flatten=flatten, run_infos=run_infos)
+                if predictions is None:
+                    continue
+                data[split][model][name].update(predictions)
+    return data
 
 def compile_latex(tex_file):
     """Compile a LaTeX file to PDF using pdflatex and save PDF to results_PDF folder."""
@@ -148,11 +232,11 @@ def display_arch_name(name: str) -> str:
         return name
 
 # Font size configuration
-LEGEND_FONTSIZE = 7
-AXIS_LABEL_FONTSIZE = 7
+LEGEND_FONTSIZE = 8
+AXIS_LABEL_FONTSIZE = 8
 COL_WIDTH = 4.8
-MARKER_SIZE = 1
-LINE_WIDTH = 0.5
+MARKER_SIZE = 2
+LINE_WIDTH = 1.0
 
 # Set font to Times for all figures
 plt.rcParams['pdf.fonttype'] = 42
@@ -315,6 +399,94 @@ def tabulate_results_task(task, adaptation_mode):
 
     return latex
 
+def tabulate_iteration_numbers():
+    """Tabulate the iteration number used in TTT-MMR for each task for each model
+    averaged across the three seeds (41, 42, 43), using the chi_ tags.
+    Extracts the number from WandB console logs: "Running TTT for X iteration(s)".
+    """
+    tags = ['chi_41', 'chi_42', 'chi_43']
+    adaptation_mode = 'JT-TTT'
+
+    pattern = re.compile(r"Running TTT for (\d+) iteration\(s\)")
+
+    # Initialize results storage: arch -> task -> list of iteration counts
+    results = {arch: {task: [] for task in tasks} for arch in architectures_plots}
+
+    # Load all runs with the relevant tags and adaptation mode
+    print("Loading runs from WandB...")
+    all_runs_list = wandb.Api().runs(f'{entity}/{project}', filters={
+        'tags': {'$in': tags},
+        'config.adaptation_mode': adaptation_mode
+    })
+
+    for run in all_runs_list:
+        cfg = run.config
+        task = cfg.get('task')
+        arch = cfg.get('architecture')
+
+        if task not in tasks or arch not in architectures_plots:
+            continue
+
+        try:
+            # Get the output.log file from WandB
+            log_file = run.file("output.log")
+            if log_file:
+                # Use requests to get the content without creating a local file
+                response = requests.get(log_file.url)
+                if response.status_code == 200:
+                    content = response.text
+                    # Search for the pattern in content
+                    matches = pattern.findall(content)
+                    if matches:
+                        # Use the last match as requested
+                        last_iter = int(matches[-1])
+                        results[arch][task].append(last_iter)
+        except Exception as e:
+            print(f"Warning: Could not read WandB logs for run {run.name}: {e}")
+
+    # Compute averages across seeds
+    avg_data = {arch: {task: np.nan for task in tasks} for arch in architectures_plots}
+    for arch in architectures_plots:
+        for task in tasks:
+            if results[arch][task]:
+                avg_data[arch][task] = np.mean(results[arch][task])
+
+    # Create DataFrame for tabulation
+    df = pd.DataFrame.from_dict(avg_data, orient='index')
+    # Use display names for models
+    df.index = [display_arch_name(idx) for idx in df.index]
+    # Use pretty names for tasks
+    df.columns = [task.replace('_', ' ').capitalize().replace('ph', 'pH') for task in tasks]
+
+    # Generate LaTeX table
+    latex = df.to_latex(index=True,
+                        header=True,
+                        index_names=False,
+                        escape=False,
+                        na_rep='--',
+                        float_format="%.2f",
+                        column_format='l' + 'c' * len(tasks))
+
+    caption = "Average iteration number used in TTT-MMR for each task and model, averaged across seeds 41, 42, and 43."
+
+    latex_table = (
+        "\\begin{table*}[ht]\n"
+        "\\centering\n"
+        f"\\caption{{{caption}}}\n"
+        "\\resizebox{\\linewidth}{!}{%\n"
+        f"{latex}\n"
+        "}\n"
+        "\\label{tab:ttt_iteration_numbers}\n"
+        "\\end{table*}\n"
+    )
+
+    tex_file = 'results_tex/iteration_numbers.tex'
+    with open(tex_file, 'w') as f:
+        f.write(latex_table)
+
+    print(f"Tabulated iteration numbers to {tex_file}")
+    compile_latex(tex_file)
+
 def tabulate_results(adaptation_mode):
     """Generate combined LaTeX table for all tasks with both Random and Geographic splits.
 
@@ -476,27 +648,761 @@ def tabulate_TTT_results():
         file.write(latex)
     compile_latex(tex_file)
 
-def set_y_ticks_and_limits(ax, y_min, y_max):
+def tabulate_TTT_modality_excluded():
+    """Create a modality-exclusion table for CopernicusFM and DINOv3Sat JT-TTT runs.
+
+    Rows are modalities listed in task_modalities.json.
+    Columns are tasks x splits (Random, Geographic).
+    Uses R2 for regression tasks and mAP for species.
+    """
+    task_list = ['biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH', 'species']
+    split_list = ['Random', 'Geographic']
+    modalities = utils.read_json('task_modalities.json')
+    architectures = ['CopernicusFM', 'DINOv3Sat']
+    adaptation_mode = 'JT-TTT'
+    train_percent = 100
+
+    all_runs = list(wandb.Api().runs(f'{entity}/{project}'))
+    all_latex = []
+
+    for architecture in architectures:
+        # Collect metrics per modality, task, and split.
+        data = {
+            modality: {task: {split: np.nan for split in split_list} for task in task_list}
+            for modality in modalities
+        }
+
+        for modality in modalities:
+            modality_tag = f'excluded_{modality}'
+            for task in task_list:
+                metric = 'R2' if task != 'species' else 'mAP'
+                prefix = '_'.join([task, architecture, adaptation_mode, str(train_percent)]) + '_'
+                matching_runs = [
+                    run for run in all_runs
+                    if modality_tag in run.tags and run.name.startswith(prefix)
+                ]
+
+                for split in split_list:
+                    metric_name = f'{split} test {metric}'
+                    values = [
+                        run.summary_metrics.get(metric_name, np.nan)
+                        for run in matching_runs
+                    ]
+                    numeric_values = pd.to_numeric(pd.Series(values), errors='coerce').dropna()
+                    if not numeric_values.empty:
+                        data[modality][task][split] = float(numeric_values.mean())
+
+        # Build a fixed-width row matrix (11 columns total):
+        # excluded modality + (5 tasks x 2 splits).
+        columns = [(task, split) for task in task_list for split in split_list]
+
+        def _latex_escape(text):
+            return str(text).replace('_', r'\_')
+
+        def _task_label(task_name):
+            return task_name.replace('_', ' ').capitalize().replace('ph', 'pH')
+
+        # Header row 1: Architecture name spanning ten columns.
+        display_name = display_arch_name(architecture)
+        top_header = f'\\textbf{{Excluded modality}} & \\multicolumn{{10}}{{c}}{{\\textbf{{{display_name}}}}} \\\\'
+
+        # Header row 2: each task spans Random + Geographic.
+        task_headers = [
+            f'\\multicolumn{{2}}{{c}}{{\\textbf{{{_task_label(task)}}}}}'
+            for task in task_list
+        ]
+        mid_header = ' & '.join([''] + task_headers) + r' \\'
+
+        # Header row 1: Random/Geographic for each task.
+        split_headers = []
+        for _ in task_list:
+            split_headers.extend([r'\textbf{Random}', r'\textbf{Geographic}'])
+        low_header = r'\textbf{Excluded modality} & ' + ' & '.join(split_headers) + r' \\'
+
+        # Column format: one left column + ten centered columns grouped by task.
+        column_format = 'l|' + '|'.join(['cc'] * len(task_list))
+        body_rows = []
+        for modality in modalities:
+            row_values = [_latex_escape(modality)]
+            for task, split in columns:
+                value = data[modality][task][split]
+                row_values.append('--' if pd.isna(value) else f'{value:.3f}')
+            body_rows.append(' & '.join(row_values) + r' \\')
+
+        table_body = (
+            f"\\begin{{tabular}}{{{column_format}}}\n"
+            "\\toprule\n"
+            + top_header + "\n"
+            + mid_header + "\n"
+            + low_header + "\n"
+            + "\\midrule\n"
+            + "\n".join(body_rows) + "\n"
+            + "\\bottomrule\n"
+            + "\\end{tabular}"
+        )
+
+        latex = (
+            "\\begin{table*}[ht]\n"
+            "\\centering\n"
+            f"\\caption{{\\textbf{{{display_name} test performance when excluding one modality at TTT time.}} "
+            "Rows denote the excluded modality (tagged as excluded\\_MODALITY). "
+            "Columns report Random and Geographic test performance for each task "
+            "(R$^2$ for regression tasks and mAP for species).}\n"
+            "\\resizebox{\\linewidth}{!}{%\n"
+            f"{table_body}\n"
+            "}\n"
+            f"\\label{{tab:ttt_modality_excluded_{architecture.lower()}}}\n"
+            "\\end{table*}\n"
+        )
+        all_latex.append(latex)
+
+    final_latex = "\n\n".join(all_latex)
+
+    tex_file = 'results_tex/tabulate_TTT_modality_excluded.tex'
+    with open(tex_file, 'w') as file:
+        file.write(final_latex)
+    compile_latex(tex_file)
+
+
+def plot_TTT_modality_excluded():
+    task_list = ['biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH', 'species']
+    split_list = ['Random', 'Geographic']
+    modalities = utils.read_json('task_modalities.json')
+    architectures = ['CopernicusFM', 'DINOv3Sat']
+    train_percent = 100
+
+    all_runs = list(wandb.Api().runs(f'{entity}/{project}'))
+
+    for architecture in architectures:
+        # Collect baseline performance per task and split (base JT from chi_42).
+        baseline_perf = {split: {task: np.nan for task in task_list} for split in split_list}
+
+        for split in split_list:
+            for task in task_list:
+                metric = 'R2' if task != 'species' else 'mAP'
+                metric_name = f'{split} test {metric}'
+
+                jt_prefix = '_'.join([task, architecture, 'JT', str(train_percent)]) + '_'
+                jt_runs = [
+                    run for run in all_runs
+                    if 'chi_42' in run.tags and run.name.startswith(jt_prefix)
+                ]
+
+                if jt_runs:
+                    jt_value = jt_runs[0].summary_metrics.get(metric_name, np.nan)
+                    if not np.isnan(jt_value):
+                        baseline_perf[split][task] = float(jt_value)
+
+        # Collect delta performance per modality, task, and split.
+        delta_by_task_split = {split: {task: [] for task in task_list} for split in split_list}
+
+        columns = ['None'] + modalities
+
+        for modality in columns:
+            if modality == 'None':
+                modality_tag = None
+            else:
+                modality_tag = f'excluded_{modality}'
+
+            for task in task_list:
+                metric = 'R2' if task != 'species' else 'mAP'
+                ttt_prefix = '_'.join([task, architecture, 'JT-TTT', str(train_percent)]) + '_'
+
+                if modality_tag is None:
+                    ttt_runs = [
+                        run for run in all_runs
+                        if 'chi_42' in run.tags and not any(tag.startswith('excluded_') for tag in run.tags) and run.name.startswith(ttt_prefix)
+                    ]
+                else:
+                    ttt_runs = [
+                        run for run in all_runs
+                        if modality_tag in run.tags and run.name.startswith(ttt_prefix)
+                    ]
+
+                for split in split_list:
+                    perfs = []
+                    metric_name = f'{split} test {metric}'
+
+                    for ttt_run in ttt_runs:
+                        ttt_value = ttt_run.summary_metrics.get(metric_name, np.nan)
+                        if not np.isnan(ttt_value):
+                            perfs.append(ttt_value)
+
+                    perf = float(np.mean(perfs)) if perfs else np.nan
+                    baseline = baseline_perf[split][task]
+
+                    if not pd.isna(perf) and not pd.isna(baseline):
+                        delta_by_task_split[split][task].append(perf - baseline)
+                    else:
+                        delta_by_task_split[split][task].append(np.nan)
+
+        def _modality_xtick_label(m):
+            if m == 'geolocation_encoding':
+                return 'geolocation'
+            if m == 'month_encoding':
+                return 'month'
+            return m.replace('_', ' ')
+
+        # Plot
+        for split in split_list:
+            fig, ax = plt.subplots(figsize=(6, 2.1))
+            x = np.arange(len(columns))
+            task_colors = ['green', 'blue', 'brown', 'purple', 'mediumvioletred']
+
+            for color, task in zip(task_colors, task_list):
+                y = np.array(delta_by_task_split[split][task], dtype=float)
+                ax.plot(
+                    x, y,
+                    marker='o',
+                    linewidth=LINE_WIDTH,
+                    markersize=MARKER_SIZE + 1,
+                    color=color,
+                    label=task.replace('_', ' ').capitalize().replace('nitrogen', 'N').replace('organic carbon', 'OC').replace('ph', 'pH')
+                )
+
+            ax.axhline(y=0, color='black', linewidth=LINE_WIDTH)
+
+            ax.set_xticks(x)
+            ax.set_xticklabels(
+                [_modality_xtick_label(m) for m in columns],
+                fontsize=AXIS_LABEL_FONTSIZE,
+                rotation=20,
+                ha='right',
+            )
+            ax.set_xlabel('Excluded modality', fontsize=AXIS_LABEL_FONTSIZE)
+
+            ax.set_ylabel('Δ Performance', fontsize=AXIS_LABEL_FONTSIZE)
+            ax.grid(True, alpha=0.3, axis='y')
+            ax.tick_params(axis='y', labelsize=AXIS_LABEL_FONTSIZE, pad=3, labelrotation=0)
+            ax.yaxis.set_major_locator(plt.MaxNLocator(5))
+
+            for spine in ax.spines.values():
+                spine.set_linewidth(0.5)
+
+            ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.35), ncol=len(task_list), fontsize=LEGEND_FONTSIZE, frameon=False, handletextpad=0.3, columnspacing=1.0)
+            plt.subplots_adjust(left=0.12, right=0.98, top=0.78, bottom=0.32)
+
+            plt.savefig(f'results_figures/TTT_modality_excluded_plot_{architecture.lower()}_{split.lower()}.pdf', dpi=300, bbox_inches='tight')
+            plt.savefig(f'results_figures/TTT_modality_excluded_plot_{architecture.lower()}_{split.lower()}.png', dpi=300, bbox_inches='tight')
+            plt.close()
+
+def compare_JT_TTT_reconstruction_quality():
+    """Tabulate **JT-TTT minus JT** per-modality reconstruction deltas for ``architectures_plots``.
+
+    Modalities come from ``task_modalities.json``. W&B metric keys match ``model.py``:
+
+    - Continuous: ``{Random|Geographic} test <modality> R2``
+    - Categorical: ``{Random|Geographic} test <modality> accuracy``
+
+    Categorical modalities match ``model.py`` (``DynamicWorld``, ``ESA_WorldCover``, ``biome``,
+    ``ecoregion``).
+
+    One LaTeX ``table*`` **per benchmark task** (no averaging across tasks): each cell is
+    JT-TTT $-$ JT for that task and model only.
+
+    JT runs use tag ``chi_42``; JT-TTT runs use ``residuals_42``. JT-TTT runs with ``excluded_*``
+    tags are skipped.
+
+    Train fraction is 100.
+
+    Writes ``results_tex/reconstruction_quality_jt_ttt_minus_jt.tex`` (several ``table*`` environments)
+    and runs ``compile_latex`` for ``results_PDF/reconstruction_quality_jt_ttt_minus_jt.pdf``.
+
+    Returns ``dict[task, DataFrame]`` with task-specific delta tables for inspection.
+    """
+    train_percent = 100
+    tag_jt = 'chi_42'
+    tag_jt_ttt = 'residuals_42'
+    splits = ['Random', 'Geographic']
+    modalities = utils.read_json('task_modalities.json')
+    categorical_modalities = frozenset({'DynamicWorld', 'ESA_WorldCover', 'biome', 'ecoregion'})
+
+    def _metric_key(split, modality):
+        suffix = 'accuracy' if modality in categorical_modalities else 'R2'
+        return f'{split} test {modality} {suffix}'
+
+    def _column_label(split, modality):
+        kind = 'acc' if modality in categorical_modalities else 'R²'
+        return f'Δ ({kind}) {split} — {modality}'
+
+    def _task_caption_label(task_name):
+        return task_name.replace('_', ' ').capitalize().replace('ph', 'pH')
+
+    all_runs_list = wandb.Api().runs(
+        f'{entity}/{project}',
+        filters={'tags': {'$in': [tag_jt, tag_jt_ttt]}},
+    )
+    runs_jt = [r for r in all_runs_list if tag_jt in r.tags]
+    runs_jt_ttt = [r for r in all_runs_list if tag_jt_ttt in r.tags]
+
+    def _standard_jt_ttt_run(run):
+        return not any(t.startswith('excluded_') for t in getattr(run, 'tags', ()) or [])
+
+    def _get_run_metric(pool, task, architecture, adaptation_mode, split, modality):
+        prefix = '_'.join([task, architecture, adaptation_mode, str(train_percent)]) + '_'
+        run = next((r for r in pool if r.name.startswith(prefix)), None)
+        if run is None:
+            return np.nan
+        if adaptation_mode == 'JT-TTT' and not _standard_jt_ttt_run(run):
+            return np.nan
+        key = _metric_key(split, modality)
+        v = run.summary_metrics.get(key, np.nan)
+        if v is None:
+            return np.nan
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return np.nan
+
+    metric_columns = [_column_label(sp, m) for sp in splits for m in modalities]
+    n_modalities = len(modalities)
+
+    def _modality_header(modality):
+        if '_' in modality:
+            return r'\shortstack{' + r' \\ '.join(modality.split('_')) + '}'
+        return modality
+
+    def _fmt_cell(x):
+        return '--' if pd.isna(x) else f'{float(x):.4f}'
+
+    modality_headers = [_modality_header(m) for m in modalities]
+    row1 = ''.join(['c'] * n_modalities)
+    column_format = f'l|{row1}|{row1}'
+    split_rand = '\\multicolumn{%d}{c|}{\\textbf{Random} ($\\Delta$ TTT-MMR$-$JT)}' % n_modalities
+    split_geo = '\\multicolumn{%d}{c}{\\textbf{Geographic} ($\\Delta$ TTT-MMR$-$JT)}' % n_modalities
+    header_top = '& ' + split_rand + ' & ' + split_geo + r' \\'
+    sub_header = (
+        '\\textbf{Model} & '
+        + ' & '.join(modality_headers)
+        + ' & '
+        + ' & '.join(modality_headers)
+        + r' \\'
+    )
+
+    latex_blocks = []
+    dfs_by_task = {}
+
+    for task in tasks:
+        rows_out = []
+        for architecture in architectures_plots:
+            row_data = {'Model': architecture}
+            for split in splits:
+                for modality in modalities:
+                    jt_v = _get_run_metric(runs_jt, task, architecture, 'JT', split, modality)
+                    ttt_v = _get_run_metric(runs_jt_ttt, task, architecture, 'JT-TTT', split, modality)
+                    col = _column_label(split, modality)
+                    if np.isnan(jt_v) or np.isnan(ttt_v):
+                        row_data[col] = np.nan
+                    else:
+                        row_data[col] = float(ttt_v - jt_v)
+            rows_out.append(row_data)
+
+        df = pd.DataFrame(rows_out)
+        df = df[['Model'] + metric_columns]
+        dfs_by_task[task] = df
+
+        body_rows = []
+        for _, row in df.iterrows():
+            arch = row['Model']
+            cells = [_fmt_cell(row[c]) for c in metric_columns]
+            body_rows.append(display_arch_name(arch) + ' & ' + ' & '.join(cells) + r' \\')
+
+        tabular = (
+            f'\\begin{{tabular}}{{{column_format}}}\n'
+            '\\toprule\n'
+            + header_top + '\n'
+            + sub_header + '\n'
+            '\\midrule\n'
+            + '\n'.join(body_rows) + '\n'
+            '\\bottomrule\n'
+            '\\end{tabular}'
+        )
+
+        task_tex = _task_caption_label(task).replace('&', r'\&')
+        label_safe = task.replace('_', '')
+        latex_blocks.append(
+            '\\begin{table*}[ht]\n'
+            '\\centering\n'
+            f'\\caption{{\\textbf{{{task_tex} per-modality reconstruction improvement for TTT-MMR over joint training (TTT-MMR $-$ JT).}} '
+            r'R$^2$ for continuous modalities, accuracy for '
+            r'\texttt{DynamicWorld}, \texttt{ESA\_WorldCover}, \texttt{biome}, \texttt{ecoregion}. '
+            '}\n'
+            '\\resizebox{\\linewidth}{!}{%\n'
+            + tabular + '\n'
+            '}\n'
+            f'\\label{{tab:reconstruction_jt_ttt_minus_jt_{label_safe}}}\n'
+            '\\end{table*}\n'
+            '\\vspace{2\\baselineskip}\n'
+        )
+
+        print(f'\n=== {task} ===')
+        print(df.to_string(index=False))
+
+    latex = ''.join(latex_blocks)
+
+    tex_path = 'results_tex/reconstruction_quality_jt_ttt_minus_jt.tex'
+    with open(tex_path, 'w') as f:
+        f.write(latex)
+    print(f"\nWrote {tex_path}")
+    compile_latex(tex_path)
+    return dfs_by_task
+
+def tabulate_JT_reconstruction_quality():
+    """Tabulate raw **JT** per-modality reconstruction numbers for ``architectures_plots`` averaged over seeds 41, 42, 43.
+
+    Similar to compare_JT_TTT_reconstruction_quality() but showing raw numbers instead of deltas,
+    and averaging over three seeds.
+    """
+    train_percent = 100
+    tags_jt = ['chi_41', 'chi_42', 'chi_43']
+    splits = ['Random', 'Geographic']
+    modalities = utils.read_json('task_modalities.json')
+    categorical_modalities = frozenset({'DynamicWorld', 'ESA_WorldCover', 'biome', 'ecoregion'})
+
+    def _metric_key(split, modality):
+        suffix = 'accuracy' if modality in categorical_modalities else 'R2'
+        return f'{split} test {modality} {suffix}'
+
+    def _column_label(split, modality):
+        kind = 'acc' if modality in categorical_modalities else 'R²'
+        return f'{kind} {split} -- {modality}'
+
+    def _task_caption_label(task_name):
+        return task_name.replace('_', ' ').capitalize().replace('ph', 'pH')
+
+    all_runs_list = wandb.Api().runs(
+        f'{entity}/{project}',
+        filters={'tags': {'$in': tags_jt}},
+    )
+    # Group runs by tag
+    runs_by_tag = {tag: [r for r in all_runs_list if tag in r.tags] for tag in tags_jt}
+
+    metric_columns = [_column_label(sp, m) for sp in splits for m in modalities]
+    n_modalities = len(modalities)
+
+    def _modality_header(modality):
+        if '_' in modality:
+            return r'\shortstack{' + r' \\ '.join(modality.split('_')) + '}'
+        return modality
+
+    def _fmt_cell(x):
+        return '--' if pd.isna(x) else f'{float(x):.4f}'
+
+    modality_headers = [_modality_header(m) for m in modalities]
+    row1 = ''.join(['c'] * n_modalities)
+    column_format = f'l|{row1}|{row1}'
+    split_rand = '\\multicolumn{%d}{c|}{\\textbf{Random}}' % n_modalities
+    split_geo = '\\multicolumn{%d}{c}{\\textbf{Geographic}}' % n_modalities
+    header_top = '& ' + split_rand + ' & ' + split_geo + r' \\'
+    sub_header = (
+        '\\textbf{Model} & '
+        + ' & '.join(modality_headers)
+        + ' & '
+        + ' & '.join(modality_headers)
+        + r' \\'
+    )
+
+    latex_blocks = []
+    dfs_by_task = {}
+
+    for task in tasks:
+        rows_out = []
+        for architecture in architectures_plots:
+            row_data = {'Model': architecture}
+            for split in splits:
+                for modality in modalities:
+                    col = _column_label(split, modality)
+                    seed_values = []
+                    for tag in tags_jt:
+                        prefix = '_'.join([task, architecture, 'JT', str(train_percent)]) + '_'
+                        run = next((r for r in runs_by_tag[tag] if r.name.startswith(prefix)), None)
+                        if run is not None:
+                            key = _metric_key(split, modality)
+                            v = run.summary_metrics.get(key, np.nan)
+                            try:
+                                v_float = float(v) if v is not None else np.nan
+                                if not np.isnan(v_float):
+                                    seed_values.append(v_float)
+                            except (TypeError, ValueError):
+                                pass
+
+                    if seed_values:
+                        row_data[col] = np.mean(seed_values)
+                    else:
+                        row_data[col] = np.nan
+            rows_out.append(row_data)
+
+        df = pd.DataFrame(rows_out)
+        df = df[['Model'] + metric_columns]
+        dfs_by_task[task] = df
+
+        body_rows = []
+        for _, row in df.iterrows():
+            arch = row['Model']
+            cells = [_fmt_cell(row[c]) for c in metric_columns]
+            body_rows.append(display_arch_name(arch) + ' & ' + ' & '.join(cells) + r' \\')
+
+        tabular = (
+            f'\\begin{{tabular}}{{{column_format}}}\n'
+            '\\toprule\n'
+            + header_top + '\n'
+            + sub_header + '\n'
+            '\\midrule\n'
+            + '\n'.join(body_rows) + '\n'
+            '\\bottomrule\n'
+            '\\end{tabular}'
+        )
+
+        task_tex = _task_caption_label(task).replace('&', r'\&')
+        label_safe = task.replace('_', '')
+        latex_blocks.append(
+            '\\begin{table*}[ht]\n'
+            '\\centering\n'
+            f'\\caption{{\\textbf{{{task_tex} per-modality reconstruction quality after JT (averaged across seeds 41, 42, 43).}} '
+            r'R$^2$ for continuous modalities, accuracy for '
+            r'\texttt{DynamicWorld}, \texttt{ESA\_WorldCover}, \texttt{biome}, \texttt{ecoregion}. '
+            r'}\n'
+            '\\resizebox{\\linewidth}{!}{%\n'
+            + tabular + '\n'
+            '}\n'
+            f'\\label{{tab:reconstruction_jt_raw_{label_safe}}}\n'
+            '\\end{table*}\n'
+            '\\vspace{2\\baselineskip}\n'
+        )
+
+        print(f'\n=== {task} (JT Raw Avg) ===')
+        print(df.to_string(index=False))
+
+    latex = ''.join(latex_blocks)
+
+    tex_path = 'results_tex/reconstruction_quality_jt_raw.tex'
+    with open(tex_path, 'w') as f:
+        f.write(latex)
+    print(f"\nWrote {tex_path}")
+    compile_latex(tex_path)
+    return dfs_by_task
+
+
+def check_TTT_need():
+    """Mean JT-TTT-Geo minus JT test performance for hand-picked model per (task, split), over 3 seeds.
+
+    Uses W&B runs tagged ``chi_41``, ``chi_42``, ``chi_43``. Train fraction 100. Main task metric:
+    Random/Geographic test R$^2$ (regression) or mAP (species). JT-TTT-Geo runs with ``excluded_*`` tags
+    are ignored.
+
+    Model per task and test split (R = Random, G = Geographic):
+
+    - Biomass R/G: MPMAE
+    - Soil N R: TerraMind; Soil N G: CopernicusFM
+    - Soil OC R/G: CopernicusFM
+    - Soil pH R/G: TerraMind
+    - Species R/G: CopernicusFM
+    """
+    train_percent = 100
+    tags = ['chi_41', 'chi_42', 'chi_43']
+
+    architecture_by_task_split = {
+        ('biomass', 'Random'): 'MPMAE',
+        ('biomass', 'Geographic'): 'MPMAE',
+        ('soil_nitrogen', 'Random'): 'TerraMind',
+        ('soil_nitrogen', 'Geographic'): 'CopernicusFM',
+        ('soil_organic_carbon', 'Random'): 'CopernicusFM',
+        ('soil_organic_carbon', 'Geographic'): 'CopernicusFM',
+        ('soil_pH', 'Random'): 'TerraMind',
+        ('soil_pH', 'Geographic'): 'TerraMind',
+        ('species', 'Random'): 'CopernicusFM',
+        ('species', 'Geographic'): 'CopernicusFM',
+    }
+
+    def _standard_jt_ttt_run(run):
+        return not any(t.startswith('excluded_') for t in getattr(run, 'tags', ()) or [])
+
+    def _run_for(pool, task, architecture, adaptation_mode):
+        prefix = '_'.join([task, architecture, adaptation_mode, str(train_percent)]) + '_'
+        return next((r for r in pool if r.name.startswith(prefix)), None)
+
+    all_runs_list = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': tags}})
+    runs_by_tag = {tag: [r for r in all_runs_list if tag in r.tags] for tag in tags}
+
+    rows = []
+    for task in tasks:
+        metric = 'R2' if task != 'species' else 'mAP'
+        for split in ['Random', 'Geographic']:
+            architecture = architecture_by_task_split[(task, split)]
+            metric_name = f'{split} test {metric}'
+            deltas = []
+            for tag in tags:
+                pool = runs_by_tag[tag]
+                jt_run = _run_for(pool, task, architecture, 'JT')
+                ttt_run = _run_for(pool, task, architecture, 'JT-TTT-Geo')
+                if jt_run is None or ttt_run is None or not _standard_jt_ttt_run(ttt_run):
+                    continue
+                jv = jt_run.summary_metrics.get(metric_name, np.nan)
+                tv = ttt_run.summary_metrics.get(metric_name, np.nan)
+                if jv is None or tv is None:
+                    continue
+                try:
+                    jv, tv = float(jv), float(tv)
+                except (TypeError, ValueError):
+                    continue
+                if np.isnan(jv) or np.isnan(tv):
+                    continue
+                deltas.append(tv - jv)
+
+            mean_d = float(np.mean(deltas)) if deltas else np.nan
+            std_e = (
+                float(np.std(deltas, ddof=1) / np.sqrt(len(deltas)))
+                if len(deltas) > 1
+                else (0.0 if deltas else np.nan)
+            )
+            rows.append({
+                'task': task,
+                'split': split,
+                'architecture': architecture,
+                'metric': metric,
+                'mean_jt_ttt_minus_jt': mean_d,
+                'std_error_across_seeds': std_e,
+                'n_seeds': len(deltas),
+            })
+
+    df = pd.DataFrame(rows)
+    print(df.to_string(index=False))
+
+    def _task_label(task_name):
+        return task_name.replace('_', ' ').capitalize().replace('ph', 'pH')
+
+    def _fmt_val(x):
+        if pd.isna(x):
+            return '--'
+        if abs(float(x)) < 0.001:
+            return f'{float(x):.5f}'
+        return f'{float(x):.4f}'
+
+    def _fmt_delta(mean_d, std_e):
+        if pd.isna(mean_d):
+            return '--'
+        mean_str = _fmt_val(mean_d)
+        if pd.isna(std_e):
+            return f'${mean_str}$'
+        return f'${mean_str} \\pm {_fmt_val(std_e)}$'
+
+    body_rows = []
+    for task in tasks:
+        task_rows = df[df['task'] == task]
+        rand_row = task_rows[task_rows['split'] == 'Random']
+        geo_row = task_rows[task_rows['split'] == 'Geographic']
+
+        if not rand_row.empty:
+            rand = rand_row.iloc[0]
+            rand_model = display_arch_name(rand['architecture'])
+            rand_delta = _fmt_delta(rand['mean_jt_ttt_minus_jt'], rand['std_error_across_seeds'])
+        else:
+            rand_model, rand_delta = '--', '--'
+
+        if not geo_row.empty:
+            geo = geo_row.iloc[0]
+            geo_model = display_arch_name(geo['architecture'])
+            geo_delta = _fmt_delta(geo['mean_jt_ttt_minus_jt'], geo['std_error_across_seeds'])
+        else:
+            geo_model, geo_delta = '--', '--'
+
+        body_rows.append(
+            f"\\textbf{{{_task_label(task)}}} & {rand_model} & {rand_delta} & {geo_model} & {geo_delta} \\\\"
+        )
+
+    column_format = 'l|cc|cc'
+    header_top = (
+        ' & \\multicolumn{2}{c|}{\\textbf{Random}} '
+        '& \\multicolumn{2}{c}{\\textbf{Geographic}} \\\\'
+    )
+    header_sub = (
+        r'\textbf{Task} & \textbf{Model} & $\Delta$ Performance '
+        r'& \textbf{Model} & $\Delta$ Performance \\'
+    )
+    tabular = (
+        f"\\begin{{tabular}}{{{column_format}}}\n"
+        "\\toprule\n"
+        + header_top + "\n"
+        + header_sub + "\n"
+        + "\\midrule\n"
+        + "\n".join(body_rows) + "\n"
+        + "\\bottomrule\n"
+        + "\\end{tabular}\n"
+    )
+    latex = (
+        "\\begin{table}[H]\n\\centering\n"
+        "\\resizebox{\\linewidth}{!}{%\n"
+        + tabular +
+        "}\n"
+        "\\caption{Improvement of TTT-MMR-Geo over joint training (mean $\\pm$ standard error across "
+        "3 seeds) for the best model for each task and test split at 100\\% training data.}\n"
+        "\\label{tab:check_ttt_need}\n"
+        "\\end{table}\n"
+    )
+
+    tex_path = 'results_tex/check_TTT_need.tex'
+    with open(tex_path, 'w') as f:
+        f.write(latex)
+    compile_latex(tex_path)
+
+    return df
+
+def compute_two_y_ticks(y_min, y_max, step=0.1, min_spacing=0.2, lower_tick_above_min=False):
+    """Compute two y-axis tick locations using the same logic as plot_rq3_performance."""
+    tick_decimals = 0 if step >= 1 else 1
+    tick_bottom = np.ceil(y_min / step) * step
+    tick_top = np.floor(y_max / step) * step
+    if step >= 1:
+        tick_bottom = int(tick_bottom)
+        tick_top = int(tick_top)
+        if tick_top < tick_bottom:
+            tick_bottom = int(np.ceil(y_min))
+            tick_top = int(np.ceil(y_max))
+    else:
+        tick_bottom = round(tick_bottom, tick_decimals)
+        tick_top = round(tick_top, tick_decimals)
+
+    tick_top_expanded = tick_top - tick_bottom < min_spacing - 1e-9
+    if tick_top_expanded:
+        tick_top = tick_bottom + min_spacing
+        if step >= 1:
+            tick_top = int(tick_top)
+        else:
+            tick_top = round(tick_top, tick_decimals)
+
+    if lower_tick_above_min and np.isclose(tick_bottom, y_min, rtol=0, atol=step / 10):
+        tick_bottom += step
+        if step >= 1:
+            tick_bottom = int(tick_bottom)
+        else:
+            tick_bottom = round(tick_bottom, tick_decimals)
+        if tick_top - tick_bottom < min_spacing - 1e-9:
+            tick_top = tick_bottom + min_spacing
+            tick_top_expanded = True
+            if step >= 1:
+                tick_top = int(tick_top)
+            else:
+                tick_top = round(tick_top, tick_decimals)
+
+    return tick_bottom, tick_top, tick_top_expanded
+
+def set_y_ticks_and_limits(ax, y_min, y_max, step=0.1, min_spacing=0.2, lower_tick_above_min=False, pin_lower_limit=False):
     """Set y-axis ticks and limits based on data extremes.
 
     Ticks are rounded INWARDS from data extremes (ceil for lower, floor for upper),
-    with at least 0.2 spacing. Limits are set 0.1 outside the ticks.
+    with at least min_spacing between them. Limits are set slightly outside the ticks.
     """
-    # Round inwards: ceil for lower tick, floor for upper tick
-    tick_bottom = round(np.ceil(y_min / 0.1) * 0.1, 1)
-    tick_top = round(np.floor(y_max / 0.1) * 0.1, 1)
-    tick_top_expanded = False
-
-    # Ensure at least 0.2 spacing between ticks
-    if tick_top - tick_bottom < 0.19:
-        # Expand upper tick if inward rounding made them too close/inverted
-        tick_top = round(tick_bottom + 0.2, 1)
-        tick_top_expanded = True
+    tick_bottom, tick_top, tick_top_expanded = compute_two_y_ticks(
+        y_min, y_max, step, min_spacing, lower_tick_above_min=lower_tick_above_min,
+    )
 
     ax.yaxis.set_major_locator(FixedLocator([tick_bottom, tick_top]))
-    ax.tick_params(axis='both', labelsize=AXIS_LABEL_FONTSIZE)
-    # Set limits 0.1 outside the ticks, ensuring at least 0.1 above actual max
-    y_min_limit = y_min - 0.05 * (y_max - y_min)
+    ax.tick_params(axis='y', labelsize=AXIS_LABEL_FONTSIZE)
+    # Set limits slightly outside the ticks, ensuring room above the data max
+    if pin_lower_limit:
+        y_min_limit = tick_bottom
+    else:
+        y_min_limit = y_min - 0.05 * (y_max - y_min)
     y_max_limit = tick_top if tick_top_expanded else max(tick_top + 0.05 * (y_max - y_min_limit), y_max + 0.05 * (y_max - y_min_limit))
     ax.set_ylim([y_min_limit, y_max_limit])
 
@@ -540,7 +1446,7 @@ def plot_rq1_performance(split, adaptation_mode):
                     all_data.append({'task': task, 'architecture': architecture, 'train_percent': train_percent, 'metric': avg_metric, 'std_error': std_error})
 
     df = pd.DataFrame(all_data) # converts the data to a DataFrame
-    fig, axes = plt.subplots(1, 5, figsize=(COL_WIDTH, 1.5), gridspec_kw=dict(left=0.07, right=0.98, top=0.71, bottom=0.24, wspace=0.4))
+    fig, axes = plt.subplots(1, 5, figsize=(COL_WIDTH, 1.5), gridspec_kw=dict(left=0.07, right=0.98, top=0.71, bottom=0.25, wspace=0.4))
 
     for i, task in enumerate(tasks):
         ax = axes[i] # gets the axis for the current task
@@ -608,6 +1514,7 @@ def plot_rq1_performance(split, adaptation_mode):
         ax.set_title(f"{task.replace('_', ' ').capitalize().replace('nitrogen', 'N').replace('organic carbon', 'OC').replace('ph', 'pH')}", fontsize=AXIS_LABEL_FONTSIZE)
         ax.grid(True, alpha=0.3)
         ax.set_xticks(train_percents)
+        ax.tick_params(axis='x', labelsize=AXIS_LABEL_FONTSIZE)
         set_y_ticks_and_limits(ax, y_min, y_max)
 
     handles, labels = axes[0].get_legend_handles_labels()
@@ -694,7 +1601,7 @@ def plot_rq1_performance(split, adaptation_mode):
 
     legend3 = fig.legend(col3_handles, col3_labels,
                         loc='upper center',
-                        bbox_to_anchor=(0.48, legend_y_position),
+                        bbox_to_anchor=(0.46, legend_y_position),
                         ncol=1,
                         handletextpad=0.1,
                         handlelength=1,
@@ -705,7 +1612,7 @@ def plot_rq1_performance(split, adaptation_mode):
 
     legend4 = fig.legend(col4_handles, col4_labels,
                         loc='upper center',
-                        bbox_to_anchor=(0.67, legend_y_position),
+                        bbox_to_anchor=(0.64, legend_y_position),
                         ncol=1,
                         handletextpad=0.1,
                         handlelength=1,
@@ -716,7 +1623,7 @@ def plot_rq1_performance(split, adaptation_mode):
 
     legend5 = fig.legend(col5_handles, col5_labels,
                         loc='upper center',
-                        bbox_to_anchor=(0.88, legend_y_position),
+                        bbox_to_anchor=(0.875, legend_y_position),
                         ncol=1,
                         handletextpad=0.1,
                         handlelength=1,
@@ -776,7 +1683,7 @@ def plot_rq2_performance(adaptation_mode):
     df = pd.DataFrame(all_data)
 
     # 1 row x 5 columns
-    fig, axes = plt.subplots(1, 5, figsize=(COL_WIDTH, 1.1), gridspec_kw=dict(left=0.07, right=0.99, top=0.83, bottom=0.32, wspace=0.38))
+    fig, axes = plt.subplots(1, 5, figsize=(COL_WIDTH, 1.1), gridspec_kw=dict(left=0.07, right=0.99, top=0.83, bottom=0.34, wspace=0.38))
 
     for i, task in enumerate(tasks):
         ax = axes[i]
@@ -856,6 +1763,7 @@ def plot_rq2_performance(adaptation_mode):
         ax.grid(True, alpha=0.3)
         ax.set_xticks([0, 1])
         ax.set_xticklabels(['R', 'G'])
+        ax.tick_params(axis='x', labelsize=AXIS_LABEL_FONTSIZE)
         set_y_ticks_and_limits(ax, y_min, y_max)
 
     plt.savefig(f'results_figures/RQ2_{adaptation_mode}_plot.pdf', dpi=300)
@@ -918,7 +1826,7 @@ def plot_rq3_performance(adaptation_mode):
     df = pd.DataFrame(rows)
 
     # Figure: 2 rows x 5 columns (splits x tasks); leave right margin for legend
-    fig, axes = plt.subplots(2, 5, figsize=(COL_WIDTH, 2), gridspec_kw=dict(left=0.07, right=0.73, top=0.89, bottom=0.20, wspace=0.4, hspace=0.3))
+    fig, axes = plt.subplots(2, 5, figsize=(COL_WIDTH, 2), gridspec_kw=dict(left=0.07, right=0.7, top=0.89, bottom=0.20, wspace=0.4, hspace=0.3))
 
     for i, task in enumerate(tasks):
         for j, split in enumerate(splits):
@@ -977,7 +1885,8 @@ def plot_rq3_performance(adaptation_mode):
             ax.grid(True, alpha=0.3)
             ax.tick_params(axis='y', rotation=90)
             ax.set_xticks(train_percents)
-            set_y_ticks_and_limits(ax, y_min, y_max)
+            ax.tick_params(axis='x', labelsize=AXIS_LABEL_FONTSIZE)
+            set_y_ticks_and_limits(ax, y_min, y_max, min_spacing=0.1)
 
             # Remove x-axis ticks and labels on top row
             if j == 0:
@@ -993,17 +1902,17 @@ def plot_rq3_performance(adaptation_mode):
     # Add "Random" and "Geographic" labels to the right of the subplots
     top_row_center = (axes[0, 0].get_position().y0 + axes[0, 0].get_position().y1) / 2
     bottom_row_center = (axes[1, 0].get_position().y0 + axes[1, 0].get_position().y1) / 2
-    fig.text(0.75, top_row_center, 'Random', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
-    fig.text(0.75, bottom_row_center, 'Geographic', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
+    fig.text(0.72, top_row_center, 'Random', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
+    fig.text(0.72, bottom_row_center, 'Geographic', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='center', va='center')
 
     # Legend under the plot
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels,
                loc='center left',
-               bbox_to_anchor=(0.76, 0.5),
+               bbox_to_anchor=(0.72, 0.5),
                ncol=1,
                handletextpad=0.3,
-               handlelength=1,
+               handlelength=1.3,
                labelspacing=0.1,
                fontsize=LEGEND_FONTSIZE,
                frameon=False)
@@ -1105,7 +2014,7 @@ def plot_ttt_improvement():
     fig, axes = plt.subplots(
             1, 5,
             figsize=(COL_WIDTH, 1.4),
-            gridspec_kw=dict(wspace=0.35, left=0.07, right=0.99, top=0.88, bottom=0.22)
+            gridspec_kw=dict(wspace=0.35, left=0.07, right=0.99, top=0.87, bottom=0.22)
         )
 
     colors = ['#1f77b4', '#ff7f0e']  # Blue for TTT-MMR, Orange for TTT-MMR-Geo
@@ -1156,8 +2065,15 @@ def plot_ttt_improvement():
             for patch, color in zip(bp['boxes'], mode_colors):
                 patch.set_facecolor(color)
                 patch.set_alpha(0.7)
-                patch.set_edgecolor('black')
+                patch.set_edgecolor(color)
                 patch.set_linewidth(0.5)
+
+            # Color whiskers and caps (2 each per box) to match the fill color
+            for k, color in enumerate(mode_colors):
+                for elem in bp['whiskers'][2 * k:2 * k + 2]:
+                    elem.set_color(color)
+                for elem in bp['caps'][2 * k:2 * k + 2]:
+                    elem.set_color(color)
 
         ax.axhline(y=0, color='black', linewidth=LINE_WIDTH)
 
@@ -1192,7 +2108,7 @@ def plot_ttt_improvement():
     legend_handles = [plt.Rectangle((0,0),1,1, facecolor=color, alpha=0.7) for color in colors]
     fig.legend(legend_handles, legend_labels,
             loc='lower center',
-            bbox_to_anchor=(0.5, -0.05),
+            bbox_to_anchor=(0.5, -0.07),
             ncol=len(legend_labels),
             fontsize=LEGEND_FONTSIZE,
             frameon=False)
@@ -1302,7 +2218,7 @@ def plot_ttt_improvement_normalized():
     fig, axes = plt.subplots(
             1, 5,
             figsize=(COL_WIDTH, 1.4),
-            gridspec_kw=dict(wspace=0.35, left=0.1, right=0.99, top=0.88, bottom=0.22)
+            gridspec_kw=dict(wspace=0.35, left=0.07, right=0.99, top=0.87, bottom=0.22)
         )
 
     colors = ['#1f77b4', '#ff7f0e']  # Blue for TTT-MMR, Orange for TTT-MMR-Geo
@@ -1310,30 +2226,32 @@ def plot_ttt_improvement_normalized():
     for i, task in enumerate(tasks):
         ax = axes[i]
 
-        # Prepare boxplot data: Random (TTT-MMR, TTT-MMR-Geo), Geographic (TTT-MMR, TTT-MMR-Geo)
+        # We'll plot 4 boxes: Random(JT-TTT), Random(JT-TTT-Geo), Geo(JT-TTT), Geo(JT-TTT-Geo)
+        # Positions: 1, 2 (small gap) 3, 4
+
         stats_list = []
         positions = []
-        box_colors = []
+        mode_colors = []
 
-        pos = 1
-        for split in splits:
-            for mode, color in zip(['JT-TTT', 'JT-TTT-Geo'], colors):
-                stats = averaged_stats[task][split][mode]
-                if stats is not None:
-                    # Convert to percentage
-                    stats_dict = {
-                        'med': stats['med'] * 100,
-                        'q1': stats['q1'] * 100,
-                        'q3': stats['q3'] * 100,
-                        'whislo': stats['whislo'] * 100,
-                        'whishi': stats['whishi'] * 100,
-                        'mean': stats['mean'] * 100
-                    }
-                    stats_list.append(stats_dict)
-                    positions.append(pos)
-                    box_colors.append(color)
-                    pos += 1
-            pos += 0.5  # Add gap between Random and Geographic
+        # Random split
+        split = 'Random'
+        base_pos = 1
+        for j, (mode, color) in enumerate(zip(['JT-TTT', 'JT-TTT-Geo'], colors)):
+            stats = averaged_stats[task][split][mode]
+            if stats is not None:
+                stats_list.append({k: v * 100 for k, v in stats.items()})
+                positions.append(base_pos + j)
+                mode_colors.append(color)
+
+        # Geographic split
+        split = 'Geographic'
+        base_pos = 3
+        for j, (mode, color) in enumerate(zip(['JT-TTT', 'JT-TTT-Geo'], colors)):
+            stats = averaged_stats[task][split][mode]
+            if stats is not None:
+                stats_list.append({k: v * 100 for k, v in stats.items()})
+                positions.append(base_pos + j)
+                mode_colors.append(color)
 
         if len(stats_list) > 0:
             bp = ax.bxp(stats_list,
@@ -1348,19 +2266,30 @@ def plot_ttt_improvement_normalized():
                         whiskerprops=dict(linewidth=LINE_WIDTH),
                         capprops=dict(linewidth=LINE_WIDTH))
 
-            for patch, color in zip(bp['boxes'], box_colors):
+            for patch, color in zip(bp['boxes'], mode_colors):
                 patch.set_facecolor(color)
                 patch.set_alpha(0.7)
-                patch.set_edgecolor('black')
+                patch.set_edgecolor(color)
                 patch.set_linewidth(0.5)
 
+            # Color whiskers and caps (2 each per box) to match the fill color
+            for k, color in enumerate(mode_colors):
+                for elem in bp['whiskers'][2 * k:2 * k + 2]:
+                    elem.set_color(color)
+                for elem in bp['caps'][2 * k:2 * k + 2]:
+                    elem.set_color(color)
+
+        ax.axhline(y=0, color='black', linewidth=LINE_WIDTH)
+
+        # X-axis labels
         ax.set_xticks([1.5, 3.5])
         ax.set_xticklabels(['R', 'G'], fontsize=AXIS_LABEL_FONTSIZE)
-        ax.axhline(y=0, color='black', linewidth=LINE_WIDTH)
+
         ax.grid(True, alpha=0.3, axis='y')
         ax.tick_params(axis='y', labelsize=AXIS_LABEL_FONTSIZE)
         ax.tick_params(axis='y', rotation=90)
 
+        # Smart y-ticks
         ymin, ymax = ax.get_ylim()
         rounded_ymin = np.round(ymin / 1) * 1
         rounded_ymax = np.round(ymax / 1) * 1
@@ -1376,14 +2305,14 @@ def plot_ttt_improvement_normalized():
         ax.set_title(task.replace('_', ' ').capitalize().replace('nitrogen', 'N').replace('organic carbon', 'OC').replace('ph', 'pH'), fontsize=AXIS_LABEL_FONTSIZE)
 
         if i == 0:
-            ax.set_ylabel('RI (%)', fontsize=AXIS_LABEL_FONTSIZE)
+             ax.set_ylabel('RI (%)', fontsize=AXIS_LABEL_FONTSIZE)
 
     # Legend
     legend_labels = ['TTT-MMR', 'TTT-MMR-Geo']
     legend_handles = [plt.Rectangle((0,0),1,1, facecolor=color, alpha=0.7) for color in colors]
     fig.legend(legend_handles, legend_labels,
             loc='lower center',
-            bbox_to_anchor=(0.5, -0.05),
+            bbox_to_anchor=(0.5, -0.07),
             ncol=len(legend_labels),
             fontsize=LEGEND_FONTSIZE,
             frameon=False)
@@ -2602,15 +3531,18 @@ def plot_residuals(task, JT_only=False, JT_TTT_MMR_only=False):
     else:
         unit = '(g/kg)'
 
-    runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['residuals_42']}}) # filters to only include runs with a certain tag
-    models = architectures_plots
+    # runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['residuals_42']}}) # filters to only include runs with a certain tag
+    runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['residuals2']}}) # filters to only include runs with a certain tag
+    # models = architectures_plots
+    models = ['ConvNeXtV2A']
     data = {}
 
     for split in ['random_test', 'geographic_test']:
         data[split] = {}
 
         for model in models:
-            names = ['_'.join([task, model, 'JT-TTT', str(100)]) + '_', '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_']
+            # names = ['_'.join([task, model, 'JT-TTT', str(100)]) + '_', '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_']
+            names = ['_'.join([task, model, 'JT-TTT', str(100)]) + '_']
             data[split][model] = {}
 
             for name in names:
@@ -2620,9 +3552,28 @@ def plot_residuals(task, JT_only=False, JT_TTT_MMR_only=False):
                 for artifact in run.logged_artifacts():
                     if artifact.name.startswith(f'predictions_targets_{split}.pt'):
                         predictions_targets = torch.load(f'{artifact.download()}/predictions_targets_{split}.pt')
-                        predictions_JT = predictions_targets['predictions_JT'].float().numpy().flatten()
-                        predictions_TTT = predictions_targets['predictions_TTT'].float().numpy().flatten()
-                        targets = predictions_targets['targets'].float().numpy().flatten()
+                        predictions_JT = predictions_targets['predictions_JT'].float().numpy()
+                        predictions_TTT = predictions_targets['predictions_TTT'].float().numpy()
+                        targets = predictions_targets['targets'].float().numpy()
+
+                        if task == 'species':
+                            predictions_JT = predictions_JT.T
+                            predictions_TTT = predictions_TTT.T
+                            targets = targets.T
+                        else:
+                            predictions_JT = predictions_JT.flatten()
+                            predictions_TTT = predictions_TTT.flatten()
+                            targets = targets.flatten()
+
+                        print(predictions_JT.shape, predictions_TTT.shape, targets.shape)
+
+                        if task == 'species':
+                            species_occurrences = targets.sum(axis=1)
+                            species_order = np.argsort(species_occurrences)[::-1]
+                            predictions_JT = predictions_JT[species_order]
+                            predictions_TTT = predictions_TTT[species_order]
+                            targets = targets[species_order]
+
                         data[split][model][name]['predictions_JT'] = predictions_JT
                         data[split][model][name]['predictions_TTT'] = predictions_TTT
                         data[split][model][name]['targets'] = targets
@@ -2740,6 +3691,594 @@ def plot_residuals(task, JT_only=False, JT_TTT_MMR_only=False):
 
         plt.close()
 
+def plot_residuals_species(JT_only=False, JT_TTT_MMR_only=False):
+    task = 'species'
+    models = architectures_plots
+    data = _load_residuals_predictions_data(task, models, ['random_test', 'geographic_test'], flatten=False)
+
+    group_size = 20
+    num_groups = 5
+
+    for split in ['random_test', 'geographic_test']:
+        predictions_JT_list = []
+        predictions_TTT_list = []
+        predictions_TTT_Geo_list = []
+        targets_list = []
+        targets_Geo_list = []
+
+        for model in models:
+            name_ttt = '_'.join([task, model, 'JT-TTT', str(100)]) + '_'
+            name_geo = '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_'
+            predictions_JT_list.append(data[split][model][name_ttt]['predictions_JT'])
+            predictions_TTT_list.append(data[split][model][name_ttt]['predictions_TTT'])
+            predictions_TTT_Geo_list.append(data[split][model][name_geo]['predictions_TTT'])
+            targets_list.append(data[split][model][name_ttt]['targets'])
+            targets_Geo_list.append(data[split][model][name_geo]['targets'])
+
+        predictions_JT = np.concatenate(predictions_JT_list, axis=0)
+        predictions_TTT = np.concatenate(predictions_TTT_list, axis=0)
+        predictions_TTT_Geo = np.concatenate(predictions_TTT_Geo_list, axis=0)
+        targets = np.concatenate(targets_list, axis=0)
+        targets_Geo = np.concatenate(targets_Geo_list, axis=0)
+
+        species_occurrences = targets.sum(axis=0)
+        species_order = np.argsort(species_occurrences)[::-1]
+        predictions_JT = predictions_JT[:, species_order]
+        predictions_TTT = predictions_TTT[:, species_order]
+        predictions_TTT_Geo = predictions_TTT_Geo[:, species_order]
+        targets = targets[:, species_order]
+        targets_Geo = targets_Geo[:, species_order]
+
+        residuals_JT = predictions_JT - targets
+        residuals_TTT = predictions_TTT - targets
+        residuals_TTT_Geo = predictions_TTT_Geo - targets_Geo
+
+        residuals_groups_JT = []
+        residuals_groups_TTT = []
+        residuals_groups_TTT_Geo = []
+        species_occurrences_sorted = species_occurrences[species_order]
+        total_occurrences = species_occurrences_sorted.sum()
+        group_percentages = []
+
+        for g in range(num_groups):
+            start = g * group_size
+            end = (g + 1) * group_size
+            residuals_groups_JT.append(residuals_JT[:, start:end].ravel())
+            residuals_groups_TTT.append(residuals_TTT[:, start:end].ravel())
+            residuals_groups_TTT_Geo.append(residuals_TTT_Geo[:, start:end].ravel())
+            group_percentages.append(species_occurrences_sorted[start:end].sum() / total_occurrences * 100)
+
+        fig, ax = plt.subplots(figsize=(COL_WIDTH, 4))
+        positions = np.arange(num_groups)
+
+        ax2 = ax.twinx()
+        ax2.bar(positions, group_percentages, width=1.0, color='gray', alpha=0.25, zorder=0)
+        ax2.set_ylabel('% of occurrences', color='gray', rotation=270, labelpad=15, fontsize=LEGEND_FONTSIZE)
+        ax2.tick_params(axis='y', labelsize=LEGEND_FONTSIZE, labelcolor='gray', color='gray')
+
+        width = 0.25
+        offset = 0.3
+        median_props = dict(color='black', linewidth=1.5)
+
+        boxplot_JT = ax.boxplot(
+            residuals_groups_JT, positions=positions - offset, widths=width,
+            patch_artist=True, showfliers=False,
+            boxprops=dict(facecolor='red', color='black'), medianprops=median_props)
+
+        if not JT_only:
+            boxplot_TTT = ax.boxplot(
+                residuals_groups_TTT, positions=positions, widths=width,
+                patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor='#1f77b4', color='black'), medianprops=median_props)
+
+        if not JT_only and not JT_TTT_MMR_only:
+            boxplot_TTT_Geo = ax.boxplot(
+                residuals_groups_TTT_Geo, positions=positions + offset, widths=width,
+                patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor='#ff7f0e', color='black'), medianprops=median_props)
+
+        ax.set_title(f'Species {split.replace("_", " ").title()} Residual Distribution', fontsize=LEGEND_FONTSIZE)
+        ax.set_xlabel('Species group', fontsize=LEGEND_FONTSIZE)
+        ax.set_ylabel('Residual', fontsize=LEGEND_FONTSIZE)
+        ax.axhline(0, color='black', linestyle='--', linewidth=1, alpha=0.7)
+        ax.set_xticks(np.arange(num_groups + 1) - 0.5, minor=True)
+        ax.tick_params(axis='x', which='minor', length=4, width=1)
+        ax.set_xticks(positions)
+        ax.set_xticklabels(['Dominant', 'Abundant', 'Common', 'Occasional', 'Rare'], fontsize=LEGEND_FONTSIZE)
+        ax.tick_params(axis='x', which='major', length=0)
+        ax.tick_params(axis='y', labelsize=LEGEND_FONTSIZE)
+
+        if JT_only:
+            ax.legend([boxplot_JT['boxes'][0]], ['JT'], loc='upper right', fontsize=LEGEND_FONTSIZE)
+        elif JT_TTT_MMR_only:
+            ax.legend([boxplot_JT['boxes'][0], boxplot_TTT['boxes'][0]], ['JT', 'TTT-MMR'], loc='upper right', fontsize=LEGEND_FONTSIZE)
+        else:
+            ax.legend([boxplot_JT['boxes'][0], boxplot_TTT['boxes'][0], boxplot_TTT_Geo['boxes'][0]], ['JT', 'TTT-MMR', 'TTT-MMR-Geo'], loc='upper right', fontsize=LEGEND_FONTSIZE)
+
+        plt.tight_layout()
+
+        if JT_only:
+            plt.savefig(f'results_figures/species_{split}_residual_distribution_JT_only.pdf', dpi=300)
+        elif JT_TTT_MMR_only:
+            plt.savefig(f'results_figures/species_{split}_residual_distribution_JT_TTT_MMR_only.pdf', dpi=300)
+        else:
+            plt.savefig(f'results_figures/species_{split}_residual_distribution.pdf', dpi=300)
+
+        plt.close()
+
+def plot_bce_species(JT_only=False, JT_TTT_MMR_only=False):
+    task = 'species'
+    models = architectures_plots
+    data = _load_residuals_predictions_data(task, models, ['random_test', 'geographic_test'], flatten=False)
+
+    group_size = 20
+    num_groups = 5
+    eps = 1e-7
+
+    for split in ['random_test', 'geographic_test']:
+        predictions_JT_list = []
+        predictions_TTT_list = []
+        predictions_TTT_Geo_list = []
+        targets_list = []
+        targets_Geo_list = []
+
+        for model in models:
+            name_ttt = '_'.join([task, model, 'JT-TTT', str(100)]) + '_'
+            name_geo = '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_'
+            predictions_JT_list.append(data[split][model][name_ttt]['predictions_JT'])
+            predictions_TTT_list.append(data[split][model][name_ttt]['predictions_TTT'])
+            predictions_TTT_Geo_list.append(data[split][model][name_geo]['predictions_TTT'])
+            targets_list.append(data[split][model][name_ttt]['targets'])
+            targets_Geo_list.append(data[split][model][name_geo]['targets'])
+
+        predictions_JT = np.concatenate(predictions_JT_list, axis=0)
+        predictions_TTT = np.concatenate(predictions_TTT_list, axis=0)
+        predictions_TTT_Geo = np.concatenate(predictions_TTT_Geo_list, axis=0)
+        targets = np.concatenate(targets_list, axis=0)
+        targets_Geo = np.concatenate(targets_Geo_list, axis=0)
+
+        species_occurrences = targets.sum(axis=0)
+        species_order = np.argsort(species_occurrences)[::-1]
+        predictions_JT = predictions_JT[:, species_order]
+        predictions_TTT = predictions_TTT[:, species_order]
+        predictions_TTT_Geo = predictions_TTT_Geo[:, species_order]
+        targets = targets[:, species_order]
+        targets_Geo = targets_Geo[:, species_order]
+
+        predictions_JT = np.clip(predictions_JT, eps, 1 - eps)
+        predictions_TTT = np.clip(predictions_TTT, eps, 1 - eps)
+        predictions_TTT_Geo = np.clip(predictions_TTT_Geo, eps, 1 - eps)
+
+        bce_JT = -(targets * np.log(predictions_JT) + (1 - targets) * np.log(1 - predictions_JT)).mean(axis=0)
+        bce_TTT = -(targets * np.log(predictions_TTT) + (1 - targets) * np.log(1 - predictions_TTT)).mean(axis=0)
+        bce_TTT_Geo = -(targets_Geo * np.log(predictions_TTT_Geo) + (1 - targets_Geo) * np.log(1 - predictions_TTT_Geo)).mean(axis=0)
+
+        bce_groups_JT = []
+        bce_groups_TTT = []
+        bce_groups_TTT_Geo = []
+        species_occurrences_sorted = species_occurrences[species_order]
+        total_occurrences = species_occurrences_sorted.sum()
+        group_percentages = []
+
+        for g in range(num_groups):
+            start = g * group_size
+            end = (g + 1) * group_size
+            bce_groups_JT.append(bce_JT[start:end])
+            bce_groups_TTT.append(bce_TTT[start:end])
+            bce_groups_TTT_Geo.append(bce_TTT_Geo[start:end])
+            group_percentages.append(species_occurrences_sorted[start:end].sum() / total_occurrences * 100)
+
+        fig, ax = plt.subplots(figsize=(COL_WIDTH, 4))
+        positions = np.arange(num_groups)
+
+        ax2 = ax.twinx()
+        ax2.bar(positions, group_percentages, width=1.0, color='gray', alpha=0.25, zorder=0)
+        ax2.set_ylabel('% of occurrences', color='gray', rotation=270, labelpad=15, fontsize=LEGEND_FONTSIZE)
+        ax2.tick_params(axis='y', labelsize=LEGEND_FONTSIZE, labelcolor='gray', color='gray')
+
+        width = 0.25
+        offset = 0.3
+        median_props = dict(color='black', linewidth=1.5)
+
+        boxplot_JT = ax.boxplot(
+            bce_groups_JT, positions=positions - offset, widths=width,
+            patch_artist=True, showfliers=False,
+            boxprops=dict(facecolor='red', color='black'), medianprops=median_props)
+
+        if not JT_only:
+            boxplot_TTT = ax.boxplot(
+                bce_groups_TTT, positions=positions, widths=width,
+                patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor='#1f77b4', color='black'), medianprops=median_props)
+
+        if not JT_only and not JT_TTT_MMR_only:
+            boxplot_TTT_Geo = ax.boxplot(
+                bce_groups_TTT_Geo, positions=positions + offset, widths=width,
+                patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor='#ff7f0e', color='black'), medianprops=median_props)
+
+        ax.set_title(f'Species {split.replace("_", " ").title()} BCE Loss', fontsize=LEGEND_FONTSIZE)
+        ax.set_xlabel('Species group', fontsize=LEGEND_FONTSIZE)
+        ax.set_ylabel('BCE loss (per species)', fontsize=LEGEND_FONTSIZE)
+        ax.set_xticks(np.arange(num_groups + 1) - 0.5, minor=True)
+        ax.tick_params(axis='x', which='minor', length=4, width=1)
+        ax.set_xticks(positions)
+        ax.set_xticklabels(['Dominant', 'Abundant', 'Common', 'Occasional', 'Rare'], fontsize=LEGEND_FONTSIZE)
+        ax.tick_params(axis='x', which='major', length=0)
+        ax.tick_params(axis='y', labelsize=LEGEND_FONTSIZE)
+
+        if JT_only:
+            ax.legend([boxplot_JT['boxes'][0]], ['JT'], loc='upper right', fontsize=LEGEND_FONTSIZE)
+        elif JT_TTT_MMR_only:
+            ax.legend([boxplot_JT['boxes'][0], boxplot_TTT['boxes'][0]], ['JT', 'TTT-MMR'], loc='upper right', fontsize=LEGEND_FONTSIZE)
+        else:
+            ax.legend([boxplot_JT['boxes'][0], boxplot_TTT['boxes'][0], boxplot_TTT_Geo['boxes'][0]], ['JT', 'TTT-MMR', 'TTT-MMR-Geo'], loc='upper right', fontsize=LEGEND_FONTSIZE)
+
+        plt.tight_layout()
+
+        if JT_only:
+            plt.savefig(f'results_figures/species_{split}_bce_JT_only.pdf', dpi=300)
+        elif JT_TTT_MMR_only:
+            plt.savefig(f'results_figures/species_{split}_bce_JT_TTT_MMR_only.pdf', dpi=300)
+        else:
+            plt.savefig(f'results_figures/species_{split}_bce.pdf', dpi=300)
+
+        plt.close()
+
+def plot_ap_species(JT_only=False, JT_TTT_MMR_only=False):
+    task = 'species'
+    models = architectures_plots
+    data = _load_residuals_predictions_data(task, models, ['random_test', 'geographic_test'], flatten=False)
+
+    group_size = 20
+    num_groups = 5
+
+    fig, axes = plt.subplots(2, 1, figsize=(COL_WIDTH, 8), sharex=True, gridspec_kw=dict(hspace=0.15))
+    for split_idx, split in enumerate(['random_test', 'geographic_test']):
+        predictions_JT_list = []
+        predictions_TTT_list = []
+        predictions_TTT_Geo_list = []
+        targets_list = []
+        targets_Geo_list = []
+
+        for model in models:
+            name_ttt = '_'.join([task, model, 'JT-TTT', str(100)]) + '_'
+            name_geo = '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_'
+            predictions_JT_list.append(data[split][model][name_ttt]['predictions_JT'])
+            predictions_TTT_list.append(data[split][model][name_ttt]['predictions_TTT'])
+            predictions_TTT_Geo_list.append(data[split][model][name_geo]['predictions_TTT'])
+            targets_list.append(data[split][model][name_ttt]['targets'])
+            targets_Geo_list.append(data[split][model][name_geo]['targets'])
+
+        predictions_JT = np.concatenate(predictions_JT_list, axis=0)
+        predictions_TTT = np.concatenate(predictions_TTT_list, axis=0)
+        predictions_TTT_Geo = np.concatenate(predictions_TTT_Geo_list, axis=0)
+        targets = np.concatenate(targets_list, axis=0)
+        targets_Geo = np.concatenate(targets_Geo_list, axis=0)
+
+        species_occurrences = targets.sum(axis=0)
+        species_order = np.argsort(species_occurrences)[::-1]
+        predictions_JT = predictions_JT[:, species_order]
+        predictions_TTT = predictions_TTT[:, species_order]
+        predictions_TTT_Geo = predictions_TTT_Geo[:, species_order]
+        targets = targets[:, species_order]
+        targets_Geo = targets_Geo[:, species_order]
+
+        num_species = targets.shape[1]
+        ap_JT = np.array([average_precision_score(targets[:, i], predictions_JT[:, i]) for i in range(num_species)])
+        ap_TTT = np.array([average_precision_score(targets[:, i], predictions_TTT[:, i]) for i in range(num_species)])
+        ap_TTT_Geo = np.array([average_precision_score(targets_Geo[:, i], predictions_TTT_Geo[:, i]) for i in range(num_species)])
+
+        ap_groups_JT = []
+        ap_groups_TTT = []
+        ap_groups_TTT_Geo = []
+        species_occurrences_sorted = species_occurrences[species_order]
+        total_occurrences = species_occurrences_sorted.sum()
+        group_percentages = []
+
+        for g in range(num_groups):
+            start = g * group_size
+            end = (g + 1) * group_size
+            ap_groups_JT.append(ap_JT[start:end])
+            ap_groups_TTT.append(ap_TTT[start:end])
+            ap_groups_TTT_Geo.append(ap_TTT_Geo[start:end])
+            group_percentages.append(species_occurrences_sorted[start:end].sum() / total_occurrences * 100)
+
+        ax = axes[split_idx]
+        positions = np.arange(num_groups)
+
+        ax2 = ax.twinx()
+        ax2.bar(positions, group_percentages, width=1.0, color='gray', alpha=0.5, zorder=0)
+        ax2.set_ylabel('% of occurrences', color='gray', rotation=270, labelpad=15, fontsize=LEGEND_FONTSIZE+4)
+        ax2.tick_params(axis='y', labelsize=LEGEND_FONTSIZE, labelcolor='gray', color='gray')
+
+        width = 0.25
+        offset = 0.3
+        median_props = dict(color='black', linewidth=1.5)
+
+        boxplot_JT = ax.boxplot(
+            ap_groups_JT, positions=positions - offset, widths=width,
+            patch_artist=True, showfliers=False,
+            boxprops=dict(facecolor='red', color='black'), medianprops=median_props)
+
+        if not JT_only:
+            boxplot_TTT = ax.boxplot(
+                ap_groups_TTT, positions=positions, widths=width,
+                patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor='#1f77b4', color='black'), medianprops=median_props)
+
+        if not JT_only and not JT_TTT_MMR_only:
+            boxplot_TTT_Geo = ax.boxplot(
+                ap_groups_TTT_Geo, positions=positions + offset, widths=width,
+                patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor='#ff7f0e', color='black'), medianprops=median_props)
+
+        ax.set_title(f'Species {split.replace("_", " ").title()} Average Precision', fontsize=LEGEND_FONTSIZE+4)
+        ax.set_ylabel('Average precision (per species)', fontsize=LEGEND_FONTSIZE+4)
+        ax.axhline(1, color='black', linestyle='--', linewidth=1, alpha=0.7)
+        ax.set_xticks(np.arange(num_groups + 1) - 0.5, minor=True)
+        ax.tick_params(axis='x', which='minor', length=4, width=1)
+        ax.set_xticks(positions)
+        if split_idx == 1:
+            ax.set_xticklabels(['Dominant', 'Abundant', 'Common', 'Occasional', 'Rare'], fontsize=LEGEND_FONTSIZE+4)
+            ax.set_xlabel('Species group', fontsize=LEGEND_FONTSIZE+4)
+        else:
+            ax.set_xticklabels([])
+            ax.set_xlabel('')
+        ax.tick_params(axis='x', which='major', length=0)
+        ax.tick_params(axis='y', labelsize=LEGEND_FONTSIZE)
+
+        if split_idx == 0:
+            if JT_only:
+                ax.legend([boxplot_JT['boxes'][0]], ['JT'], loc='upper right', fontsize=LEGEND_FONTSIZE+4)
+            elif JT_TTT_MMR_only:
+                ax.legend([boxplot_JT['boxes'][0], boxplot_TTT['boxes'][0]], ['JT', 'TTT-MMR'], loc='upper right', fontsize=LEGEND_FONTSIZE+4)
+            else:
+                ax.legend([boxplot_JT['boxes'][0], boxplot_TTT['boxes'][0], boxplot_TTT_Geo['boxes'][0]], ['JT', 'TTT-MMR', 'TTT-MMR-Geo'], loc='upper right', fontsize=LEGEND_FONTSIZE+4)
+
+    plt.tight_layout()
+
+    if JT_only:
+        plt.savefig(f'results_figures/species_ap_combined_JT_only.pdf', dpi=300)
+        plt.savefig(f'results_figures/species_ap_combined_JT_only.png', dpi=300)
+    elif JT_TTT_MMR_only:
+        plt.savefig(f'results_figures/species_ap_combined_JT_TTT_MMR_only.pdf', dpi=300)
+        plt.savefig(f'results_figures/species_ap_combined_JT_TTT_MMR_only.png', dpi=300)
+    else:
+        plt.savefig(f'results_figures/species_ap_combined.pdf', dpi=300)
+        plt.savefig(f'results_figures/species_ap_combined.png', dpi=300)
+
+    plt.close()
+
+def plot_ap_species_ungrouped(JT_only=False, JT_TTT_MMR_only=False):
+    """Per-species AP plot with no prevalence grouping: one box per species.
+
+    Each box summarizes the distribution of that species' average precision across
+    the architectures in `architectures_plots`. Species are ordered from most to
+    least common (descending occurrence count). Two rows: random / geographic test.
+    """
+    task = 'species'
+    models = architectures_plots
+    data = _load_residuals_predictions_data(task, models, ['random_test', 'geographic_test'], flatten=False)
+
+    def _ap_per_species(t, p):
+        S = t.shape[1]
+        out = np.full(S, np.nan)
+        for i in range(S):
+            if t[:, i].sum() > 0:
+                out[i] = average_precision_score(t[:, i], p[:, i])
+        return out
+
+    def _box_data(mat, order):
+        # mat: (num_models, num_species); return list (per ordered species) of finite AP values
+        cols = mat[:, order]
+        return [cols[:, i][np.isfinite(cols[:, i])] for i in range(cols.shape[1])]
+
+    num_species = None
+    fig = axes = None
+
+    for split_idx, split in enumerate(['random_test', 'geographic_test']):
+        ap_JT_rows = []
+        ap_TTT_rows = []
+        ap_TTT_Geo_rows = []
+        occ_accum = None
+
+        for model in models:
+            name_ttt = '_'.join([task, model, 'JT-TTT', str(100)]) + '_'
+            name_geo = '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_'
+            d = data[split][model]
+            if name_ttt not in d or name_geo not in d:
+                continue
+            tj = d[name_ttt]['targets']
+            tg = d[name_geo]['targets']
+            ap_JT_rows.append(_ap_per_species(tj, d[name_ttt]['predictions_JT']))
+            ap_TTT_rows.append(_ap_per_species(tj, d[name_ttt]['predictions_TTT']))
+            ap_TTT_Geo_rows.append(_ap_per_species(tg, d[name_geo]['predictions_TTT']))
+            occ_accum = tj.sum(axis=0) if occ_accum is None else occ_accum + tj.sum(axis=0)
+
+        if not ap_JT_rows:
+            continue
+
+        ap_JT_mat = np.vstack(ap_JT_rows)
+        ap_TTT_mat = np.vstack(ap_TTT_rows)
+        ap_TTT_Geo_mat = np.vstack(ap_TTT_Geo_rows)
+
+        species_order = np.argsort(occ_accum)[::-1]
+        occ_sorted = occ_accum[species_order]
+        total_occurrences = occ_sorted.sum()
+
+        if num_species is None:
+            num_species = ap_JT_mat.shape[1]
+            fig, axes = plt.subplots(
+                2, 1, figsize=(max(COL_WIDTH, num_species * 0.38), 9),
+                sharex=True, gridspec_kw=dict(hspace=0.15),
+            )
+
+        ax = axes[split_idx]
+        positions = np.arange(num_species)
+
+        ax2 = ax.twinx()
+        ax2.bar(positions, occ_sorted / total_occurrences * 100, width=1.0, color='gray', alpha=0.5, zorder=0)
+        ax2.set_ylabel('% of occurrences', color='gray', rotation=270, labelpad=15, fontsize=LEGEND_FONTSIZE)
+        ax2.tick_params(axis='y', labelsize=LEGEND_FONTSIZE - 2, labelcolor='gray', color='gray')
+
+        width = 0.22
+        offset = 0.26
+        median_props = dict(color='black', linewidth=1.0)
+
+        boxplot_JT = ax.boxplot(
+            _box_data(ap_JT_mat, species_order), positions=positions - offset, widths=width,
+            patch_artist=True, showfliers=False,
+            boxprops=dict(facecolor='red', color='black', linewidth=0.4), medianprops=median_props,
+            whiskerprops=dict(linewidth=0.4), capprops=dict(linewidth=0.4))
+
+        boxplot_TTT = boxplot_TTT_Geo = None
+        if not JT_only:
+            boxplot_TTT = ax.boxplot(
+                _box_data(ap_TTT_mat, species_order), positions=positions, widths=width,
+                patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor='#1f77b4', color='black', linewidth=0.4), medianprops=median_props,
+                whiskerprops=dict(linewidth=0.4), capprops=dict(linewidth=0.4))
+
+        if not JT_only and not JT_TTT_MMR_only:
+            boxplot_TTT_Geo = ax.boxplot(
+                _box_data(ap_TTT_Geo_mat, species_order), positions=positions + offset, widths=width,
+                patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor='#ff7f0e', color='black', linewidth=0.4), medianprops=median_props,
+                whiskerprops=dict(linewidth=0.4), capprops=dict(linewidth=0.4))
+
+        ax.set_title(f'Species {split.replace("_", " ").title()} Average Precision (per species)', fontsize=LEGEND_FONTSIZE + 2)
+        ax.set_ylabel('Average precision', fontsize=LEGEND_FONTSIZE + 2)
+        ax.axhline(1, color='black', linestyle='--', linewidth=1, alpha=0.7)
+        ax.set_xlim(-0.5, num_species - 0.5)
+        ax2.set_xlim(-0.5, num_species - 0.5)
+
+        tick_step = 10
+        xticks = np.arange(0, num_species, tick_step)
+        ax.set_xticks(xticks)
+        if split_idx == 1:
+            ax.set_xticklabels([str(t + 1) for t in xticks], fontsize=LEGEND_FONTSIZE - 2)
+            ax.set_xlabel('Species rank (most \u2192 least common)', fontsize=LEGEND_FONTSIZE + 2)
+        else:
+            ax.set_xticklabels([])
+        ax.tick_params(axis='y', labelsize=LEGEND_FONTSIZE - 2)
+
+        if split_idx == 0:
+            handles = [boxplot_JT['boxes'][0]]
+            labels = ['JT']
+            if boxplot_TTT is not None:
+                handles.append(boxplot_TTT['boxes'][0]); labels.append('TTT-MMR')
+            if boxplot_TTT_Geo is not None:
+                handles.append(boxplot_TTT_Geo['boxes'][0]); labels.append('TTT-MMR-Geo')
+            ax.legend(handles, labels, loc='upper right', fontsize=LEGEND_FONTSIZE + 2)
+
+    plt.tight_layout()
+
+    suffix = '_JT_only' if JT_only else ('_JT_TTT_MMR_only' if JT_TTT_MMR_only else '')
+    plt.savefig(f'results_figures/species_ap_ungrouped{suffix}.pdf', dpi=300)
+    plt.savefig(f'results_figures/species_ap_ungrouped{suffix}.png', dpi=300)
+    plt.close()
+
+def plot_ap_species_ungrouped_line(JT_only=False, JT_TTT_MMR_only=False):
+    """Per-species AP, no grouping: plot the mean AP across architectures as a point
+    per species and connect the points with a line (one line per method).
+
+    Species are ordered from most to least common. Two rows: random / geographic test.
+    """
+    task = 'species'
+    models = architectures_plots
+    data = _load_residuals_predictions_data(task, models, ['random_test', 'geographic_test'], flatten=False)
+
+    def _ap_per_species(t, p):
+        S = t.shape[1]
+        out = np.full(S, np.nan)
+        for i in range(S):
+            if t[:, i].sum() > 0:
+                out[i] = average_precision_score(t[:, i], p[:, i])
+        return out
+
+    num_species = None
+    fig = axes = None
+
+    for split_idx, split in enumerate(['random_test', 'geographic_test']):
+        ap_JT_rows = []
+        ap_TTT_rows = []
+        ap_TTT_Geo_rows = []
+        occ_accum = None
+
+        for model in models:
+            name_ttt = '_'.join([task, model, 'JT-TTT', str(100)]) + '_'
+            name_geo = '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_'
+            d = data[split][model]
+            if name_ttt not in d or name_geo not in d:
+                continue
+            tj = d[name_ttt]['targets']
+            tg = d[name_geo]['targets']
+            ap_JT_rows.append(_ap_per_species(tj, d[name_ttt]['predictions_JT']))
+            ap_TTT_rows.append(_ap_per_species(tj, d[name_ttt]['predictions_TTT']))
+            ap_TTT_Geo_rows.append(_ap_per_species(tg, d[name_geo]['predictions_TTT']))
+            occ_accum = tj.sum(axis=0) if occ_accum is None else occ_accum + tj.sum(axis=0)
+
+        if not ap_JT_rows:
+            continue
+
+        species_order = np.argsort(occ_accum)[::-1]
+        occ_sorted = occ_accum[species_order]
+        total_occurrences = occ_sorted.sum()
+
+        mean_JT = np.nanmean(np.vstack(ap_JT_rows), axis=0)[species_order]
+        mean_TTT = np.nanmean(np.vstack(ap_TTT_rows), axis=0)[species_order]
+        mean_TTT_Geo = np.nanmean(np.vstack(ap_TTT_Geo_rows), axis=0)[species_order]
+
+        if num_species is None:
+            num_species = mean_JT.shape[0]
+            fig, axes = plt.subplots(
+                2, 1, figsize=(max(COL_WIDTH, num_species * 0.22), 9),
+                sharex=True, gridspec_kw=dict(hspace=0.15),
+            )
+
+        ax = axes[split_idx]
+        positions = np.arange(num_species)
+
+        ax2 = ax.twinx()
+        ax2.bar(positions, occ_sorted / total_occurrences * 100, width=1.0, color='gray', alpha=0.3, zorder=0)
+        ax2.set_ylabel('% of occurrences', color='gray', rotation=270, labelpad=15, fontsize=LEGEND_FONTSIZE)
+        ax2.tick_params(axis='y', labelsize=LEGEND_FONTSIZE - 2, labelcolor='gray', color='gray')
+
+        ax.plot(positions, mean_JT, marker='o', markersize=3, linewidth=1.0, color='red', label='JT', zorder=5)
+        if not JT_only:
+            ax.plot(positions, mean_TTT, marker='o', markersize=3, linewidth=1.0, color='#1f77b4', label='TTT-MMR', zorder=5)
+        if not JT_only and not JT_TTT_MMR_only:
+            ax.plot(positions, mean_TTT_Geo, marker='o', markersize=3, linewidth=1.0, color='#ff7f0e', label='TTT-MMR-Geo', zorder=5)
+
+        ax.set_title(f'Species {split.replace("_", " ").title()} Average Precision (mean over architectures)', fontsize=LEGEND_FONTSIZE + 2)
+        ax.set_ylabel('Average precision', fontsize=LEGEND_FONTSIZE + 2)
+        ax.axhline(1, color='black', linestyle='--', linewidth=1, alpha=0.7)
+        ax.set_xlim(-0.5, num_species - 0.5)
+        ax2.set_xlim(-0.5, num_species - 0.5)
+
+        tick_step = 10
+        xticks = np.arange(0, num_species, tick_step)
+        ax.set_xticks(xticks)
+        if split_idx == 1:
+            ax.set_xticklabels([str(t + 1) for t in xticks], fontsize=LEGEND_FONTSIZE - 2)
+            ax.set_xlabel('Species rank (most \u2192 least common)', fontsize=LEGEND_FONTSIZE + 2)
+        else:
+            ax.set_xticklabels([])
+        ax.tick_params(axis='y', labelsize=LEGEND_FONTSIZE - 2)
+        ax.set_zorder(ax2.get_zorder() + 1)
+        ax.patch.set_visible(False)
+
+        if split_idx == 0:
+            ax.legend(loc='upper right', fontsize=LEGEND_FONTSIZE + 2)
+
+    plt.tight_layout()
+
+    suffix = '_JT_only' if JT_only else ('_JT_TTT_MMR_only' if JT_TTT_MMR_only else '')
+    plt.savefig(f'results_figures/species_ap_ungrouped_line{suffix}.pdf', dpi=300)
+    plt.savefig(f'results_figures/species_ap_ungrouped_line{suffix}.png', dpi=300)
+    plt.close()
+
 def plot_residuals_combined(JT_only=False, JT_TTT_MMR_only=False):
     """Plot residual distributions for all four regression tasks in a 2x4 grid.
     Top row: Random split. Bottom row: Geographic split.
@@ -2765,49 +4304,30 @@ def plot_residuals_combined(JT_only=False, JT_TTT_MMR_only=False):
 
     task_bins = {
         'biomass': {
-            'random_test': np.array([0, 5, 25, 60, 110, 175, 275]),
-            'geographic_test': np.array([0, 2, 10, 25, 50, 100, 200]),
+            'random_test': np.array([0, 5, 30, 100, 200]),
+            'geographic_test': np.array([0, 2, 20, 100, 200]),
         },
         'soil_nitrogen': {
-            'random_test': np.array([0, 1, 2, 4, 10, 15, 25]),
-            'geographic_test': np.array([0, 1, 2, 5, 10, 15, 25]),
+            'random_test': np.array([0, 1, 3, 10, 20]),
+            'geographic_test': np.array([0, 1, 3, 10, 15]),
         },
         'soil_organic_carbon': {
-            'random_test': np.array([0, 20, 50, 100, 200, 300, 400]),
-            'geographic_test': np.array([0, 10, 20, 50, 100, 200, 300]),
+            'random_test': np.array([0, 20, 50, 200, 350]),
+            'geographic_test': np.array([0, 10, 20, 50, 100]),
         },
         'soil_pH': {
-            'random_test': None,
-            'geographic_test': None,
+            'random_test': np.array([3, 4, 5, 7, 8]),
+            'geographic_test': np.array([3, 5, 7, 8, 9]),
         }
     }
 
-    runs = wandb.Api().runs(f'{entity}/{project}', filters={'tags': {'$in': ['residuals_42']}})
     models = architectures_plots
 
     # Load all data: {task: {split: {model: {name: {predictions_JT, predictions_TTT, targets}}}}}
     all_data = {}
     for task in all_tasks:
         print(f"Loading data for {task}...")
-        all_data[task] = {}
-        for split in splits:
-            all_data[task][split] = {}
-            for model in models:
-                names = ['_'.join([task, model, 'JT-TTT', str(100)]) + '_',
-                         '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_']
-                all_data[task][split][model] = {}
-                for name in names:
-                    all_data[task][split][model][name] = {}
-                    matching = [run for run in runs if run.name.startswith(name)]
-                    if not matching:
-                        continue
-                    run = matching[0]
-                    for artifact in run.logged_artifacts():
-                        if artifact.name.startswith(f'predictions_targets_{split}.pt'):
-                            pt = torch.load(f'{artifact.download()}/predictions_targets_{split}.pt')
-                            all_data[task][split][model][name]['predictions_JT'] = pt['predictions_JT'].float().numpy().flatten()
-                            all_data[task][split][model][name]['predictions_TTT'] = pt['predictions_TTT'].float().numpy().flatten()
-                            all_data[task][split][model][name]['targets'] = pt['targets'].float().numpy().flatten()
+        all_data[task] = _load_residuals_predictions_data(task, models, splits, flatten=True)
 
     fig, axes = plt.subplots(2, 4, figsize=(COL_WIDTH * 2, 4.5),
                              gridspec_kw=dict(left=0.08, right=0.95, top=0.88, bottom=0.1, wspace=0.40, hspace=0.25))
@@ -2880,35 +4400,56 @@ def plot_residuals_combined(JT_only=False, JT_TTT_MMR_only=False):
             ax2 = ax.twinx()
             counts = np.array([len(df[df['Bin'] == bi]) for bi in bin_intervals])
             percentages = (counts / len(df)) * 100
-            ax2.bar(indices, percentages, width=1.0, color='gray', alpha=0.25, zorder=0)
+            ax2.bar(indices, percentages, width=1.0, color='gray', alpha=0.5, zorder=0)
             ax2.tick_params(axis='y', labelsize=LEGEND_FONTSIZE , labelcolor='gray', color='gray')
 
             # Boxplots
             median_props = dict(color='black', linewidth=1)
+            c_jt = 'red'
+            c_ttt = '#1f77b4'
+            c_geo = '#ff7f0e'
             if JT_only:
                 width = 0.5
-                bp_jt = ax.boxplot(plot_data_JT, positions=indices, widths=width, patch_artist=True, showfliers=False,
-                                   boxprops=dict(facecolor='red', edgecolor='red'), medianprops=median_props)
+                bp_jt = ax.boxplot(
+                    plot_data_JT, positions=indices, widths=width, patch_artist=True, showfliers=False,
+                    boxprops=dict(facecolor=c_jt, edgecolor=c_jt), medianprops=median_props,
+                    whiskerprops=dict(color=c_jt, linewidth=1), capprops=dict(color=c_jt, linewidth=1),
+                )
                 bp_ttt = bp_geo = None
                 active_bps = [bp_jt]
             elif JT_TTT_MMR_only:
                 width = 0.3
                 offset = 0.2
-                bp_jt = ax.boxplot(plot_data_JT, positions=indices - offset, widths=width, patch_artist=True, showfliers=False,
-                                   boxprops=dict(facecolor='red', edgecolor='red'), medianprops=median_props)
-                bp_ttt = ax.boxplot(plot_data_TTT, positions=indices + offset, widths=width, patch_artist=True, showfliers=False,
-                                    boxprops=dict(facecolor='#1f77b4', edgecolor='#1f77b4'), medianprops=median_props)
+                bp_jt = ax.boxplot(
+                    plot_data_JT, positions=indices - offset, widths=width, patch_artist=True, showfliers=False,
+                    boxprops=dict(facecolor=c_jt, edgecolor=c_jt), medianprops=median_props,
+                    whiskerprops=dict(color=c_jt, linewidth=1), capprops=dict(color=c_jt, linewidth=1),
+                )
+                bp_ttt = ax.boxplot(
+                    plot_data_TTT, positions=indices + offset, widths=width, patch_artist=True, showfliers=False,
+                    boxprops=dict(facecolor=c_ttt, edgecolor=c_ttt), medianprops=median_props,
+                    whiskerprops=dict(color=c_ttt, linewidth=1), capprops=dict(color=c_ttt, linewidth=1),
+                )
                 bp_geo = None
                 active_bps = [bp_jt, bp_ttt]
             else:
                 width = 0.25
                 offset = 0.3
-                bp_jt = ax.boxplot(plot_data_JT, positions=indices - offset, widths=width, patch_artist=True, showfliers=False,
-                                   boxprops=dict(facecolor='red', edgecolor='red'), medianprops=median_props)
-                bp_ttt = ax.boxplot(plot_data_TTT, positions=indices, widths=width, patch_artist=True, showfliers=False,
-                                    boxprops=dict(facecolor='#1f77b4', edgecolor='#1f77b4'), medianprops=median_props)
-                bp_geo = ax.boxplot(plot_data_TTT_Geo, positions=indices + offset, widths=width, patch_artist=True, showfliers=False,
-                                    boxprops=dict(facecolor='#ff7f0e', edgecolor='#ff7f0e'), medianprops=median_props)
+                bp_jt = ax.boxplot(
+                    plot_data_JT, positions=indices - offset, widths=width, patch_artist=True, showfliers=False,
+                    boxprops=dict(facecolor=c_jt, edgecolor=c_jt), medianprops=median_props,
+                    whiskerprops=dict(color=c_jt, linewidth=1), capprops=dict(color=c_jt, linewidth=1),
+                )
+                bp_ttt = ax.boxplot(
+                    plot_data_TTT, positions=indices, widths=width, patch_artist=True, showfliers=False,
+                    boxprops=dict(facecolor=c_ttt, edgecolor=c_ttt), medianprops=median_props,
+                    whiskerprops=dict(color=c_ttt, linewidth=1), capprops=dict(color=c_ttt, linewidth=1),
+                )
+                bp_geo = ax.boxplot(
+                    plot_data_TTT_Geo, positions=indices + offset, widths=width, patch_artist=True, showfliers=False,
+                    boxprops=dict(facecolor=c_geo, edgecolor=c_geo), medianprops=median_props,
+                    whiskerprops=dict(color=c_geo, linewidth=1), capprops=dict(color=c_geo, linewidth=1),
+                )
                 active_bps = [bp_jt, bp_ttt, bp_geo]
 
             for bp in active_bps:
@@ -2923,7 +4464,7 @@ def plot_residuals_combined(JT_only=False, JT_TTT_MMR_only=False):
 
             ax.set_zorder(ax2.get_zorder() + 1)
             ax.patch.set_visible(False)
-            ax.axhline(0, color='black', linestyle='--', linewidth=0.8, alpha=0.7)
+            ax.axhline(0, color='black', linestyle='--', linewidth=1, alpha=0.7)
 
             # Ticks and consistent x-axis limits
             tick_positions = np.arange(len(bins)) - 0.5
@@ -2988,19 +4529,510 @@ def plot_residuals_combined(JT_only=False, JT_TTT_MMR_only=False):
     else:
         suffix = ''
     fname = f'results_figures/residual_distribution_combined{suffix}.pdf'
+    fname_png = f'results_figures/residual_distribution_combined{suffix}.png'
     plt.savefig(fname, dpi=300)
+    plt.savefig(fname_png, dpi=300)
     plt.close()
-    print(f"Saved {fname}")
+    print(f"Saved {fname} and {fname_png}")
+
+def plot_stratified_results(JT_only=False, JT_TTT_MMR_only=False):
+    """Combined stratified results: regression residual distributions (cols 0-3) and species AP (col 4).
+
+    Top row: random_test. Bottom row: geographic_test.
+    """
+    regression_tasks = ['biomass', 'soil_nitrogen', 'soil_organic_carbon', 'soil_pH']
+    splits = ['random_test', 'geographic_test']
+
+    task_units = {
+        'biomass': '(Mg/ha)',
+        'soil_nitrogen': '(g/kg)',
+        'soil_organic_carbon': '(g/kg)',
+        'soil_pH': '',
+    }
+
+    task_display_names = {
+        'biomass': 'Biomass',
+        'soil_nitrogen': 'Soil N',
+        'soil_organic_carbon': 'Soil OC',
+        'soil_pH': 'Soil pH',
+    }
+
+    task_bins = {
+        'biomass': {
+            'random_test': np.array([0, 200, 400, 600]),
+            'geographic_test': np.array([0, 200, 400, 600]),
+        },
+        'soil_nitrogen': {
+            'random_test': np.array([0, 10, 20, 30]),
+            'geographic_test': np.array([0, 5, 10, 20]),
+        },
+        'soil_organic_carbon': {
+            'random_test': np.array([0, 200, 400, 600]),
+            'geographic_test': np.array([0, 100, 200, 300]),
+        },
+        'soil_pH': {
+            'random_test': np.array([3, 4, 5, 8]),
+            'geographic_test': np.array([3, 5, 7, 9]),
+        }
+    }
+
+    models = architectures_plots
+
+    all_data = {}
+    for task in regression_tasks:
+        print(f"Loading data for {task}...")
+        all_data[task] = _load_residuals_predictions_data(task, models, splits, flatten=True)
+
+    print("Loading data for species...")
+    species_data = _load_residuals_predictions_data('species', models, splits, flatten=False)
+
+    from matplotlib.gridspec import GridSpec
+    from matplotlib.ticker import FormatStrFormatter
+    frequency_bar_color = 'gray'
+    frequency_bar_alpha = 0.5
+    frequency_label_color = '#666666'
+    wspace_inner = 0.60
+    gap_ratio = 0.8
+    fig = plt.figure(figsize=(COL_WIDTH, 2))
+    outer = GridSpec(
+        1, 3, figure=fig, width_ratios=[4 + 3 * wspace_inner, gap_ratio, 1],
+        left=0.1, right=0.93, top=0.86, bottom=0.2, wspace=0,
+    )
+    gs_reg = outer[0].subgridspec(2, 4, wspace=wspace_inner, hspace=0.43)
+    gs_species = outer[2].subgridspec(2, 1, hspace=0.43)
+    axes = np.empty((2, 5), dtype=object)
+    for row in range(2):
+        for col in range(4):
+            axes[row, col] = fig.add_subplot(gs_reg[row, col])
+        axes[row, 4] = fig.add_subplot(gs_species[row, 0])
+
+    c_jt = 'red'
+    c_ttt = '#1f77b4'
+    c_geo = '#ff7f0e'
+    median_props = dict(color='black', linewidth=0.5)
+    species_group_labels = ['Dominant', 'Occasional', 'Infrequent', 'Rare']
+    species_group_sizes = [40, 20, 20, 20]
+    regression_x_tick_rotation = 35
+    species_x_tick_rotation = 30
+
+    def _center_y_ticklabels(axis):
+        for label in axis.get_yticklabels():
+            label.set_ha('center')
+            label.set_va('center')
+
+    def _boxplot_whisker_min_max(boxplots):
+        whisker_ys = []
+        for bp in boxplots:
+            for whisker in bp['whiskers']:
+                whisker_ys.extend(whisker.get_ydata())
+        if not whisker_ys:
+            return 0.0, 1.0
+        return float(min(whisker_ys)), float(max(whisker_ys))
+
+    def _draw_residual_boxplots(ax, plot_data_JT, plot_data_TTT, plot_data_TTT_Geo, indices):
+        if JT_only:
+            width = 0.5
+            bp_jt = ax.boxplot(
+                plot_data_JT, positions=indices, widths=width, patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor=c_jt, edgecolor=c_jt, linewidth=0.5), medianprops=median_props,
+                whiskerprops=dict(color=c_jt, linewidth=0.5), capprops=dict(color=c_jt, linewidth=0.5),
+            )
+            return bp_jt, None, None, [bp_jt]
+
+        if JT_TTT_MMR_only:
+            width = 0.3
+            offset = 0.2
+            bp_jt = ax.boxplot(
+                plot_data_JT, positions=indices - offset, widths=width, patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor=c_jt, edgecolor=c_jt, linewidth=0.5), medianprops=median_props,
+                whiskerprops=dict(color=c_jt, linewidth=0.5), capprops=dict(color=c_jt, linewidth=0.5),
+            )
+            bp_ttt = ax.boxplot(
+                plot_data_TTT, positions=indices + offset, widths=width, patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor=c_ttt, edgecolor=c_ttt, linewidth=0.5), medianprops=median_props,
+                whiskerprops=dict(color=c_ttt, linewidth=0.5), capprops=dict(color=c_ttt, linewidth=0.5),
+            )
+            return bp_jt, bp_ttt, None, [bp_jt, bp_ttt]
+
+        width = 0.25
+        offset = 0.3
+        bp_jt = ax.boxplot(
+            plot_data_JT, positions=indices - offset, widths=width, patch_artist=True, showfliers=False,
+            boxprops=dict(facecolor=c_jt, edgecolor=c_jt, linewidth=0.5), medianprops=median_props,
+            whiskerprops=dict(color=c_jt, linewidth=0.5), capprops=dict(color=c_jt, linewidth=0.5),
+        )
+        bp_ttt = ax.boxplot(
+            plot_data_TTT, positions=indices, widths=width, patch_artist=True, showfliers=False,
+            boxprops=dict(facecolor=c_ttt, edgecolor=c_ttt, linewidth=0.5), medianprops=median_props,
+            whiskerprops=dict(color=c_ttt, linewidth=0.5), capprops=dict(color=c_ttt, linewidth=0.5),
+        )
+        bp_geo = ax.boxplot(
+            plot_data_TTT_Geo, positions=indices + offset, widths=width, patch_artist=True, showfliers=False,
+            boxprops=dict(facecolor=c_geo, edgecolor=c_geo, linewidth=0.5), medianprops=median_props,
+            whiskerprops=dict(color=c_geo, linewidth=0.5), capprops=dict(color=c_geo, linewidth=0.5),
+        )
+        return bp_jt, bp_ttt, bp_geo, [bp_jt, bp_ttt, bp_geo]
+
+    def _draw_species_boxplots(ax, ap_groups_JT, ap_groups_TTT, ap_groups_TTT_Geo, positions):
+        if JT_only:
+            width = 0.5
+            species_median_props = dict(color='black', linewidth=0.5)
+            boxplot_JT = ax.boxplot(
+                ap_groups_JT, positions=positions, widths=width,
+                patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor=c_jt, edgecolor=c_jt, linewidth=0.5), medianprops=species_median_props,
+                whiskerprops=dict(color=c_jt, linewidth=0.5), capprops=dict(color=c_jt, linewidth=0.5),
+            )
+            return boxplot_JT, None, None, [boxplot_JT]
+
+        if JT_TTT_MMR_only:
+            width = 0.3
+            offset = 0.2
+            species_median_props = dict(color='black', linewidth=0.5)
+            boxplot_JT = ax.boxplot(
+                ap_groups_JT, positions=positions - offset, widths=width,
+                patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor=c_jt, edgecolor=c_jt, linewidth=0.5), medianprops=species_median_props,
+                whiskerprops=dict(color=c_jt, linewidth=0.5), capprops=dict(color=c_jt, linewidth=0.5),
+            )
+            boxplot_TTT = ax.boxplot(
+                ap_groups_TTT, positions=positions + offset, widths=width,
+                patch_artist=True, showfliers=False,
+                boxprops=dict(facecolor=c_ttt, edgecolor=c_ttt, linewidth=0.5), medianprops=species_median_props,
+                whiskerprops=dict(color=c_ttt, linewidth=0.5), capprops=dict(color=c_ttt, linewidth=0.5),
+            )
+            return boxplot_JT, boxplot_TTT, None, [boxplot_JT, boxplot_TTT]
+
+        width = 0.25
+        offset = 0.3
+        species_median_props = dict(color='black', linewidth=0.5)
+        boxplot_JT = ax.boxplot(
+            ap_groups_JT, positions=positions - offset, widths=width,
+            patch_artist=True, showfliers=False,
+            boxprops=dict(facecolor=c_jt, edgecolor=c_jt, linewidth=0.5), medianprops=species_median_props,
+            whiskerprops=dict(color=c_jt, linewidth=0.5), capprops=dict(color=c_jt, linewidth=0.5),
+        )
+        boxplot_TTT = ax.boxplot(
+            ap_groups_TTT, positions=positions, widths=width,
+            patch_artist=True, showfliers=False,
+            boxprops=dict(facecolor=c_ttt, edgecolor=c_ttt, linewidth=0.5), medianprops=species_median_props,
+            whiskerprops=dict(color=c_ttt, linewidth=0.5), capprops=dict(color=c_ttt, linewidth=0.5),
+        )
+        boxplot_TTT_Geo = ax.boxplot(
+            ap_groups_TTT_Geo, positions=positions + offset, widths=width,
+            patch_artist=True, showfliers=False,
+            boxprops=dict(facecolor=c_geo, edgecolor=c_geo, linewidth=0.5), medianprops=species_median_props,
+            whiskerprops=dict(color=c_geo, linewidth=0.5), capprops=dict(color=c_geo, linewidth=0.5),
+        )
+        return boxplot_JT, boxplot_TTT, boxplot_TTT_Geo, [boxplot_JT, boxplot_TTT, boxplot_TTT_Geo]
+
+    bp_jt = bp_ttt = bp_geo = None
+
+    for col_idx, task in enumerate(regression_tasks):
+        for row_idx, split in enumerate(splits):
+            ax = axes[row_idx, col_idx]
+
+            targets_TTT_list = []
+            targets_TTT_Geo_list = []
+            predictions_JT_list = []
+            predictions_TTT_list = []
+            predictions_TTT_Geo_list = []
+
+            for model in models:
+                name_ttt = '_'.join([task, model, 'JT-TTT', str(100)]) + '_'
+                name_geo = '_'.join([task, model, 'JT-TTT-Geo', str(100)]) + '_'
+                d = all_data[task][split][model]
+                if name_ttt in d and 'targets' in d[name_ttt] and name_geo in d and 'targets' in d[name_geo]:
+                    targets_TTT_list.append(d[name_ttt]['targets'])
+                    targets_TTT_Geo_list.append(d[name_geo]['targets'])
+                    predictions_JT_list.append(d[name_ttt]['predictions_JT'])
+                    predictions_TTT_list.append(d[name_ttt]['predictions_TTT'])
+                    predictions_TTT_Geo_list.append(d[name_geo]['predictions_TTT'])
+
+            if not targets_TTT_list:
+                continue
+
+            targets_TTT = np.concatenate(targets_TTT_list)
+            residuals_JT = np.concatenate(predictions_JT_list) - targets_TTT
+            residuals_TTT = np.concatenate(predictions_TTT_list) - targets_TTT
+            residuals_TTT_Geo = np.concatenate(predictions_TTT_Geo_list) - np.concatenate(targets_TTT_Geo_list)
+
+            df = pd.DataFrame({'Target': targets_TTT, 'JT': residuals_JT, 'TTT': residuals_TTT, 'TTT-Geo': residuals_TTT_Geo})
+
+            min_value = np.floor(df['Target'].min())
+            max_value = np.ceil(df['Target'].max())
+
+            if task_bins[task][split] is not None:
+                bins = np.append(task_bins[task][split], max_value) if max_value > task_bins[task][split][-1] else task_bins[task][split]
+            else:
+                bin_size = (max_value - min_value) // 5
+                bins = np.arange(min_value, max_value + bin_size, bin_size)
+
+            df['Bin'] = pd.cut(df['Target'], bins=bins, include_lowest=True)
+
+            bin_intervals = []
+            unique_bins = sorted(df['Bin'].dropna().unique())
+            for i in range(len(bins) - 1):
+                if i == 0 and unique_bins:
+                    interval = pd.Interval(left=unique_bins[0].left, right=bins[i + 1], closed='right')
+                else:
+                    interval = pd.Interval(left=bins[i], right=bins[i + 1], closed='right')
+                bin_intervals.append(interval)
+
+            plot_data_JT = []
+            plot_data_TTT = []
+            plot_data_TTT_Geo = []
+
+            for bi in bin_intervals:
+                subset = df[df['Bin'] == bi]
+                plot_data_JT.append(subset['JT'].values if len(subset) > 0 else [])
+                plot_data_TTT.append(subset['TTT'].values if len(subset) > 0 else [])
+                plot_data_TTT_Geo.append(subset['TTT-Geo'].values if len(subset) > 0 else [])
+
+            indices = np.arange(len(bin_intervals))
+
+            ax2 = ax.twinx()
+            counts = np.array([len(df[df['Bin'] == bi]) for bi in bin_intervals])
+            percentages = (counts / len(df)) * 100
+            ax2.bar(indices, percentages, width=1.0, color=frequency_bar_color, alpha=frequency_bar_alpha, zorder=0)
+
+            bp_jt, bp_ttt, bp_geo, active_bps = _draw_residual_boxplots(
+                ax, plot_data_JT, plot_data_TTT, plot_data_TTT_Geo, indices,
+            )
+
+            for bp in active_bps:
+                for box in bp['boxes']:
+                    box.set_zorder(5)
+                for whisker in bp['whiskers']:
+                    whisker.set_zorder(3)
+                for cap in bp['caps']:
+                    cap.set_zorder(3)
+                for median in bp['medians']:
+                    median.set_zorder(6)
+
+            ax.set_zorder(ax2.get_zorder() + 1)
+            ax.patch.set_visible(False)
+            ax.axhline(0, color='black', linestyle='--', linewidth=0.5, alpha=0.7)
+
+            tick_positions = np.arange(len(bins)) - 0.5
+            tick_labels_list = [int(x) for x in bins]
+
+            y_min, y_max = _boxplot_whisker_min_max(active_bps)
+            set_y_ticks_and_limits(ax, y_min, y_max, step=1, min_spacing=1, lower_tick_above_min=True)
+            set_y_ticks_and_limits(
+                ax2, 0, float(np.max(percentages)) if len(percentages) else 1.0, step=1, min_spacing=1,
+                pin_lower_limit=True,
+            )
+
+            ax.tick_params(axis='y', labelsize=LEGEND_FONTSIZE-1, labelrotation=90)
+            ax.yaxis.set_major_formatter(FormatStrFormatter('%.0f'))
+            _center_y_ticklabels(ax)
+            ax2.tick_params(axis='y', labelsize=LEGEND_FONTSIZE-1, labelcolor=frequency_label_color, color=frequency_label_color, labelrotation=-90)
+            ax2.yaxis.set_major_formatter(FormatStrFormatter('%.0f'))
+            _center_y_ticklabels(ax2)
+            for label in ax2.get_yticklabels():
+                label.set_color(frequency_label_color)
+
+            ax.set_xticks(tick_positions)
+            x_tick_rotation = 0 if task in ('soil_nitrogen', 'soil_pH') else regression_x_tick_rotation
+            ax.set_xticklabels(
+                tick_labels_list, fontsize=LEGEND_FONTSIZE-2,
+                rotation=x_tick_rotation, ha='center', rotation_mode='anchor',
+            )
+            ax.tick_params(axis='x', labelsize=LEGEND_FONTSIZE-2)
+            ax.set_xlim(-0.5, len(bin_intervals) - 0.5)
+            ax2.set_xlim(-0.5, len(bin_intervals) - 0.5)
+
+            if row_idx == 0:
+                unit = task_units[task]
+                if unit:
+                    ax.set_title(f"{task_display_names[task]}\n{unit}", fontsize=AXIS_LABEL_FONTSIZE-1)
+                else:
+                    ax.set_title(task_display_names[task], fontsize=AXIS_LABEL_FONTSIZE-1)
+
+            for spine in ax.spines.values():
+                spine.set_linewidth(0.5)
+
+    for row_idx, split in enumerate(splits):
+        ax = axes[row_idx, 4]
+
+        species_task = 'species'
+
+        predictions_JT_list = []
+        predictions_TTT_list = []
+        predictions_TTT_Geo_list = []
+        targets_list = []
+        targets_Geo_list = []
+
+        for model in models:
+            name_ttt = '_'.join([species_task, model, 'JT-TTT', str(100)]) + '_'
+            name_geo = '_'.join([species_task, model, 'JT-TTT-Geo', str(100)]) + '_'
+            d = species_data[split][model]
+            if name_ttt not in d or name_geo not in d:
+                continue
+            predictions_JT_list.append(d[name_ttt]['predictions_JT'])
+            predictions_TTT_list.append(d[name_ttt]['predictions_TTT'])
+            predictions_TTT_Geo_list.append(d[name_geo]['predictions_TTT'])
+            targets_list.append(d[name_ttt]['targets'])
+            targets_Geo_list.append(d[name_geo]['targets'])
+
+        if not predictions_JT_list:
+            continue
+
+        predictions_JT = np.concatenate(predictions_JT_list, axis=0)
+        predictions_TTT = np.concatenate(predictions_TTT_list, axis=0)
+        predictions_TTT_Geo = np.concatenate(predictions_TTT_Geo_list, axis=0)
+        targets = np.concatenate(targets_list, axis=0)
+        targets_Geo = np.concatenate(targets_Geo_list, axis=0)
+
+        species_occurrences = targets.sum(axis=0)
+        species_order = np.argsort(species_occurrences)[::-1]
+        predictions_JT = predictions_JT[:, species_order]
+        predictions_TTT = predictions_TTT[:, species_order]
+        predictions_TTT_Geo = predictions_TTT_Geo[:, species_order]
+        targets = targets[:, species_order]
+        targets_Geo = targets_Geo[:, species_order]
+
+        num_species = targets.shape[1]
+        ap_JT = np.array([average_precision_score(targets[:, i], predictions_JT[:, i]) for i in range(num_species)])
+        ap_TTT = np.array([average_precision_score(targets[:, i], predictions_TTT[:, i]) for i in range(num_species)])
+        ap_TTT_Geo = np.array([average_precision_score(targets_Geo[:, i], predictions_TTT_Geo[:, i]) for i in range(num_species)])
+
+        ap_groups_JT = []
+        ap_groups_TTT = []
+        ap_groups_TTT_Geo = []
+        species_occurrences_sorted = species_occurrences[species_order]
+        total_occurrences = species_occurrences_sorted.sum()
+        group_percentages = []
+
+        for g, size in enumerate(species_group_sizes):
+            start = sum(species_group_sizes[:g])
+            end = start + size
+            ap_groups_JT.append(ap_JT[start:end])
+            ap_groups_TTT.append(ap_TTT[start:end])
+            ap_groups_TTT_Geo.append(ap_TTT_Geo[start:end])
+            group_percentages.append(species_occurrences_sorted[start:end].sum() / total_occurrences * 100)
+
+        positions = np.arange(len(species_group_sizes))
+
+        ax2 = ax.twinx()
+        ax2.bar(positions, group_percentages, width=1.0, color=frequency_bar_color, alpha=frequency_bar_alpha, zorder=0)
+
+        bp_s_jt, bp_s_ttt, bp_s_geo, active_s_bps = _draw_species_boxplots(ax, ap_groups_JT, ap_groups_TTT, ap_groups_TTT_Geo, positions)
+
+        for bp in active_s_bps:
+            for box in bp['boxes']:
+                box.set_zorder(5)
+            for whisker in bp['whiskers']:
+                whisker.set_zorder(3)
+            for cap in bp['caps']:
+                cap.set_zorder(3)
+            for median in bp['medians']:
+                median.set_zorder(6)
+
+        ax.set_zorder(ax2.get_zorder() + 1)
+        ax.patch.set_visible(False)
+        ax.axhline(1, color='black', linestyle='--', linewidth=0.5, alpha=0.7)
+        ax.set_xticks(positions)
+        ax.set_xlim(-0.5, len(positions) - 0.5)
+        ax2.set_xlim(-0.5, len(positions) - 0.5)
+
+        # Set minor ticks on the edges of the bars
+        ax.set_xticks(np.arange(len(species_group_sizes) + 1) - 0.5, minor=True)
+        ax.tick_params(axis='x', which='minor', length=4, width=0.5)
+
+        y_min, y_max = _boxplot_whisker_min_max(active_s_bps)
+        set_y_ticks_and_limits(ax, y_min, y_max, lower_tick_above_min=True)
+        set_y_ticks_and_limits(
+            ax2, 0, float(np.max(group_percentages)) if group_percentages else 1.0, step=1, min_spacing=1,
+            pin_lower_limit=True,
+        )
+
+        ax.tick_params(axis='y', labelsize=LEGEND_FONTSIZE-1, labelrotation=90)
+        _center_y_ticklabels(ax)
+        ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+        ax2.tick_params(axis='y', labelsize=LEGEND_FONTSIZE-1, labelcolor=frequency_label_color, color=frequency_label_color, labelrotation=-90)
+        _center_y_ticklabels(ax2)
+        ax2.yaxis.set_major_formatter(FormatStrFormatter('%.0f'))
+        for label in ax2.get_yticklabels():
+            label.set_color(frequency_label_color)
+
+        if row_idx == 1:
+            ax.set_xticklabels(
+                species_group_labels, fontsize=LEGEND_FONTSIZE-2,
+                rotation=40, ha='right', rotation_mode='anchor',
+            )
+        else:
+            ax.set_xticklabels([])
+
+        ax.tick_params(axis='x', which='major', length=0, labelsize=LEGEND_FONTSIZE-2)
+
+        if row_idx == 0:
+            ax.set_title('Species', fontsize=AXIS_LABEL_FONTSIZE-1)
+
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.5)
+
+    for i in range(4):
+        col_center = (axes[1, i].get_position().x0 + axes[1, i].get_position().x1) / 2
+        fig.text(col_center, 0.08, 'Target value', fontsize=AXIS_LABEL_FONTSIZE-1, ha='center', va='center')
+
+    top_center = (axes[0, 0].get_position().y0 + axes[0, 0].get_position().y1) / 2
+    bottom_center = (axes[1, 0].get_position().y0 + axes[1, 0].get_position().y1) / 2
+    fig.text(0.015, top_center, 'Random', fontsize=AXIS_LABEL_FONTSIZE, rotation=90, ha='center', va='center')
+    fig.text(0.015, bottom_center, 'Geographic', fontsize=AXIS_LABEL_FONTSIZE, rotation=90, ha='center', va='center')
+
+    top_row_bottom = axes[0, 0].get_position().y0
+    bottom_row_top = axes[1, 0].get_position().y1
+    center_y = (top_row_bottom + bottom_row_top) / 2
+    left_edge = axes[0, 0].get_position().x0
+    fig.text(left_edge - 0.04, center_y, 'Residual', fontsize=AXIS_LABEL_FONTSIZE, rotation=90, ha='right', va='center')
+
+    species_center_y = (axes[0, 4].get_position().y0 + axes[1, 4].get_position().y1) / 2
+    soil_pH_right = axes[0, 3].get_position().x1
+    species_left = axes[0, 4].get_position().x0
+    ap_label_x = (soil_pH_right + species_left) / 2
+    fig.text(ap_label_x, species_center_y, 'Average precision', fontsize=AXIS_LABEL_FONTSIZE, rotation=90, ha='center', va='center')
+
+    species_right = axes[0, 4].get_position().x1
+    fig.text(species_right + 0.04, center_y, 'Frequency (%)', fontsize=AXIS_LABEL_FONTSIZE, rotation=270, ha='left', va='center', color=frequency_label_color)
+
+    if JT_only:
+        legend_handles = [bp_jt['boxes'][0]]
+        legend_labels = ['JT']
+    elif JT_TTT_MMR_only:
+        legend_handles = [bp_jt['boxes'][0], bp_ttt['boxes'][0]]
+        legend_labels = ['JT', 'TTT-MMR']
+    else:
+        legend_handles = [bp_jt['boxes'][0], bp_ttt['boxes'][0], bp_geo['boxes'][0]]
+        legend_labels = ['JT', 'TTT-MMR', 'TTT-MMR-Geo']
+    fig.legend(legend_handles, legend_labels,
+               loc='upper center', bbox_to_anchor=(0.5, 0.095),
+               ncol=len(legend_labels), fontsize=LEGEND_FONTSIZE-1, frameon=False)
+
+    if JT_only:
+        suffix = '_JT_only'
+    elif JT_TTT_MMR_only:
+        suffix = '_JT_TTT_MMR_only'
+    else:
+        suffix = ''
+    fname = f'results_figures/stratified_results{suffix}.pdf'
+    fname_png = f'results_figures/stratified_results{suffix}.png'
+    plt.savefig(fname, dpi=300)
+    plt.savefig(fname_png, dpi=300)
+    plt.close()
+    print(f"Saved {fname} and {fname_png}")
 
 if __name__ == '__main__':
-    # # main paper
-    # plot_rq1_performance('Random', 'FT') # Figure 4
-    # plot_rq2_performance('FT') # Figure 5
-    # plot_rq3_performance('FT') # Figure 6
-    # plot_ttt_improvement() # Figure 7
-    # tabulate_ttt_ranks_by_model() # Table 5
+    # main paper
+    plot_rq1_performance('Random', 'FT') # Figure 4
+    plot_rq2_performance('FT') # Figure 5
+    plot_rq3_performance('FT') # Figure 6
+    plot_ttt_improvement() # Figure 7
+    tabulate_ttt_ranks_by_model() # Table 5
+    plot_stratified_results() # Figure 8
 
-    # # appendix
+    # appendix
     # plot_rq1_performance('Geographic', 'FT') # Figure A.10
     # plot_rq1_performance('Random', 'LP') # Figure A.11
     # plot_rq1_performance('Geographic', 'LP') # Figure A.12
@@ -3011,9 +5043,14 @@ if __name__ == '__main__':
     # tabulate_ft_metrics_by_task() # Table A.14
     # plot_ttt_improvement_normalized() # Figure A.15
     # tabulate_ttt_by_model() # Table A.15
-    # tabulate_results('FT') # Tables A.16-20
-    # tabulate_TTT_results() # Tables A.21-35
-    # tabulate_results('LP') # Tables A.36-40
+    # tabulate_iteration_numbers() # Table A.16
+    # plot_TTT_modality_excluded() # Figure A.16
+    # check_TTT_need() # Table A.17
+    # tabulate_JT_reconstruction_quality() # Tables A.18-A.22
+    # compare_JT_TTT_reconstruction_quality() # Tables A.23-A.27
+    # tabulate_results('FT') # Tables A.28-A.32
+    # tabulate_TTT_results() # Tables A.33-A.47
+    # tabulate_results('LP') # Tables A.48-A.52
 
     # plot_residuals('biomass', JT_only=True)
     # plot_residuals('biomass', JT_TTT_MMR_only=True)
@@ -3025,7 +5062,20 @@ if __name__ == '__main__':
     # plot_residuals('soil_nitrogen')
     # plot_residuals('soil_organic_carbon')
     # plot_residuals('soil_pH')
+    # plot_residuals('species')
+    # plot_residuals_species()
+    # plot_bce_species()
 
     # plot_residuals_combined(JT_only=True)
-    plot_residuals_combined(JT_TTT_MMR_only=True)
-    plot_residuals_combined()
+    # plot_residuals_combined(JT_TTT_MMR_only=True)
+    # plot_residuals_combined()
+
+    # plot_ap_species(JT_only=True)
+    # plot_ap_species(JT_TTT_MMR_only=True)
+    # plot_ap_species()
+    # plot_ap_species_ungrouped()
+    # plot_ap_species_ungrouped_line()
+
+    # plot_stratified_results(JT_only=True)
+    # plot_stratified_results(JT_TTT_MMR_only=True)
+    # tabulate_TTT_modality_excluded()
