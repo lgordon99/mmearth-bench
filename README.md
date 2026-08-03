@@ -28,20 +28,20 @@
 
 ## MMEarth-Bench task modalities
 
-| Modality | Bands | Scale | Type |
-|---|---|:---:|:---:|
-| Sentinel-2 | B1, B2, B3, B4, B5, B6, B7, B8, B8A, B9, B11, B12 | Pixel-level | Continuous |
-| Sentinel-1 | Ascending VV, VH, HH, HV;<br>Descending VV, VH, HH, HV | Pixel-level | Continuous |
-| ASTER GDEM | Elevation, slope | Pixel-level | Continuous |
-| ETH Global Canopy Height | Height, uncertainty | Pixel-level | Continuous |
-| Dynamic World | Landcover | Pixel-level | Categorical |
-| ESA WorldCover | Landcover | Pixel-level | Categorical |
-| Precipitation | Previous month, month, year | Tile-level | Continuous |
-| Temperature | Previous month max, mean, min;<br>month max, mean, min;<br>year max, mean, min | Tile-level | Continuous |
-| Geolocation | Longitude, latitude | Tile-level | Continuous |
-| Sentinel-2 date | Date | Tile-level | Continuous |
-| Biome | Biome number | Tile-level | Categorical |
-| Ecoregion | Ecoregion number | Tile-level | Categorical |
+| Modality | Bands | Scale | Type | License |
+|---|---|:---:|:---:|---|
+| Sentinel-2 | B1, B2, B3, B4, B5, B6, B7, B8, B8A, B9, B11, B12 | Pixel-level | Continuous | [Copernicus Sentinel Data License](https://sentinel.esa.int/documents/247904/690755/Sentinel_Data_Legal_Notice) |
+| Sentinel-1 | Ascending VV, VH, HH, HV;<br>Descending VV, VH, HH, HV | Pixel-level | Continuous | [Copernicus Sentinel Data License](https://sentinel.esa.int/documents/247904/690755/Sentinel_Data_Legal_Notice) |
+| ASTER GDEM | Elevation, slope | Pixel-level | Continuous | No restrictions (similar to [CC0](https://creativecommons.org/publicdomain/zero/1.0/)) |
+| ETH Global Canopy Height | Height, uncertainty | Pixel-level | Continuous | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Dynamic World | Landcover | Pixel-level | Categorical | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| ESA WorldCover | Landcover | Pixel-level | Categorical | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Precipitation | Previous month, month, year | Tile-level | Continuous | [Copernicus C3S/CAMS License](https://cds.climate.copernicus.eu/licences/licence-to-use-copernicus-products) |
+| Temperature | Previous month max, mean, min;<br>month max, mean, min;<br>year max, mean, min | Tile-level | Continuous | [Copernicus C3S/CAMS License](https://cds.climate.copernicus.eu/licences/licence-to-use-copernicus-products) |
+| Geolocation | Longitude, latitude | Tile-level | Continuous | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Sentinel-2 date | Date | Tile-level | Continuous | [Copernicus Sentinel Data License](https://sentinel.esa.int/documents/247904/690755/Sentinel_Data_Legal_Notice) |
+| Biome | Biome number | Tile-level | Categorical | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Ecoregion | Ecoregion number | Tile-level | Categorical | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 
 ## Benchmarking results on MMEarth-Bench
 Models are ranked by their performance on each task after finetuning on 100% of the training data.
